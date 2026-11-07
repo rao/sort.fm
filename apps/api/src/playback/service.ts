@@ -87,11 +87,14 @@ export class PlaybackService {
   return attempt.returnTo;
  }
  async credential(raw:string|undefined,purpose:PlaybackGrantPurpose):Promise<{token:string;grant:PlaybackGrant;context:PlaybackSessionContext}>{
-  const context=await this.context(raw),deadline=this.now()+5000;let cycles=0,refreshedVersion:string|undefined;
+  const context=await this.context(raw),deadline=this.now()+5000;let cycles=0;
   for(;;){
    if(++cycles>100)throw new PlaybackError('PLAYBACK_UNAVAILABLE');
    const grant=await this.options.store.getGrant({...this.current(context),purpose});if(!grant)throw new PlaybackError('PLAYBACK_RECONNECT_REQUIRED');this.checkGrant(grant,context,purpose);
-   if(grant.expiresAt>this.now()+(grant.credentialVersion===refreshedVersion?0:60000))return {token:this.open(grant,'access'),grant,context};
+   // The provider may issue tokens shorter than a conventional refresh skew.
+   // Reuse genuinely unexpired grants so concurrent/staggered callers do not
+   // rotate each other's tokens. Issuance and commands recheck expiry after I/O.
+   if(grant.expiresAt>this.now())return {token:this.open(grant,'access'),grant,context};
    if(this.now()>=deadline)throw new PlaybackError('PLAYBACK_UNAVAILABLE');
    const fence={...this.current(context),purpose,expectedCredentialVersion:grant.credentialVersion,leaseId:crypto.randomUUID()};
    const claimed=await this.options.store.claimRefresh({...fence,leaseUntil:this.now()+60000});
@@ -107,7 +110,6 @@ export class PlaybackService {
     if(!await this.options.store.completeRefresh({...fence,...fresh,grant:replacement})){
      await this.options.store.revokeGrant({...fence,now:this.now()});throw new PlaybackError('PLAYBACK_RECONNECT_REQUIRED');
     }
-    refreshedVersion=replacement.credentialVersion;
     // Re-read under the live session and validate before the token crosses any boundary.
    }catch(error){
     // A lost/invalid refresh response may have rotated the provider credential. Never
@@ -119,7 +121,7 @@ export class PlaybackService {
  }
  async sdkToken(raw?:string){
   const {token,grant}=await this.credential(raw,'sdk');
-  try{await this.profile(token,grant.ownerId);}catch(error){if(error instanceof PlaybackError&&error.code==='PLAYBACK_RECONNECT_REQUIRED')await this.options.store.revokeGrant({ownerId:grant.ownerId,purpose:'sdk',expectedCredentialVersion:grant.credentialVersion,now:this.now()});throw error;}
+  try{await this.profile(token,grant.ownerId);}catch(error){if(error instanceof PlaybackError&&error.code==='PLAYBACK_RECONNECT_REQUIRED'&&grant.expiresAt>this.now())await this.options.store.revokeGrant({ownerId:grant.ownerId,purpose:'sdk',expectedCredentialVersion:grant.credentialVersion,now:this.now()});throw error;}
   const context=await this.context(raw),latest=await this.options.store.getGrant({...context,purpose:'sdk'});
   if(!latest||latest.credentialVersion!==grant.credentialVersion)throw new PlaybackError('PLAYBACK_UNAVAILABLE');this.checkGrant(latest,context,'sdk');
   if(latest.expiresAt<=this.now())throw new PlaybackError('PLAYBACK_RECONNECT_REQUIRED');
@@ -132,5 +134,7 @@ export class PlaybackService {
   this.checkGrant(latest,context,grant.purpose);
   if(latest.expiresAt<=this.now())throw new PlaybackError('PLAYBACK_RECONNECT_REQUIRED');
  }
- async rejectControl(grant:PlaybackGrant){await this.options.store.revokeGrant({ownerId:grant.ownerId,purpose:'control',expectedCredentialVersion:grant.credentialVersion,now:this.now()});}
+ // Expiry is recoverable by refresh. Reject this request, but never discard the
+ // refresh credential or replay a control command for normal access-token expiry.
+ async rejectControl(grant:PlaybackGrant){if(grant.expiresAt<=this.now())return;await this.options.store.revokeGrant({ownerId:grant.ownerId,purpose:'control',expectedCredentialVersion:grant.credentialVersion,now:this.now()});}
 }

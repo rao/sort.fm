@@ -91,3 +91,67 @@ test('cached SDK issuance fences logout and version change during profile verifi
   await expect(f.service.sdkToken(sessionToken)).rejects.toMatchObject({code:change==='logout'?'AUTHENTICATION_REQUIRED':'PLAYBACK_UNAVAILABLE'});
  }
 });
+
+test('concurrent SDK requests share a short-lived refresh while profile verification is still in flight',async()=>{
+ const f=fixture();await f.connect();f.advance(3600000);let refreshes=0;
+ f.intercept(async url=>{
+  if(url.endsWith('/api/token')){
+   refreshes++;await Bun.sleep(5);
+   return Response.json({access_token:`short-token-${refreshes}`,token_type:'Bearer',expires_in:30});
+  }
+  // Keep issuance validation in flight long enough for refresh waiters to observe
+  // the published version. None should rotate it just because TTL is below skew.
+  await Bun.sleep(40);return Response.json({id:'owner',product:'premium'});
+ });
+ const results=await Promise.allSettled(Array.from({length:5},()=>f.service.sdkToken(sessionToken)));
+ expect(refreshes).toBe(1);
+ expect(results.filter(result=>result.status==='rejected')).toEqual([]);
+ for(const result of results){
+  if(result.status!=='fulfilled')throw Error('SDK issuance failed');
+  expect(result.value.accessToken).toBe('short-token-1');
+  expect(result.value.scopes).toEqual([...PLAYBACK_SDK_SCOPES]);
+  expect(Date.parse(result.value.expiresAt)).toBeGreaterThan(f.transport.now());
+ }
+ expect(new Set(results.flatMap(result=>result.status==='fulfilled'?[result.value.expiresAt]:[])).size).toBe(1);
+});
+
+test('a staggered SDK caller reuses a published short token while the first issuance verifies its profile',async()=>{
+ const f=fixture();await f.connect();f.advance(3600000);let refreshes=0,profiles=0;
+ let entered!:()=>void,release!:()=>void;
+ const validating=new Promise<void>(resolve=>{entered=resolve;}),resume=new Promise<void>(resolve=>{release=resolve;});
+ f.intercept(async url=>{
+  if(url.endsWith('/api/token')){refreshes++;return Response.json({access_token:`short-token-${refreshes}`,token_type:'Bearer',expires_in:30});}
+  if(++profiles===2){entered();await resume;}
+  return Response.json({id:'owner',product:'premium'});
+ });
+ const first=f.service.sdkToken(sessionToken);await validating;
+ // This caller's first read sees the already-published short-lived replacement.
+ const second=await Promise.allSettled([f.service.sdkToken(sessionToken)]);
+ release();const initial=await Promise.allSettled([first]);
+ expect(refreshes).toBe(1);
+ for(const result of [...initial,...second]){
+  expect(result.status).toBe('fulfilled');
+  if(result.status!=='fulfilled')throw Error('SDK issuance failed');
+  expect(result.value.accessToken).toBe('short-token-1');
+ }
+});
+
+test('a cached token that expires during profile verification is never delivered and refreshes on the next request',async()=>{
+ const f=fixture();await f.connect();f.store.grants.get(`${owner}:sdk`)!.expiresAt=f.transport.now()+1000;let refreshes=0;
+ f.intercept(async url=>{
+  if(url.endsWith('/api/token')){refreshes++;return Response.json({access_token:'refreshed',token_type:'Bearer',expires_in:3600});}
+  f.advance(1001);return Response.json({id:'owner',product:'premium'});
+ });
+ await expect(f.service.sdkToken(sessionToken)).rejects.toMatchObject({code:'PLAYBACK_RECONNECT_REQUIRED'});expect(refreshes).toBe(0);
+ expect((await f.service.sdkToken(sessionToken)).accessToken).toBe('refreshed');expect(refreshes).toBe(1);
+});
+
+test('provider401 at cached access-token expiry retains refresh, while401 before expiry revokes the fenced grant',async()=>{
+ for(const expiresDuringRequest of [true,false]){
+  const f=fixture();await f.connect();f.store.grants.get(`${owner}:sdk`)!.expiresAt=f.transport.now()+1000;
+  f.intercept(async()=>{if(expiresDuringRequest)f.advance(1001);return new Response(null,{status:401});});
+  await expect(f.service.sdkToken(sessionToken)).rejects.toMatchObject({code:'PLAYBACK_RECONNECT_REQUIRED'});
+  expect(f.store.grants.get(`${owner}:sdk`)!.revoked).toBe(!expiresDuringRequest);
+  if(expiresDuringRequest){f.intercept(undefined);expect((await f.service.sdkToken(sessionToken)).accessToken).toBe('sdk-access');}
+ }
+});

@@ -3,7 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PlaybackControls } from "./PlaybackControls";
 import { Insights } from "./Insights";
 import { PredictionDisplay } from "./ModelPanel";
-import { liveFixture } from "../test-support/live-fixture";
+import {
+	coldModelMetrics,
+	partialAudioFeatures,
+	liveFixture,
+} from "../test-support/live-fixture";
 import { ReviewStore } from "../state/review";
 
 test("inspector displays every supplied metric, missingness and exposure identity without invented training mix", async () => {
@@ -109,4 +113,41 @@ test("unplayable tracks retain Spotify fallback without enabling playback reques
 	);
 	expect(html).toContain("Spotify marks this track unavailable");
 	expect(html).not.toContain("Play selected song");
+});
+
+test.each(["empty", "quarantined"])(
+	"%s model still displays independent audio progress and provider failure",
+	async (modelState) => {
+		const f = liveFixture();
+		const store = new ReviewStore(f.client);
+		await store.load();
+		const state = structuredClone(store.getSnapshot());
+		state.bootstrap!.metrics = modelState === "empty" ? coldModelMetrics : null;
+		state.insights!.audioFeatures = partialAudioFeatures;
+		const html = renderToStaticMarkup(<Insights state={state} />);
+		for (const text of [
+			"SoundNet enrichment",
+			"3 / 2768",
+			"Failed enrichment",
+			partialAudioFeatures.reason!,
+		])
+			expect(html).toContain(text);
+		expect(html).not.toContain("API EVALUATION");
+		if (modelState === "empty") {
+			expect(html).toContain("No feedback yet");
+			expect(html).toContain("EVALUATION UNAVAILABLE");
+		}
+	},
+);
+
+test("retrain recovery alert disables another fit while leaving refresh available", async () => {
+	const store = new ReviewStore(liveFixture().client);
+	await store.load();
+	const state = {
+		...store.getSnapshot(),
+		retrainError: "Refresh server data before another fit.",
+	};
+	const html = renderToStaticMarkup(<Insights state={state} />);
+	expect(html).toMatch(/class="button secondary small" disabled=""/);
+	expect(html).toContain('class="text-button">Refresh model data');
 });

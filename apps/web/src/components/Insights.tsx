@@ -1,3 +1,5 @@
+import type { AudioFeatureStatus } from "@sortfm/contracts";
+import { isEmptyModelEvaluation } from "../data/live-client";
 import type { ReviewState } from "../state/review";
 import { EvaluationEmpty, PredictionDisplay } from "./ModelPanel";
 import { Icon, Progress } from "./ui";
@@ -17,7 +19,8 @@ export function Insights({
 		state.retraining ||
 		state.refreshing ||
 		!!state.retry ||
-		!!state.refreshError;
+		!!state.refreshError ||
+		!!state.retrainError;
 	const controls = live && (
 		<div className="model-controls">
 			<div className="playback-actions">
@@ -65,6 +68,10 @@ export function Insights({
 					</p>
 				</header>
 				{controls}
+				<section className="surface model-details">
+					<h2>Audio enrichment</h2>
+					<AudioFeatureDetails audio={state.insights?.audioFeatures} />
+				</section>
 			</div>
 		);
 	const labeled = live
@@ -227,7 +234,11 @@ export function Insights({
 					</div>
 					<div className="data-row">
 						<span>Dataset</span>
-						<strong>{metrics.dataset}</strong>
+						<strong>
+							{live && isEmptyModelEvaluation(metrics)
+								? "No feedback yet"
+								: metrics.dataset}
+						</strong>
 					</div>
 					<div className="data-row">
 						<span>Selection policy</span>
@@ -235,51 +246,11 @@ export function Insights({
 							{state.queue[0]?.exposure.selectionMethod ?? "Queue complete"}
 						</strong>
 					</div>
-					<div className="data-row">
-						<span>SoundNet enrichment</span>
-						<strong>
-							{state.insights?.audioFeatures.status ?? "Not connected"}
-						</strong>
-					</div>
+					<AudioFeatureDetails audio={state.insights?.audioFeatures} />
 					<div className="data-row">
 						<span>Feature ablation comparison</span>
 						<strong>No comparison supplied</strong>
 					</div>
-					{state.insights && (
-						<>
-							<div className="data-row">
-								<span>Audio features ready</span>
-								<strong>
-									{state.insights.audioFeatures.featuresReady} /{" "}
-									{state.insights.audioFeatures.featuresTotal}
-								</strong>
-							</div>
-							<div className="data-row">
-								<span>Failed enrichment</span>
-								<strong>{state.insights.audioFeatures.failed}</strong>
-							</div>
-							{Object.entries(state.insights.audioFeatures.missingness).map(
-								([feature, missing]) => (
-									<div className="feature-completeness" key={feature}>
-										<div className="data-row">
-											<span>{feature}</span>
-											<strong>
-												{Math.round((1 - missing) * 100)}% present
-											</strong>
-										</div>
-										<Progress
-											label={`${feature} completeness`}
-											value={1 - missing}
-											max={1}
-										/>
-									</div>
-								),
-							)}
-							<p className="fine-print">
-								{state.insights.audioFeatures.reason}
-							</p>
-						</>
-					)}
 					<div className="data-row">
 						<span>Holdout removal / keep examples</span>
 						<strong>
@@ -294,5 +265,48 @@ export function Insights({
 				</section>
 			</div>
 		</div>
+	);
+}
+
+function AudioFeatureDetails({
+	audio,
+}: {
+	audio: AudioFeatureStatus | undefined;
+}) {
+	return (
+		<>
+			<div className="data-row">
+				<span>SoundNet enrichment</span>
+				<strong>{audio?.status ?? "Not connected"}</strong>
+			</div>
+			{audio && (
+				<>
+					<div className="data-row">
+						<span>Audio features ready</span>
+						<strong>
+							{audio.featuresReady} / {audio.featuresTotal}
+						</strong>
+					</div>
+					<div className="data-row">
+						<span>Failed enrichment</span>
+						<strong>{audio.failed}</strong>
+					</div>
+					{Object.entries(audio.missingness).map(([feature, missing]) => (
+						<div className="feature-completeness" key={feature}>
+							<div className="data-row">
+								<span>{feature}</span>
+								<strong>{Math.round((1 - missing) * 100)}% present</strong>
+							</div>
+							<Progress
+								label={`${feature} completeness`}
+								value={1 - missing}
+								max={1}
+							/>
+						</div>
+					))}
+					<p className="fine-print">{audio.reason}</p>
+				</>
+			)}
+		</>
 	);
 }

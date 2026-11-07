@@ -2,6 +2,8 @@
 import { demoBootstrap } from "@sortfm/contracts/fixtures";
 import {
 	type AccountSession,
+	type ModelMetrics,
+	type AudioFeatureStatus,
 	type ReviewRequest,
 	type ReviewResult,
 	labelForAction,
@@ -199,3 +201,34 @@ export function liveFixture() {
 		},
 	};
 }
+
+// Matches C1 evaluate([]), including its frozen-enum fallback. No user data.
+export const coldModelMetrics: ModelMetrics = {
+	status: "insufficient_data",
+	reason: "At least 20 fixed held-out labels are required.",
+	modelVersion: "untrained-v0",
+	dataset: "synthetic",
+	evaluationMethod: "none",
+	labeledExamples: 0,
+	trainedExamples: 0,
+	heldOutExamples: 0,
+	heldOutPositive: 0,
+	heldOutNegative: 0,
+	baseRate: null,
+	balancedAccuracy: null,
+	rocAuc: null,
+	prAuc: null,
+	logLoss: null,
+	brierScore: null,
+	precisionAtK: null,
+	evaluatedAt: null,
+};
+export const partialAudioFeatures: AudioFeatureStatus = {
+	provider: "soundnet",
+	status: "failed",
+	featuresReady: 3,
+	featuresTotal: 2768,
+	failed: 1,
+	missingness: { energy: 1 },
+	reason: "Controlled fixture: provider temporarily unavailable.",
+};

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { liveFixture } from "../test-support/live-fixture";
+import type { ModelMetrics } from "@sortfm/contracts";
+import { coldModelMetrics, liveFixture } from "../test-support/live-fixture";
 import { createLiveApi, createLiveClient } from "../data/live-client";
 import { ReviewStore } from "./review";
 import { demoBootstrap } from "@sortfm/contracts/fixtures";
@@ -9,7 +10,8 @@ function setup() {
 	let userId = "owner";
 	let version = "fitted-v2";
 	let fail = false;
-	const metrics = {
+	let quarantine = false;
+	let metrics: ModelMetrics = {
 		...demoBootstrap.metrics,
 		dataset: "user_feedback" as const,
 		modelVersion: "fitted-v2",
@@ -37,11 +39,21 @@ function setup() {
 					modelVersion: version,
 					featureVersion: "sortfm.features.v1",
 					feedbackRevision: 30,
-					trainedExamples: 10,
+					trainedExamples: metrics.trainedExamples,
 					metrics,
 				});
 			}
-			return f.transport(input, init);
+			const response = await f.transport(input, init);
+			if (quarantine && String(input).endsWith("/insights")) {
+				const data = await response.json();
+				data.metrics = {
+					...data.metrics,
+					dataset: "synthetic",
+					labeledExamples: 1,
+				};
+				return Response.json(data);
+			}
+			return response;
 		}) as typeof fetch,
 	});
 	const store = new ReviewStore(createLiveClient(api, f.session, f.journal));
@@ -49,6 +61,16 @@ function setup() {
 		f,
 		store,
 		writes: () => writes,
+		emptyModel: () => {
+			metrics = structuredClone(coldModelMetrics);
+			version = metrics.modelVersion;
+		},
+		syntheticModel: () => {
+			metrics.dataset = "synthetic";
+		},
+		quarantine: () => {
+			quarantine = true;
+		},
 		wrongOwner: () => {
 			userId = "other";
 		},
@@ -77,7 +99,7 @@ test("retrain serializes duplicate requests and updates only confirmed metrics, 
 	expect(f.store.getSnapshot().queue[0]!.exposure).toEqual(exposure);
 	expect(f.store.getSnapshot().retrainNotice).toContain("fitted-v2");
 });
-test("retrain failure keeps last confirmed model and permits a later explicit retry", async () => {
+test("retrain failure keeps last confirmed model and requires model refresh before another fit", async () => {
 	const f = setup();
 	await f.store.load();
 	f.fail();
@@ -88,6 +110,11 @@ test("retrain failure keeps last confirmed model and permits a later explicit re
 	);
 	expect(f.store.getSnapshot().retrainError).toContain("Training unavailable");
 	expect(f.store.getSnapshot().retraining).toBe(false);
+	await f.store.retrain();
+	expect(f.writes()).toBe(1);
+	await f.store.refresh();
+	await f.store.retrain();
+	expect(f.writes()).toBe(2);
 });
 test("retraining refuses changed owners and inconsistent result identities", async () => {
 	for (const fault of ["session", "response", "version"]) {
@@ -120,4 +147,40 @@ test("a successful model refresh clears a previous retrain recovery alert", asyn
 	await f.store.retrain();
 	await f.store.refresh();
 	expect(f.store.getSnapshot().retrainError).toBeNull();
+});
+
+test("audio-only refresh cannot unlock retraining after an ambiguous failure", async () => {
+	const f = setup();
+	await f.store.load();
+	f.fail();
+	await f.store.retrain();
+	f.quarantine();
+	await f.store.refresh();
+	expect(f.store.getSnapshot().insights?.audioFeatures).toBeDefined();
+	expect(f.store.getSnapshot().bootstrap?.metrics).toBeNull();
+	expect(f.store.getSnapshot().retrainError).not.toBeNull();
+	await f.store.retrain();
+	expect(f.writes()).toBe(1);
+});
+
+test("retrain accepts the exact empty C1 result without inventing a feedback dataset", async () => {
+	const f = setup();
+	await f.store.load();
+	f.emptyModel();
+	await f.store.retrain();
+	expect(f.store.getSnapshot().retrainError).toBeNull();
+	expect(f.store.getSnapshot().bootstrap?.metrics).toEqual(coldModelMetrics);
+	expect(f.store.getSnapshot().retrainNotice).toContain(
+		"Server confirmed model",
+	);
+});
+
+test("retrain still rejects nonempty synthetic results without replacing personal metrics", async () => {
+	const f = setup();
+	await f.store.load();
+	const previous = f.store.getSnapshot().bootstrap?.metrics;
+	f.syntheticModel();
+	await f.store.retrain();
+	expect(f.store.getSnapshot().retrainError).not.toBeNull();
+	expect(f.store.getSnapshot().bootstrap?.metrics).toEqual(previous);
 });

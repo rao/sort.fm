@@ -15,6 +15,7 @@ import {
 	type LiveSnapshot,
 	type LibrarySummary,
 	type InsightsData,
+	isEmptyModelEvaluation,
 	type PendingCommand,
 } from "../data/live-client";
 export type QueueItem = QueueResult["items"][number];
@@ -202,7 +203,7 @@ export class ReviewStore {
 						})),
 			historyHasMore: snapshot.historyHasMore,
 			warnings: snapshot.warnings,
-			...(snapshot.insights ? { retrainError: null } : {}),
+			...(snapshot.insights?.metrics ? { retrainError: null } : {}),
 			refreshError: null,
 		});
 	}
@@ -216,7 +217,8 @@ export class ReviewStore {
 			this.state.loading ||
 			this.state.refreshing ||
 			this.state.retry ||
-			this.state.refreshError
+			this.state.refreshError ||
+			this.state.retrainError
 		)
 			return;
 		this.update({ retraining: true, retrainError: null, retrainNotice: "" });
@@ -229,7 +231,8 @@ export class ReviewStore {
 				result.userId !== this.ownerId ||
 				result.modelVersion !== result.metrics.modelVersion ||
 				result.trainedExamples !== result.metrics.trainedExamples ||
-				result.metrics.dataset === "synthetic"
+				(result.metrics.dataset === "synthetic" &&
+					!isEmptyModelEvaluation(result.metrics))
 			)
 				throw new Error(
 					"The training result does not match this account or model. Refresh server data to reconcile.",

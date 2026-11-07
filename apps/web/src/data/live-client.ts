@@ -6,6 +6,7 @@ import {
 	UndoRequestSchema,
 	UuidSchema,
 	type AccountSession,
+	type ModelMetrics,
 	type QueueResult,
 	type ReviewRequest,
 	type ReviewResult,
@@ -17,9 +18,38 @@ import type { ReviewClient } from "./demo-client";
 export type LibrarySummary = ReturnType<
 	typeof PUBLIC_ROUTES.librarySummary.response.parse
 >;
-export type InsightsData = ReturnType<
+type WireInsightsData = ReturnType<
 	typeof PUBLIC_ROUTES.insights.response.parse
 >;
+// Frontend view only: quarantine model metrics without losing independent audio status.
+export type InsightsData = Omit<WireInsightsData, "metrics"> & {
+	metrics: ModelMetrics | null;
+};
+export function isEmptyModelEvaluation(metrics: ModelMetrics): boolean {
+	// C1 maps an empty example set to "synthetic" because the shared enum has no
+	// "none" value. Accept only its exact no-feedback/no-evaluation combination.
+	return (
+		metrics.status === "insufficient_data" &&
+		metrics.evaluationMethod === "none" &&
+		metrics.evaluatedAt === null &&
+		[
+			metrics.labeledExamples,
+			metrics.trainedExamples,
+			metrics.heldOutExamples,
+			metrics.heldOutPositive,
+			metrics.heldOutNegative,
+		].every((value) => value === 0) &&
+		[
+			metrics.baseRate,
+			metrics.balancedAccuracy,
+			metrics.rocAuc,
+			metrics.prAuc,
+			metrics.logLoss,
+			metrics.brierScore,
+			metrics.precisionAtK,
+		].every((value) => value === null)
+	);
+}
 export type ImportStatus = ReturnType<
 	typeof PUBLIC_ROUTES.syncStatus.response.parse
 >;
@@ -257,8 +287,12 @@ export function createLiveClient(
 			throw new Error("A live queue returned demo data. Review is paused.");
 		for (const result of [history, insights])
 			if (isUnauthorized(result.error)) throw result.error;
-		if (insights.data?.metrics.dataset === "synthetic") {
-			insights.data = null;
+		let safeInsights: InsightsData | null = insights.data;
+		if (
+			insights.data?.metrics.dataset === "synthetic" &&
+			!isEmptyModelEvaluation(insights.data.metrics)
+		) {
+			safeInsights = { ...insights.data, metrics: null, prediction: null };
 			insights.error = new Error(
 				"Live insights returned synthetic model metrics. Personal model data is unavailable.",
 			);
@@ -271,7 +305,7 @@ export function createLiveClient(
 			summary,
 			history: history.data?.items ?? null,
 			historyHasMore: !!history.data?.nextCursor,
-			insights: insights.data,
+			insights: safeInsights,
 			warnings: [
 				history.error && `History: ${errorMessage(history.error)}`,
 				insights.error && `Model: ${errorMessage(insights.error)}`,

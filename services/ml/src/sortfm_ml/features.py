@@ -89,11 +89,11 @@ class FeaturePipeline:
     """
 
     def __init__(self, feature_group: str = "personalized"):
-        if feature_group not in FEATURE_GROUPS:
+        if feature_group not in FEATURE_GROUPS + ("age",):
             raise ValueError(f"Unknown feature group: {feature_group}")
         self.feature_group = feature_group
-        level = FEATURE_GROUPS.index(feature_group)
-        selected = set(METADATA_KEYS)
+        level = FEATURE_GROUPS.index(feature_group) if feature_group != "age" else -1
+        selected = set(METADATA_KEYS) if level >= 0 else {"saved_age_days"}
         if level >= 1:
             selected.update(HISTORY_KEYS)
         if level >= 2:

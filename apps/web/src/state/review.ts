@@ -52,6 +52,7 @@ export type ReviewState = {
 	departure: ReviewAction | null;
 	error: string | null;
 	terminal: boolean;
+	unavailable: boolean;
 	retry: RetryCommand | null;
 	notice: string;
 	noticeUndoId: string | null;
@@ -103,6 +104,7 @@ export class ReviewStore {
 		departure: null,
 		error: null,
 		terminal: false,
+		unavailable: false,
 		retry: null,
 		notice: "",
 		noticeUndoId: null,
@@ -283,9 +285,20 @@ export class ReviewStore {
 		)
 			return this.run(this.state.retry);
 	}
+	dismissUnavailable() {
+		if (this.state.unavailable)
+			this.update({ unavailable: false, error: null });
+	}
 	private async run(command: RetryCommand) {
+		const recovering = this.state.retry !== null;
 		// Set the guard before the first await: keyboard, pointer and clicks share one lock.
-		this.update({ busy: true, error: null, notice: "", noticeUndoId: null });
+		this.update({
+			busy: true,
+			error: null,
+			notice: "",
+			noticeUndoId: null,
+			unavailable: false,
+		});
 		try {
 			this.client.live?.journal.write(command);
 			if (command.kind === "decide") {
@@ -390,6 +403,34 @@ export class ReviewStore {
 				}
 			}
 		} catch (error) {
+			// The frozen contract stub explicitly rejects before accepting a command.
+			// No other terminal or ambiguous response proves that no mutation occurred.
+			if (
+				!recovering &&
+				this.client.live &&
+				error instanceof ApiError &&
+				error.status === 501 &&
+				error.error.code === "NOT_IMPLEMENTED"
+			) {
+				try {
+					this.client.live.journal.clear();
+					this.update({
+						retry: null,
+						terminal: false,
+						unavailable: true,
+						error:
+							"This action is not available yet. No decision was accepted and your song has not changed. You can try again when the review service is enabled.",
+					});
+				} catch {
+					this.update({
+						retry: command,
+						terminal: true,
+						error:
+							"The action is unavailable, but its local recovery record could not be cleared. Review remains paused.",
+					});
+				}
+				return;
+			}
 			this.update({
 				terminal:
 					error instanceof TerminalReviewError ||

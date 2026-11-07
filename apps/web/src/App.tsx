@@ -560,9 +560,11 @@ export default function App({
 					<Icon name="info" />
 					<div>
 						<strong>
-							{state.terminal
-								? "Review paused for recovery"
-								: "Your command needs attention"}
+							{state.unavailable
+								? "Action not available yet"
+								: state.terminal
+									? "Review paused for recovery"
+									: "Your command needs attention"}
 						</strong>
 						<p>{state.error}</p>
 						{state.terminal && (
@@ -582,7 +584,15 @@ export default function App({
 							Check saved outcome
 						</button>
 					)}
-					{state.terminal ? (
+					{state.unavailable ? (
+						<button
+							type="button"
+							className="button secondary small"
+							onClick={() => store.dismissUnavailable()}
+						>
+							Dismiss
+						</button>
+					) : state.terminal ? (
 						state.bootstrap.session.mode === "demo" ? (
 							<button
 								type="button"

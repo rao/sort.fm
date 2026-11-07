@@ -246,3 +246,89 @@ test("UNDO_PENDING preserves the original label and retry identity until confirm
 	expect(keys[0]).toBe(keys[1]);
 	expect(store.getSnapshot().history[0]?.result.status).toBe("UNDONE");
 });
+
+test("explicit NOT_IMPLEMENTED rejection clears only its unaccepted command and allows review after upgrade", async () => {
+	const { ApiError } = await import("@sortfm/contracts/client");
+	const f = liveFixture();
+	let available = false;
+	const keys: string[] = [];
+	const client = {
+		...f.client,
+		decide: async (request: Parameters<typeof f.client.decide>[0]) => {
+			keys.push(request.idempotencyKey);
+			if (!available)
+				throw new ApiError(501, {
+					code: "NOT_IMPLEMENTED",
+					message: "Review is not available yet.",
+					retryable: false,
+				});
+			return f.client.decide(request);
+		},
+	};
+	const store = new ReviewStore(client);
+	await store.load();
+	await store.decide("KEEP");
+	expect(f.journal.read()).toBeNull();
+	expect(store.getSnapshot().retry).toBeNull();
+	expect(store.getSnapshot().terminal).toBe(false);
+	expect(store.getSnapshot().history).toHaveLength(0);
+	expect(store.getSnapshot().queue).toHaveLength(2);
+	expect(store.getSnapshot().unavailable).toBe(true);
+	const reloaded = new ReviewStore(client);
+	await reloaded.load();
+	expect(reloaded.getSnapshot().retry).toBeNull();
+	available = true;
+	await reloaded.decide("KEEP");
+	expect(keys).toHaveLength(2);
+	expect(keys[0]).not.toBe(keys[1]);
+	expect(reloaded.getSnapshot().history[0]?.result.status).toBe("COMPLETE");
+});
+
+test.each([
+	[501, "UNKNOWN_FAILURE"],
+	[503, "NOT_IMPLEMENTED"],
+] as const)("rejection %s %s keeps recovery journal", async (status, code) => {
+	const { ApiError } = await import("@sortfm/contracts/client");
+	const f = liveFixture();
+	const client = {
+		...f.client,
+		decide: async () => {
+			throw new ApiError(status, {
+				code,
+				message: "Uncertain outcome",
+				retryable: false,
+			});
+		},
+	};
+	const store = new ReviewStore(client);
+	await store.load();
+	await store.decide("KEEP");
+	expect(f.journal.read()).not.toBeNull();
+	expect(store.getSnapshot().retry).not.toBeNull();
+	expect(store.getSnapshot().unavailable).toBe(false);
+});
+
+test("a stub response during recovery cannot erase an earlier ambiguous command", async () => {
+	const { ApiError } = await import("@sortfm/contracts/client");
+	const f = liveFixture();
+	let attempts = 0;
+	const client = {
+		...f.client,
+		decide: async () => {
+			if (++attempts === 1) throw new Error("Response lost");
+			throw new ApiError(501, {
+				code: "NOT_IMPLEMENTED",
+				message: "Route unavailable",
+				retryable: false,
+			});
+		},
+	};
+	const store = new ReviewStore(client);
+	await store.load();
+	await store.decide("KEEP");
+	const key = f.journal.read()!.request.idempotencyKey;
+	await store.retry();
+	expect(f.journal.read()?.request.idempotencyKey).toBe(key);
+	expect(store.getSnapshot().unavailable).toBe(false);
+	expect(store.getSnapshot().retry).not.toBeNull();
+});

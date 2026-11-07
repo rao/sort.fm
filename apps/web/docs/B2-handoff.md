@@ -57,3 +57,9 @@ SORTFM_TEST_FIXTURE=1 bun apps/web/scripts/fixture-preview.ts
 It binds only `127.0.0.1:5182`, serves `apps/web/dist`, injects a permanent “HTTP TEST FIXTURE · NO SPOTIFY CONNECTION” label and uses synthetic in-memory HTTP responses. It never contacts Spotify or reads credentials. Test controls can reset state, fail/recover decisions, expire the session or supply changed model metrics. It is not part of the production bundle.
 
 Real owner OAuth, a real library import, four real provider actions plus Undo, database-backed refresh and actual retrained-model UI updates are **not verified by this handoff**. Integration owns those checks after route wiring and owner consent. No real Spotify mutations were performed here.
+
+## Prelaunch stub rejection fix
+
+A first-attempt HTTP `501` with the exact shared code `NOT_IMPLEMENTED` proves the route stub rejected the command before acceptance. The frontend clears only that unaccepted command's local journal, leaves the card/history unchanged, and displays a dismissible unavailable-action notice. After reload and backend activation, a new user action receives a new command key. This exception does not apply to an already-pending retry: an earlier lost response may have hidden a real acceptance, so a later 501 cannot erase its recovery journal. Unknown 501 errors, NOT_IMPLEMENTED with a different status, and all other ambiguous/terminal failures retain recovery state. If journal removal itself fails, review remains paused.
+
+Focused regressions cover 501 → reload → backend available → new accepted command; mismatched error status/code; and lost response → later 501 with the original key retained. Independent read-only review found no actionable issues. Frontend tests: **40 passed / 140 assertions**; lint, typecheck and production build passed after the fix.

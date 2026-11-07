@@ -37,4 +37,15 @@ describe.skipIf(!url)('Musicae worker',()=>{
   // Even a caller with a previously true permit must see locked current quota.
   expect(await q.claim(stalePermit)).toEqual({kind:'blocked',reason:'PRO_PLAN_NOT_VERIFIED'});
  },60000);
+ test('unrequested unplayable tracks finish without hiding missingness or actual job outcomes',async()=>{
+  await db.transaction(async tx=>{await tx`UPDATE tracks SET card=jsonb_set(card,'{isPlayable}','false') WHERE track_id=${tracks[9]!.trackId}`;await tx`DELETE FROM musicae_features WHERE track_id=${tracks[9]!.trackId}`;await tx`DELETE FROM musicae_jobs WHERE track_id=${tracks[9]!.trackId}`;});
+  expect(await q.enqueueUser(user)).toBe(0);const progress=await q.progress(user);expect(progress.total).toBe(10);expect(progress.ready).toBe(9);expect(progress.excluded).toBe(1);
+  const status=await q.audioStatus(user);expect(status.featuresTotal).toBe(10);expect(status.featuresReady).toBe(9);expect(status.status).toBe('complete');expect(status.failed).toBe(0);expect(status.missingness.energy).toBe(0.1);expect(status.reason).toContain('1 unplayable tracks not requested');
+  // A cached unplayable track still counts as ready, never as excluded/failed.
+  await db.transaction(tx=>tx`UPDATE tracks SET card=jsonb_set(card,'{isPlayable}','false') WHERE track_id=${tracks[0]!.trackId}`);expect((await q.progress(user)).excluded).toBe(1);expect((await q.audioStatus(user)).status).toBe('complete');
+  // Existing work on an unplayable track is still real pending/terminal work.
+  await db.transaction(tx=>tx`INSERT INTO musicae_jobs(track_id,feature_version) VALUES(${tracks[9]!.trackId},'sortfm.features.v1')`);expect((await q.progress(user)).excluded).toBe(0);expect((await q.audioStatus(user)).status).toBe('pending');
+  await db.transaction(tx=>tx`UPDATE musicae_jobs SET status='failed' WHERE track_id=${tracks[9]!.trackId}`);expect((await q.audioStatus(user)).failed).toBe(1);expect((await q.audioStatus(user)).status).toBe('failed');
+  await db.transaction(async tx=>{await tx`DELETE FROM musicae_jobs WHERE track_id=${tracks[9]!.trackId}`;await tx`UPDATE tracks SET card=jsonb_set(card,'{isPlayable}','true') WHERE track_id=${tracks[9]!.trackId}`;});expect((await q.progress(user)).excluded).toBe(0);expect((await q.audioStatus(user)).status).toBe('pending');
+ },60000);
 });

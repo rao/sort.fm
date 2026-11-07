@@ -12,7 +12,12 @@ import math
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from .features import FEATURE_VERSION, FeaturePipeline, observed_value, training_examples
+from .features import AUDIO_KEYS, CENTROID_KEYS, FEATURE_VERSION, FeaturePipeline, observed_value, training_examples
+
+# A model recipe identity, separate from the compatible persisted artifact format.
+MODEL_RECIPE = "c1-logistic-supported-values-v2"
+MIN_AUDIO_OBSERVATIONS = 12
+MIN_AUDIO_PER_CLASS = 3
 
 
 class PreferenceModel:
@@ -31,6 +36,28 @@ class PreferenceModel:
         self.pipeline = FeaturePipeline(feature_group)
         features = self.pipeline.fit_transform(train)
         labels = np.array([row["label"] for row in train], dtype=np.int64)
+        # Keep the full context (including masks) for C2. C1 must not learn a
+        # listener preference from provider availability repeated across 13
+        # correlated masks. Missing values already map to the training median.
+        self.predictor_mask_ = np.ones(features.shape[1], dtype=bool)
+        self.predictor_mask_[len(self.pipeline.value_names):] = False
+        self.feature_support_ = {}
+        for index, key in enumerate(self.pipeline.value_names):
+            observed = np.isfinite(self.pipeline.training_values_[:, index])
+            counts = [int(np.sum(observed & (labels == label))) for label in (0, 1)]
+            supported = key not in AUDIO_KEYS + CENTROID_KEYS or (
+                sum(counts) >= MIN_AUDIO_OBSERVATIONS and min(counts) >= MIN_AUDIO_PER_CLASS)
+            self.feature_support_[key] = {"observed": sum(counts), "keep": counts[0],
+                                         "remove": counts[1], "enabled": supported}
+            self.predictor_mask_[index] = supported
+        # Sparse descriptors must not enter indirectly through audio distances.
+        sparse_audio = any(v["observed"] and not v["enabled"] for k, v in self.feature_support_.items() if k in AUDIO_KEYS)
+        if sparse_audio:
+            for key in CENTROID_KEYS:
+                if key in self.pipeline.value_names:
+                    self.predictor_mask_[self.pipeline.value_names.index(key)] = False
+                    self.feature_support_[key]["enabled"] = False
+        features = features * self.predictor_mask_
         self.classifier = None
         self.model_kind = "heuristic"
         if len(train) >= 12 and (labels == 0).sum() >= 3 and (labels == 1).sum() >= 3:
@@ -97,6 +124,9 @@ class PreferenceModel:
         if not candidates:
             return []
         context = self.transform_context(candidates)
+        # Old artifacts intentionally retain their original coefficients and
+        # semantics. New fits store this mask; C2 still gets the full context.
+        context = context * getattr(self, "predictor_mask_", np.ones(context.shape[1]))
         values = self.pipeline.values(candidates)
         probabilities = self.classifier.predict_proba(context)[:, 1] if self.classifier is not None else None
         results = []

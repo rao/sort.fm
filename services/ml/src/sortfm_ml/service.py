@@ -22,7 +22,7 @@ import numpy as np
 import sklearn
 
 from .evaluate import evaluate_model
-from .model import PreferenceModel
+from .model import MODEL_RECIPE, PreferenceModel
 from .schemas import Prediction
 
 FEATURE_VERSION = 'sortfm.features.v1'
@@ -124,7 +124,7 @@ class ModelService:
         identity = deepcopy(state)
         for event in identity['events'].values():
             event['response']['modelVersion'] = None
-        version = f"c1-r{max(0, state['revision'])}-{digest({'state':identity,'runtime':RUNTIME})[:24]}"
+        version = f"c1-r{max(0, state['revision'])}-{digest({'state':identity,'runtime':RUNTIME,'recipe':MODEL_RECIPE})[:24]}"
         for event in state['events'].values():
             if event['response']['modelVersion'] is None:
                 event['response']['modelVersion'] = version

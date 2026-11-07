@@ -99,8 +99,8 @@ export function Library({
 						</div>
 					)}
 					{state.bootstrap && total > 0 && (
-						<a href="#/calibrate" className="button primary wide">
-							Get to know your taste <Icon name="arrow" size={18} />
+						<a href="#/review" className="button primary wide">
+							Start demo sorting <Icon name="arrow" size={18} />
 						</a>
 					)}
 					{state.loading && (
@@ -127,7 +127,7 @@ export function Library({
 						<h3>No pressure. Just your taste.</h3>
 						<p>
 							Start with a few songs from different artists and eras. You can
-							pause calibration anytime.
+							pause sorting anytime.
 						</p>
 					</div>
 					<a className="text-link" href="#/review">

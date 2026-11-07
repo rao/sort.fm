@@ -306,6 +306,11 @@ export function ConnectedLibrary({
 							in History or sync again.
 						</p>
 					)}
+					{status?.status === "complete" && (
+						<a className="button secondary wide" href="#/calibrate">
+							Teach your taste · labels only
+						</a>
+					)}
 					<p className="fine-print">
 						Import reads your library. Archive and Unlike only change Spotify
 						after you choose them in review. Audio enrichment can continue

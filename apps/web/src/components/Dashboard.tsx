@@ -7,14 +7,22 @@ export function Dashboard({
 	state: ReviewState;
 	complete?: boolean;
 }) {
+	const live = state.bootstrap?.session.mode === "spotify";
 	const active = state.history.filter(
 		({ result }) => result.status === "COMPLETE",
 	);
 	const count = (action: string) =>
-		active.filter(({ result }) => result.action === action).length;
+		live && state.summary
+			? ({
+					KEEP: state.summary.kept,
+					ARCHIVE: state.summary.archived,
+					SKIP: state.summary.skipped,
+					UNLIKE: state.summary.unliked,
+				}[action] ?? 0)
+			: active.filter(({ result }) => result.action === action).length;
 	const total = state.bootstrap!.queue.items.length;
 	const keeps = active
-		.filter(({ result }) => result.action === "KEEP")
+		.filter(({ result, item }) => result.action === "KEEP" && item !== null)
 		.slice(0, 4);
 	return (
 		<div className={`page dashboard-page ${complete ? "completion-page" : ""}`}>
@@ -55,12 +63,15 @@ export function Dashboard({
 					<div>
 						<h2>
 							{complete
-								? "Your demo session is complete"
+								? live
+									? "No songs waiting for review"
+									: "Your demo session is complete"
 								: "Your next chapter is waiting"}
 						</h2>
 						<p>
-							{active.length} of {total} songs reviewed • {state.queue.length}{" "}
-							in your queue
+							{live
+								? `${state.summary?.total ?? "—"} currently liked · ${state.remaining ?? "—"} remaining to review · ${state.summary?.reviewed ?? "—"} retained decisions`
+								: `${active.length} of ${total} songs reviewed • ${state.queue.length} in your queue`}
 						</p>
 					</div>
 					{!complete && state.queue.length > 0 && (
@@ -69,13 +80,17 @@ export function Dashboard({
 						</a>
 					)}
 				</div>
-				<Progress
-					value={active.length}
-					max={total}
-					label="Session review progress"
-				/>
+				{!live && (
+					<Progress
+						value={active.length}
+						max={total}
+						label="Session review progress"
+					/>
+				)}
 				<p className="fine-print">
-					This session is a local demo. Your Spotify library hasn't changed.
+					{live
+						? "Counts come from the server. Current library membership and historical decisions describe different populations."
+						: "This session is a local demo. Your Spotify library has not changed."}
 				</p>
 			</section>
 			{keeps.length > 0 && (
@@ -88,10 +103,10 @@ export function Dashboard({
 					</div>
 					<div className="keeper-grid">
 						{keeps.map(({ item }) => (
-							<article key={item.track.trackId}>
-								<Cover track={item.track} />
-								<h3>{item.track.title}</h3>
-								<p>{item.track.artists[0]?.name}</p>
+							<article key={item!.track.trackId}>
+								<Cover track={item!.track} />
+								<h3>{item!.track.title}</h3>
+								<p>{item!.track.artists[0]?.name}</p>
 							</article>
 						))}
 					</div>

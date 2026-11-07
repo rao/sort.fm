@@ -10,10 +10,12 @@ import { createDemoQueue, demoBootstrap } from "@sortfm/contracts/fixtures";
 import type { createApiClient } from "@sortfm/contracts/client";
 
 /** B2 seam: method signatures are identical to the shared, validated HTTP client. */
+import type { LiveGateway } from "./live-client";
+
 export type ReviewClient = Pick<
 	ReturnType<typeof createApiClient>,
 	"demoBootstrap" | "queue" | "decide" | "undo" | "history" | "insights"
->;
+> & { live?: LiveGateway };
 export type DemoScenario = "empty" | "load-error" | "decision-error";
 export function createDemoClient({
 	latency = 420,

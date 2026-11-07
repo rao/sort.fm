@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { ReviewAction } from "@sortfm/contracts";
+import { PUBLIC_ROUTES, type ReviewAction } from "@sortfm/contracts";
 import type { ReviewClient } from "./data/demo-client";
 import { ReviewStore, actionFromKey } from "./state/review";
 import {
@@ -12,6 +12,7 @@ import {
 } from "./components/ui";
 import { Landing } from "./components/Landing";
 import { Library } from "./components/Library";
+import { ConnectedLibrary } from "./components/Connected";
 import { History } from "./components/History";
 import { Insights } from "./components/Insights";
 import { Dashboard } from "./components/Dashboard";
@@ -33,40 +34,69 @@ function currentRoute(): Route {
 		: "landing";
 }
 
-export default function App({ client }: { client: ReviewClient }) {
+export default function App({
+	client,
+	onConnect,
+	onLogout,
+}: {
+	client: ReviewClient;
+	onConnect?: () => void;
+	onLogout?: () => void;
+}) {
+	const live = !!client.live;
 	const [store] = useState(() => new ReviewStore(client, 240));
 	const state = useSyncExternalStore(
 		store.subscribe,
 		store.getSnapshot,
 		store.getSnapshot,
 	);
-	const [route, setRoute] = useState<Route>(currentRoute);
+	const [route, setRoute] = useState<Route>(() =>
+		live && currentRoute() === "landing" ? "library" : currentRoute(),
+	);
 	const [modal, setModal] = useState<
 		"connect" | "shortcuts" | "playback" | null
 	>(null);
 	const [toastDismissed, setToastDismissed] = useState(-1);
+	const canRemove = !live || !!client.live?.session.capabilities.spotifyWrite;
 	const isReview = route === "review" || route === "calibrate";
 	const current = state.queue[0];
 	const completed = state.history.filter(
 		({ result }) => result.status === "COMPLETE",
 	);
-	const labeled = completed.filter(
-		({ result }) => result.labelState === "active",
-	).length;
+	const labeled = live
+		? (state.bootstrap?.metrics?.labeledExamples ?? null)
+		: completed.filter(({ result }) => result.labelState === "active").length;
 	const total = state.bootstrap?.queue.items.length ?? 0;
 	const latest = state.history.find(({ result }) => result.canUndo);
 	useEffect(() => {
 		function navigate() {
 			if (!window.location.hash.startsWith("#/")) return;
 			setRoute(currentRoute());
+			setModal(null);
 			window.scrollTo(0, 0);
 		}
 		window.addEventListener("hashchange", navigate);
 		return () => window.removeEventListener("hashchange", navigate);
 	}, []);
 	useEffect(() => {
-		if (route !== "landing") void store.load();
-	}, [route, store]);
+		if (route !== "landing" && !(live && route === "library"))
+			void store.load();
+	}, [route, store, live]);
+	useEffect(() => {
+		if (
+			!live ||
+			!["insights", "dashboard", "history", "review", "calibrate"].includes(
+				route,
+			)
+		)
+			return;
+		void store.refresh();
+		if (route === "review" || route === "calibrate") return;
+		const timer = setInterval(() => {
+			if (!document.hidden) void store.refresh();
+		}, 15000);
+		return () => clearInterval(timer);
+	}, [live, route, store]);
 	useEffect(() => {
 		document.title = `${route === "landing" ? "Make room for what moves you" : route === "calibrate" ? "Taste calibration" : route[0]!.toUpperCase() + route.slice(1)} · sort.fm`;
 	}, [route]);
@@ -92,7 +122,9 @@ export default function App({ client }: { client: ReviewClient }) {
 				setModal("shortcuts");
 			} else if (action) {
 				event.preventDefault();
-				void store.decide(action);
+				if (!canRemove && (action === "ARCHIVE" || action === "UNLIKE"))
+					setModal("connect");
+				else void store.decide(action);
 			} else if (event.key.toLowerCase() === "z" && latest) {
 				event.preventDefault();
 				void store.undo(latest.result.decisionId);
@@ -100,9 +132,11 @@ export default function App({ client }: { client: ReviewClient }) {
 		}
 		window.addEventListener("keydown", keydown);
 		return () => window.removeEventListener("keydown", keydown);
-	}, [isReview, modal, store, latest]);
+	}, [isReview, modal, store, latest, canRemove]);
 	const decide = (action: ReviewAction) => {
-		void store.decide(action);
+		if (!canRemove && (action === "ARCHIVE" || action === "UNLIKE"))
+			setModal("connect");
+		else void store.decide(action);
 	};
 	const dialog = modal && (
 		<Modal
@@ -118,9 +152,35 @@ export default function App({ client }: { client: ReviewClient }) {
 			{modal === "connect" ? (
 				<>
 					<p>
-						Spotify connection is for approved accounts during development. The
-						live connection will be enabled by the integration team.
+						{live
+							? `Connected as ${client.live?.session.user?.displayName}. Archive and Unlike change your Spotify library after confirmation.`
+							: "You are exploring the isolated demo. Connect Spotify to import and review your own Liked Songs."}
 					</p>
+					{!live && (
+						<a
+							className="button primary wide"
+							href={`${(import.meta.env.VITE_API_ORIGIN ?? "").replace(/\/$/, "")}${PUBLIC_ROUTES.authStart.path}`}
+						>
+							Connect Spotify
+						</a>
+					)}
+					{live && (
+						<div className="account-actions">
+							<button
+								className="button secondary"
+								type="button"
+								onClick={onConnect}
+							>
+								Reconnect Spotify
+							</button>
+							<button className="button ghost" type="button" onClick={onLogout}>
+								Sign out
+							</button>
+							<a className="button secondary" href="#/library">
+								Sync library
+							</a>
+						</div>
+					)}
 					<div className="modal-callout">
 						<Icon name="library" />
 						<div>
@@ -136,7 +196,7 @@ export default function App({ client }: { client: ReviewClient }) {
 						className="button primary wide"
 						onClick={() => {
 							setModal(null);
-							window.location.hash = "/library";
+							window.location.assign("?mode=demo#/library");
 						}}
 					>
 						Try demo <Icon name="arrow" size={17} />
@@ -173,8 +233,9 @@ export default function App({ client }: { client: ReviewClient }) {
 			) : (
 				<>
 					<p>
-						These artists and songs are fictional, so there's no recording to
-						play. You can still explore every sorting interaction.
+						{live
+							? "Use Open in Spotify to listen to this song. In-browser playback is not connected yet."
+							: "These artists and songs are fictional, so there is no recording to play. You can still explore every sorting interaction."}
 					</p>
 					<p>
 						Connected tracks will offer an Open in Spotify link. In-browser
@@ -236,7 +297,7 @@ export default function App({ client }: { client: ReviewClient }) {
 				</nav>
 				<div className="header-right">
 					<span className="demo-badge">
-						<span /> DEMO MODE
+						<span /> {live ? "SPOTIFY CONNECTED" : "DEMO MODE"}
 					</span>
 					<button
 						type="button"
@@ -244,19 +305,61 @@ export default function App({ client }: { client: ReviewClient }) {
 						onClick={() => setModal("connect")}
 						aria-label="Account and Spotify connection"
 					>
-						D
+						{live ? client.live?.session.user?.displayName.slice(0, 1) : "D"}
 					</button>
 				</div>
 			</header>
 			<div className="demo-strip">
-				<span>Good music. Zero commitment.</span> You're exploring a fictional
-				library. Nothing changes on Spotify.
+				{live ? (
+					<>
+						<span>Your library. Your decisions.</span> Archive and Unlike change
+						Spotify after confirmation.
+					</>
+				) : (
+					<>
+						<span>Good music. Zero commitment.</span> You're exploring a
+						fictional library. Nothing changes on Spotify.
+					</>
+				)}
 				<a href="#/insights">
 					Model inspector <Icon name="arrow" size={13} />
 				</a>
 			</div>
 			<main id="main" tabIndex={-1}>
-				{route === "library" || !state.bootstrap ? (
+				{live && route === "library" ? (
+					<ConnectedLibrary
+						api={client.live!.api}
+						onConnect={onConnect ?? (() => {})}
+						onReview={() => {
+							window.location.hash = "/review";
+							setRoute("review");
+						}}
+					/>
+				) : live && !state.bootstrap ? (
+					<EmptyState
+						title={
+							state.loading
+								? "Finding your next song"
+								: "Your review workspace is waiting"
+						}
+					>
+						<p role={state.error ? "alert" : "status"}>
+							{state.error ?? "Loading your saved library and review queue…"}
+						</p>
+						{state.error && (
+							<button
+								type="button"
+								className="button primary"
+								onClick={() => void store.load()}
+							>
+								Retry workspace
+							</button>
+						)}
+						<a className="button secondary" href="#/library">
+							View import
+						</a>
+					</EmptyState>
+				) : route === "library" || !state.bootstrap ? (
 					<Library state={state} onRetry={() => void store.load()} />
 				) : route === "history" ? (
 					<History state={state} onUndo={(id) => void store.undo(id)} />
@@ -265,7 +368,25 @@ export default function App({ client }: { client: ReviewClient }) {
 				) : route === "dashboard" ? (
 					<Dashboard state={state} />
 				) : !current ? (
-					state.history.length ? (
+					live &&
+					(state.remaining !== 0 ||
+						!!state.refreshError ||
+						state.refreshing) ? (
+						<EmptyState title="Your queue is updating">
+							<p>
+								{state.refreshError ??
+									`${state.remaining ?? "More"} songs remain on the server. Refresh to load the next selection.`}
+							</p>
+							<button
+								type="button"
+								className="button primary"
+								disabled={state.refreshing}
+								onClick={() => void store.refresh()}
+							>
+								Refresh queue
+							</button>
+						</EmptyState>
+					) : state.history.length ? (
 						<Dashboard state={state} complete />
 					) : (
 						<EmptyState title="You're all caught up">
@@ -297,19 +418,25 @@ export default function App({ client }: { client: ReviewClient }) {
 							</div>
 							<div className="session-counter">
 								<strong>
-									{String(completed.length).padStart(2, "0")}
-									<span> / {String(total).padStart(2, "0")}</span>
+									{live
+										? state.remaining
+										: String(completed.length).padStart(2, "0")}
+									{!live && <span> / {String(total).padStart(2, "0")}</span>}
 								</strong>
 								<span>
 									{route === "calibrate"
-										? `${labeled} labeled · taste calibration`
-										: "songs reconsidered"}
+										? `${labeled ?? "—"} labeled · taste calibration`
+										: live
+											? "songs left to review"
+											: "songs reconsidered"}
 								</span>
-								<Progress
-									value={completed.length}
-									max={total}
-									label="Session progress"
-								/>
+								{!live && (
+									<Progress
+										value={completed.length}
+										max={total}
+										label="Session progress"
+									/>
+								)}
 							</div>
 						</div>
 						{route === "calibrate" && (
@@ -334,20 +461,32 @@ export default function App({ client }: { client: ReviewClient }) {
 											: "YOUR DAILY REDISCOVERY"}
 									</span>
 									<span>
-										{String(completed.length + 1).padStart(2, "0")} /{" "}
-										{String(total).padStart(2, "0")}
+										{live
+											? `${state.queue.length} loaded`
+											: `${String(completed.length + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`}
 									</span>
 								</div>
 								<SwipeCard
 									key={current.track.trackId}
 									item={current}
 									next={state.queue[1]}
-									busy={state.busy || !!state.retry}
+									busy={
+										state.busy ||
+										!!state.retry ||
+										state.refreshing ||
+										!!state.refreshError
+									}
 									departure={state.departure}
 									onAction={decide}
 								/>
 								<ActionButtons
-									disabled={state.busy || !!state.retry}
+									canRemove={canRemove}
+									disabled={
+										state.busy ||
+										!!state.retry ||
+										state.refreshing ||
+										!!state.refreshError
+									}
 									onAction={decide}
 								/>
 								<div className="review-helper">
@@ -365,8 +504,10 @@ export default function App({ client }: { client: ReviewClient }) {
 									</button>
 								</div>
 								<p className="destructive-note">
-									<Icon name="info" size={13} /> Unlike removes without
-									archiving. Undo is always one step away.
+									<Icon name="info" size={13} />{" "}
+									{canRemove
+										? "Unlike removes without archiving. Undo is available after confirmation."
+										: "Archive and Unlike are unavailable in this read-only session. Reconnect when library write access is enabled."}
 								</p>
 							</section>
 							<div className="workspace-aside">
@@ -374,6 +515,7 @@ export default function App({ client }: { client: ReviewClient }) {
 									prediction={current.prediction}
 									labeled={labeled}
 									total={total}
+									live={live}
 									metrics={state.bootstrap.metrics}
 								/>
 								<section className="up-next">
@@ -400,6 +542,19 @@ export default function App({ client }: { client: ReviewClient }) {
 					</div>
 				)}
 			</main>
+			{(state.warnings.length > 0 || state.refreshError) && (
+				<output className="live-status-panel">
+					<p>{state.refreshError ?? state.warnings.join(" · ")}</p>
+					<button
+						type="button"
+						className="text-button"
+						disabled={state.busy || state.refreshing || !!state.retry}
+						onClick={() => void store.refresh()}
+					>
+						Refresh server data
+					</button>
+				</output>
+			)}
 			{state.error && state.bootstrap && (
 				<div className="error-toast" role="alert">
 					<Icon name="info" />
@@ -407,16 +562,26 @@ export default function App({ client }: { client: ReviewClient }) {
 						<strong>
 							{state.terminal
 								? "Review paused for recovery"
-								: "Your song is still in the queue"}
+								: "Your command needs attention"}
 						</strong>
 						<p>{state.error}</p>
 						{state.terminal && (
 							<p>
-								This command cannot be retried. Its outcome has not been treated
-								as success.
+								Review is paused until account recovery or a settled server
+								outcome. No successful mutation has been assumed.
 							</p>
 						)}
 					</div>
+					{live && state.retry && (
+						<button
+							type="button"
+							className="button secondary small"
+							disabled={state.busy || state.refreshing}
+							onClick={() => void store.recover()}
+						>
+							Check saved outcome
+						</button>
+					)}
 					{state.terminal ? (
 						state.bootstrap.session.mode === "demo" ? (
 							<button
@@ -427,15 +592,19 @@ export default function App({ client }: { client: ReviewClient }) {
 								Restart demo
 							</button>
 						) : (
-							<a className="button secondary small" href="#/history">
-								View history
-							</a>
+							<button
+								type="button"
+								className="button secondary small"
+								onClick={onConnect}
+							>
+								Reconnect Spotify
+							</button>
 						)
 					) : (
 						<button
 							type="button"
 							className="button secondary small"
-							disabled={state.busy}
+							disabled={state.busy || state.refreshing}
 							onClick={() => void store.retry()}
 						>
 							Retry
@@ -455,7 +624,7 @@ export default function App({ client }: { client: ReviewClient }) {
 							<button
 								type="button"
 								className="text-button"
-								disabled={state.busy}
+								disabled={state.busy || state.refreshing}
 								onClick={() => void store.undo(state.noticeUndoId!)}
 							>
 								<Icon name="undo" size={15} /> Undo
@@ -489,7 +658,10 @@ export default function App({ client }: { client: ReviewClient }) {
 				>
 					<Icon name="headphones" size={18} />
 					<span>
-						Preview unavailable <span>• Fictional demo track</span>
+						Preview unavailable{" "}
+						<span>
+							• {live ? "Open this song in Spotify" : "Fictional demo track"}
+						</span>
 					</span>
 					<Icon name="info" size={14} />
 				</button>

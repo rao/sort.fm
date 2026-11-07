@@ -30,10 +30,10 @@ export function Landing({ onConnect }: { onConnect: () => void }) {
 							<br />A little space for the music you love now.
 						</p>
 						<div className="hero-ctas">
-							<a className="button primary large" href="#/library">
+							<a className="button primary large" href="?mode=demo#/library">
 								Find your next favorite. Again. <Icon name="arrow" />
 							</a>
-							<a className="demo-link" href="#/library">
+							<a className="demo-link" href="?mode=demo#/library">
 								Try demo <span>No Spotify account needed</span>
 							</a>
 						</div>

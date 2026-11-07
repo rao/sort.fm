@@ -3,9 +3,23 @@ import { EvaluationEmpty, PredictionDisplay } from "./ModelPanel";
 import { Icon, Progress } from "./ui";
 export function Insights({ state }: { state: ReviewState }) {
 	const metrics = state.bootstrap!.metrics;
-	const labeled = state.history.filter(
-		({ result }) => result.labelState === "active",
-	).length;
+	const live = state.bootstrap!.session.mode === "spotify";
+	if (!metrics)
+		return (
+			<div className="page">
+				<header className="page-heading">
+					<h1>Your model is not available yet.</h1>
+					<p>
+						The library can still be reviewed. Metrics will appear when the
+						server supplies them.
+					</p>
+				</header>
+			</div>
+		);
+	const labeled = live
+		? metrics.labeledExamples
+		: state.history.filter(({ result }) => result.labelState === "active")
+				.length;
 	const total = state.bootstrap!.queue.items.length;
 	return (
 		<div className="page insights-page">
@@ -28,7 +42,9 @@ export function Insights({ state }: { state: ReviewState }) {
 						<p>
 							{metrics.trainedExamples
 								? "Model supplied by the connected API"
-								: "Untrained model • curated demo sequence"}
+								: live
+									? "No trained model yet • server-selected queue"
+									: "Untrained model • curated demo sequence"}
 						</p>
 					</div>
 				</div>
@@ -45,10 +61,12 @@ export function Insights({ state }: { state: ReviewState }) {
 						{labeled}
 						<span>labeled songs</span>
 					</div>
-					<Progress value={labeled} max={total} label="Feedback coverage" />
+					{!live && (
+						<Progress value={labeled} max={total} label="Feedback coverage" />
+					)}
 					<div className="data-row">
-						<span>Still unlabeled</span>
-						<strong>{total - labeled}</strong>
+						<span>{live ? "Remaining to review" : "Still unlabeled"}</span>
+						<strong>{live ? state.remaining : total - labeled}</strong>
 					</div>
 					<div className="data-row">
 						<span>Used for training</span>
@@ -122,11 +140,33 @@ export function Insights({ state }: { state: ReviewState }) {
 					</div>
 					<div className="data-row">
 						<span>SoundNet enrichment</span>
-						<strong>Not connected</strong>
+						<strong>
+							{state.insights?.audioFeatures.status ?? "Not connected"}
+						</strong>
 					</div>
 					<div className="data-row">
 						<span>Feature comparison</span>
-						<strong>Not enough data</strong>
+						<strong>No comparison supplied</strong>
+					</div>
+					{state.insights && (
+						<>
+							<div className="data-row">
+								<span>Audio features ready</span>
+								<strong>
+									{state.insights.audioFeatures.featuresReady} /{" "}
+									{state.insights.audioFeatures.featuresTotal}
+								</strong>
+							</div>
+							<p className="fine-print">
+								{state.insights.audioFeatures.reason}
+							</p>
+						</>
+					)}
+					<div className="data-row">
+						<span>Holdout removal / keep examples</span>
+						<strong>
+							{metrics.heldOutPositive} / {metrics.heldOutNegative}
+						</strong>
 					</div>
 					<p className="fine-print">
 						No training runs or bandit rewards are simulated here. Live

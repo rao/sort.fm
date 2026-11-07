@@ -29,7 +29,7 @@ FEATURE_VERSION = 'sortfm.features.v1'
 ENGINE_VERSION = 'c1-logistic-v1'
 RUNTIME = {'numpy': np.__version__, 'sklearn': sklearn.__version__, 'engine': ENGINE_VERSION}
 VERSION_PATTERN = re.compile(r'^c1-r[0-9]+-[a-f0-9]{24}$')
-ID_PATTERN = re.compile(r'^[a-zA-Z0-9:_-]{1,128}$')
+ID_PATTERN = re.compile(r'^[a-zA-Z0-9:_.-]{1,128}$')
 
 
 class ServiceError(Exception):

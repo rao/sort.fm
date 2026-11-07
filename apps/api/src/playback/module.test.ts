@@ -61,3 +61,23 @@ test('denial clears only purpose cookie and consumes attempt, unknown provider f
  const response=await f.app.inject({url:`/api/auth/spotify/callback?state=${state}&error=access_denied&redirect_uri=https://evil.test`,cookies:{...f.cookies,[cookie.name]:cookie.value}});
  expect(response.statusCode).toBe(400);expect(response.json().code).toBe('OAUTH_ACCESS_DENIED');expect(response.cookies.map(c=>c.name)).toEqual([cookie.name]);expect(f.calls.length).toBe(0);
 });
+
+test('consume persistence primary-session loss maps to auth401 without exchanging code or exposing adapter details',async()=>{
+ const f=await setup();
+ const playbackOnly=await f.post('/api/player/token');expect(playbackOnly.statusCode).toBe(401);expect(playbackOnly.json().code).toBe('PLAYBACK_RECONNECT_REQUIRED');
+ const start=await f.post('/api/player/connect',{returnTo:'review'}),cookie=start.cookies[0]!,state=new URL(start.json().authorizationUrl).searchParams.get('state');
+ // Simulate session invalidation between AuthService.session and the atomic consume.
+ f.store.consumeOAuth=async()=>{f.store.live=false;throw Object.assign(new Error('private-adapter-details'),{code:'AUTHENTICATION_REQUIRED'});};
+ const response=await f.app.inject({url:`/api/auth/spotify/callback?state=${state}&code=private-code`,cookies:{...f.cookies,[cookie.name]:cookie.value}});
+ expect(response.statusCode).toBe(401);expect(response.json()).toEqual({code:'AUTHENTICATION_REQUIRED',message:'Connect an authorized Spotify account.',retryable:false});
+ expect(response.body).not.toContain('private-');expect(f.calls).toHaveLength(0);expect(f.primaryCalls()).toBe(0);
+ expect(response.cookies.map(c=>c.name)).toEqual([cookie.name]);expect(f.store.grants.size).toBe(0);
+});
+test('consume invalid or unknown persistence errors remain safe OAuth state failures',async()=>{
+ for(const code of ['OAUTH_STATE_INVALID','UNKNOWN_ERROR','PLAYBACK_RECONNECT_REQUIRED']){
+  const f=await setup(),start=await f.post('/api/player/connect',{returnTo:'review'}),cookie=start.cookies[0]!,state=new URL(start.json().authorizationUrl).searchParams.get('state');
+  f.store.consumeOAuth=async()=>{throw Object.assign(new Error('private-adapter-details'),{code});};
+  const response=await f.app.inject({url:`/api/auth/spotify/callback?state=${state}&code=private-code`,cookies:{...f.cookies,[cookie.name]:cookie.value}});
+  expect(response.statusCode).toBe(400);expect(response.json().code).toBe('OAUTH_STATE_INVALID');expect(response.body).not.toContain('private-');expect(f.calls).toHaveLength(0);expect(f.primaryCalls()).toBe(0);
+ }
+});

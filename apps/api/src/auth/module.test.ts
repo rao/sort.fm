@@ -15,7 +15,7 @@ async function setup(production = false, wrongUser = false) {
   const paths: string[] = [];
   const http = new SpotifyHttp({fetch:async (url, init) => {
     paths.push(url);
-    if (url.includes('/api/token')) return Response.json({access_token:'secret-access', refresh_token:'secret-refresh', expires_in:3600, token_type:'Bearer', scope:'user-library-read user-read-private user-read-recently-played'});
+    if (url.includes('/api/token')) return Response.json({access_token:'secret-access', refresh_token:'secret-refresh', expires_in:3600, token_type:'Bearer', scope:config.scopes.join(' ')});
     expect(init?.method ?? 'GET').toBe('GET');
     if (url.endsWith('/me')) return Response.json({id:wrongUser ? 'intruder' : 'owner', display_name:'Listener', images:[]});
     if (url.includes('recently-played')) return Response.json({items:[]});
@@ -34,6 +34,26 @@ async function connect(app: FastifyInstance) {
   return {start, callback};
 }
 
+test('OAuth redirect requests planned user permissions without Open Access service scopes', async () => {
+  const {app} = await setup();
+  const start = await app.inject('/api/auth/spotify/start');
+  expect(start.statusCode).toBe(302);
+  const url = new URL(start.headers.location!);
+  expect(url.origin).toBe('https://accounts.spotify.com');
+  expect(url.searchParams.get('scope')?.split(' ').sort()).toEqual([
+    'ugc-image-upload',
+    'user-read-playback-state', 'user-modify-playback-state', 'user-read-currently-playing',
+    'app-remote-control', 'streaming',
+    'playlist-read-private', 'playlist-read-collaborative', 'playlist-modify-private', 'playlist-modify-public',
+    'user-follow-modify', 'user-follow-read',
+    'user-read-playback-position', 'user-top-read', 'user-read-recently-played',
+    'user-library-modify', 'user-library-read',
+    'user-read-email', 'user-read-private',
+  ].sort());
+  expect(url.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:3001/api/auth/spotify/callback');
+  expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+});
+
 test('A1 registrar replaces foundation /me and serves secure public DTOs after login', async () => {
   const {app, paths} = await setup(true);
   const {start, callback} = await connect(app);
@@ -44,7 +64,7 @@ test('A1 registrar replaces foundation /me and serves secure public DTOs after l
   expect(session).toMatchObject({httpOnly:true, secure:true, path:'/', sameSite:'Lax'});
   expect(session.domain).toBeUndefined();
   const me = await app.inject({url:'/api/me', cookies:{[session.name]:session.value}});
-  expect(me.statusCode).toBe(200); expect(AccountSessionSchema.parse(me.json())).toMatchObject({mode:'spotify', user:{spotifyId:'owner'}, capabilities:{spotifyRead:true, spotifyWrite:false}});
+  expect(me.statusCode).toBe(200); expect(AccountSessionSchema.parse(me.json())).toMatchObject({mode:'spotify', user:{spotifyId:'owner'}, capabilities:{spotifyRead:true, spotifyWrite:false, playback:false}});
   expect(me.body).not.toContain('secret'); expect(me.body).not.toContain('Token');
   expect(paths.filter(x => x.includes('/me/tracks')).length).toBe(0);
 });

@@ -17,9 +17,20 @@ export function loadSpotifyConfig(env: Record<string, string | undefined> = proc
     const url = new URL(origin);
     if (url.protocol !== 'https:' && !(api.mode !== 'production' && ['127.0.0.1', '[::1]'].includes(url.hostname))) throw new Error('Spotify requires HTTPS or a development loopback IP');
   }
-  // Read-only A1 consent. A2 must explicitly request write scopes before offering mutations.
+  // Broad user consent requested before first login. Granted scopes do not enable
+  // capabilities until their implementations are ready. Open Access partner/service
+  // scopes use a separate integration; user-personalized has no planned endpoint.
   return {...api, clientId, allowedUserIds, encryptionKey, sessionSecret, redirectUri,
-    scopes: ['user-library-read', 'user-read-private', 'user-read-recently-played'],
+    scopes: [
+      'user-library-read', 'user-library-modify',
+      'playlist-read-private', 'playlist-read-collaborative',
+      'playlist-modify-private', 'playlist-modify-public', 'ugc-image-upload',
+      'user-read-private', 'user-read-email',
+      'user-top-read', 'user-read-recently-played', 'user-read-playback-position',
+      'user-read-playback-state', 'user-read-currently-playing', 'user-modify-playback-state',
+      'streaming', 'app-remote-control',
+      'user-follow-read', 'user-follow-modify',
+    ],
     secureCookies: api.apiOrigin.startsWith('https:'), sessionTtlMs: 30 * 24 * 60 * 60 * 1000,
     oauthTtlMs: 10 * 60 * 1000, requestTimeoutMs: 15_000,
   };

@@ -24,7 +24,7 @@ describe('credential security', () => {
     const config = loadSpotifyConfig(env);
     expect(config.redirectUri).toBe('http://127.0.0.1:3001/api/auth/spotify/callback');
     expect(config.scopes).toContain('user-library-read');
-    expect(config.scopes).not.toContain('user-library-modify');
+    expect(config.scopes).toContain('user-library-modify');
     expect(() => loadSpotifyConfig({...env, SPOTIFY_ALLOWED_USER_IDS:''})).toThrow();
     expect(() => loadSpotifyConfig({...env, SESSION_SECRET:'short'})).toThrow();
     expect(() => loadSpotifyConfig({...env, SPOTIFY_REDIRECT_URI:'http://localhost:3001/api/auth/spotify/callback'})).toThrow();

@@ -197,3 +197,31 @@ timestamps and must fetch a fresh queue exposure after restoration. Stable error
 `STALE_EXPOSURE`, and `TRACK_NOT_IN_LIBRARY`. Existing `MUTATION_PENDING` still guards
 active review/Undo operations. Migration 009 backfills consumption without deleting or
 rewriting any historical duplicate decisions. No public DTO changes.
+
+### Import publication versus swipes (migration 010)
+
+Before **any** provider request in a new import pass, A1 captures
+`tx.getMembershipRevision(userId)` into `ImportJob.membershipRevision`. Keep that
+baseline across page commits, lease renewal and crash resume. Each restart gets a fresh
+baseline before scanning; a legacy job with a missing/null baseline must start a new pass.
+Pass it as required `ImportMembership.expectedMembershipRevision` at final publication.
+
+`completeImportMembership` locks the owner, checks the revision, and refuses publication
+while any destructive review or destructive Undo remains unresolved, even after its
+worker lease expires. Destructive command creation and settlement use the same owner
+lock. A confirmed ARCHIVE/UNLIKE completion or Undo advances the revision atomically,
+even before the first full import; a successful snapshot publication also advances it.
+Identical settlement retries do not increment it twice. Creating a destructive command
+or Undo also touches the owner row without changing its revision: this forces an older
+SERIALIZABLE import snapshot to retry instead of missing newly committed pending work.
+A1 job access takes the owner
+lock before its job lock, keeping page/finalization lock order consistent with reviews.
+
+`IMPORT_MEMBERSHIP_CHANGED` means restart the scan with a fresh baseline.
+`MEMBERSHIP_MUTATION_PENDING` means leave the prior membership intact and retry/restart
+after reconciliation. A1 owns retry scheduling and its bounded restart policy; it must
+not treat either error as a completed import. The final job-complete, membership and
+taste-context writes remain one transaction. This fence prevents a stale scan from
+restoring removed tracks or hiding Undo restoration without blocking reviews for an
+entire long-running import. It cannot make Spotify's externally changing paginated
+library a snapshot; A1's existing head/total checks remain necessary.

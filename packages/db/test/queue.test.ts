@@ -18,13 +18,34 @@ describe.skipIf(!url)('durable queue',()=>{
   await Promise.all(Array.from({length:12},(_,i)=>(i%2?queue:queue2).dispatch(()=>{starts.push(performance.now());return Promise.resolve('ok');})));
   for(const t of starts)expect(starts.filter(s=>s>=t&&s<t+1000).length).toBeLessThanOrEqual(5);
  },15000);
- test('a crash after request start does not refund the persisted rate permit',async()=>{
+ test('reservation survives DB latency longer than 250ms without starving dispatch',async()=>{
+  const delayed={transaction:async(work:any)=>{const result=await db.transaction(work);if((result as any)?.token)await Bun.sleep(400);return result;}} as Database;
+  const starts:number[]=[];const started=performance.now();
+  expect(await new SoundNetQueue(delayed).dispatch(()=>{starts.push(performance.now());return Promise.resolve('ok');},AbortSignal.timeout(3000))).toBe('ok');
+  expect(starts).toHaveLength(1);expect(performance.now()-started).toBeLessThan(3000);
+ },5000);
+ test('a delayed SQL response cannot consume a nearly expired crash hold',async()=>{
+  const delayed={transaction:async(work:any)=>{
+   const result=await db.transaction(async tx=>work(new Proxy(tx,{apply:async(target,thisArg,args)=>{
+    const rows=await Reflect.apply(target,thisArg,args);if(String(args[0]).includes('remaining_ms'))await Bun.sleep(200);return rows;
+   }})));
+   if(result?.token)await db.transaction(async tx=>{await tx`UPDATE provider_limits SET next_start_at=clock_timestamp()+interval '300 milliseconds' WHERE provider='soundnet'`;});
+   return result;
+  }} as Database;
+  let calls=0;await expect(new SoundNetQueue(delayed).dispatch(()=>{calls++;return Promise.resolve();},AbortSignal.timeout(900))).rejects.toThrow();expect(calls).toBe(0);
+  await db.transaction(async tx=>{await tx`UPDATE provider_limits SET next_start_at=clock_timestamp()-interval '1 second' WHERE provider='soundnet'`;});
+ },5000);
+ test('a crash after request start retains a durable hold, blocks reuse, then recovers',async()=>{
   const starts:number[]=[];
   const faulty={transaction:async(work:any)=>db.transaction(async tx=>{const result=await work(tx);if(result?.response)throw new Error('simulated_commit_failure');return result;})} as Database;
-  const worker=new SoundNetQueue(faulty);
-  for(let i=0;i<6;i++)await expect(worker.dispatch(()=>{starts.push(performance.now());return Promise.resolve();})).rejects.toThrow('simulated_commit_failure');
-  for(const t of starts)expect(starts.filter(s=>s>=t&&s<t+1000).length).toBeLessThanOrEqual(5);
- },15000);
+  await expect(new SoundNetQueue(faulty).dispatch(()=>{starts.push(performance.now());return Promise.resolve();})).rejects.toThrow('simulated_commit_failure');
+  const [limit]=await db.transaction(tx=>tx`SELECT extract(epoch FROM next_start_at-clock_timestamp())::float8 AS remaining FROM provider_limits WHERE provider='soundnet'`);
+  expect(limit.remaining).toBeGreaterThan(1);
+  await expect(queue.dispatch(()=>{starts.push(performance.now());return Promise.resolve();},AbortSignal.timeout(350))).rejects.toThrow();expect(starts).toHaveLength(1);
+  // Model elapsed crash-hold time without sleeping for the production 30-second hold.
+  await db.transaction(async tx=>{await tx`UPDATE provider_limits SET next_start_at=clock_timestamp()-interval '1 second' WHERE provider='soundnet'`;});
+  await queue.dispatch(()=>{starts.push(performance.now());return Promise.resolve();});expect(starts).toHaveLength(2);expect(starts[1]!-starts[0]!).toBeGreaterThanOrEqual(250);
+ },5000);
 
  test('cache populated during a crashed worker lease reconciles without another provider call',async()=>{
   await db.transaction(async tx=>{await tx`UPDATE soundnet_jobs SET status='running',lease_token=${crypto.randomUUID()},lease_until=now()-interval '1 second' WHERE track_id=${id}`;});

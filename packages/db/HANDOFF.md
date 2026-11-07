@@ -63,3 +63,11 @@ exposures after Undo; timestamps originate on the server. Targeted local tests c
 concurrent distinct keys, owner/track mismatch, removed membership, exact-time staleness,
 fresh post-Undo decisions and historical idempotency reads. Tiger application remains
 with the integration lead.
+
+## Rate limiter latency fix
+
+Replaced the 250ms cross-transaction expiry requirement with a durable 30s crash hold
+that shortens to 250ms spacing only after the request starts and the transaction commits.
+A conservative monotonic remaining-time check retains rollback protection. Local
+regressions inject 400ms DB latency, delayed SQL responses near expiry, competing
+dispatchers, and post-start commit failure. No real SoundNet requests were made.

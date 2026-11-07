@@ -5,3 +5,5 @@ export {Repository,type FeedbackSyncLease} from './repository';
 export {PostgresA1Store} from './a1-store';
 export {SoundNetQueue,type ClaimedJob} from './soundnet-queue';
 export const DATABASE_IMPLEMENTED=true;
+
+export type {ReviewLeaseIdentity,ReviewWorkLease,MutationSnapshot,ReviewEffectRequest,ReviewEffect} from './review-recovery';

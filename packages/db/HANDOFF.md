@@ -43,3 +43,12 @@ Successful committed caches avoid repeated provider charges. A crash between rec
 Migration007 and Repository claimFeedbackSync/acknowledgeFeedbackSync/retryFeedbackSync implement the agreed A2 full-/fit delivery boundary. Coalescing enqueue is atomic with every effective feedback revision, including SKIP replacement/Undo, and existing nonzero revisions are backfilled. Tests verify newer revisions survive old acknowledgements, fits may acknowledge newer snapshots, retry scheduling persists, expired leases fence stale workers, idempotent settlement does not requeue, and a forced feedback-write error rolls back the revision and queue together. This slice is verified against local PostgreSQL; integration owns the next Tiger migration/run to avoid overlapping cloud suites. No transport was added.
 
 Test-harness follow-ups also give settlement tests and A1 lifecycle hooks30-second cloud bounds; all DB clients are initialized only within enabled beforeAll hooks. Clean no-credential runs now skip DB tests instead of throwing DATABASE_URL_REQUIRED.
+
+## Review recovery follow-up
+
+Migration 008 adds per-user fenced review/Undo work and immutable non-idempotent
+archive intents. Repository methods and exact transport responsibilities are documented
+in README. Local PostgreSQL tests exercise crash reclamation, caller-clock spoofing,
+expired/cross-user/legacy fencing, ambiguous intent reconciliation, immutable facts,
+explicit retry scheduling and Undo completion safety. Integration lead owns applying
+008 to shared Tiger; no concurrent cloud migration/test was run for this follow-up.

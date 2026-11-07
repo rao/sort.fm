@@ -140,3 +140,46 @@ bun --env-file=../sort.fm/.env -e 'const p=Bun.spawn(["bun","test"],{env:{...pro
 ```
 
 Tests create and clean only randomly named `test_*` schemas. Provider responses are mocked. The opt-in slow test runs a real local HTTP server with a 35-second response and verifies another HTTP path stays responsive. Live provider quality, production deployment, end-user swipes, PITR restoration and sustained 2,700-track throughput are separate integration gates.
+
+### Review and Undo recovery (migration 008)
+
+`createDecision` and `createUndo` atomically enqueue durable work. Both the immediate
+API kick and the restart worker must call `claimReviewWork(workerId, nowEpochMs,
+leaseMs)` before Spotify I/O. Claims serialize by **user**, including archive creation
+across different tracks; independent users may run concurrently. DB time determines
+expiry (the supplied clock value is validated, never trusted for ownership). Leases
+last at most 10 minutes; renew while working. `ReviewWorkLease` contains
+`{userId, decisionId, commandId, operation, leaseId, result, mutation}`.
+
+Pass the lease to `transitionMutation(input, lease)`,
+`settleDecision(userId, result, expectedStatus, split, lease)`, and
+`setArchivePlaylist(userId, playlistId, lease)`. These writes take the same user lock
+and validate ownership in their transaction. Expired or stolen leases fail with
+`REVIEW_LEASE_LOST`; legacy unfenced calls fail with `REVIEW_LEASE_REQUIRED` while
+any lease for that user remains active. `renewReviewWork`, `retryReviewWork`, and
+`completeReviewWork` return false for stale tokens. Retry persists its next eligible
+time. Completion requires a persisted terminal review or a settled Undo; it cannot
+silently discard uncertain restoration. A crash after settlement but before completion
+may return an already-terminal result on the next claim: retire it without provider I/O.
+
+Before a non-idempotent POST, call `beginReviewEffect(lease, request)` with one of:
+
+- `{kind:'create_archive', name, public:false, description}` (one durable intent per user).
+- `{kind:'add_archive', playlistId, trackId}` (one per decision; owner playlist and track checked).
+
+The returned `{effect, shouldExecute}` grants execution only for a new intent or an
+explicitly retryable previous attempt. An existing `intent` means the POST may have
+succeeded: read/reconcile its remote outcome, **never blindly repeat it**. Request facts
+are immutable; changing the playlist, track, name or description fails with
+`REVIEW_EFFECT_CONFLICT`. Read via `getReviewEffect(lease, kind)`. Resolve using
+`settleReviewEffect(lease, kind, 'confirmed'|'retryable', remoteId)`; only a definitive
+non-execution response (such as a classified 429) warrants `retryable` with null ID.
+Timeouts, connection loss and ambiguous 5xx keep the intent unresolved. Confirmation
+uses the playlist ID for both effect kinds; create confirmation atomically registers
+the canonical archive playlist. Initial and recovered calls use these same records.
+
+`getMutation`, `getPendingUndo`, `getDecisionByIdempotencyKey` and
+`getUndoByIdempotencyKey` provide restart and HTTP retry lookups. Callers must compare
+request identity before returning a lookup result; command creation remains the atomic
+idempotency authority. Migration 008 backfills unfinished existing commands. No Spotify
+transport or HTTP worker scheduling lives in this package.

@@ -244,6 +244,20 @@ export class ReviewStore {
 					: null,
 				retrainNotice: `Server confirmed model ${result.modelVersion} at feedback revision ${result.feedbackRevision}. Current song scores retain their exposure-time version.`,
 			});
+			try {
+				const snapshot = await live.snapshot();
+				this.applySnapshot(snapshot);
+				// Insights are optional; a failed read cannot erase the validated fit.
+				if (!snapshot.insights?.metrics) {
+					this.update({
+						bootstrap: { ...this.state.bootstrap!, metrics: result.metrics },
+					});
+				}
+			} catch (error) {
+				this.update({
+					refreshError: `Your model was confirmed. Refresh the queue before continuing: ${errorMessage(error)}`,
+				});
+			}
 		} catch (error) {
 			this.update({
 				retrainError: `${errorMessage(error)} Refresh server data to check the current model before requesting another fit.`,

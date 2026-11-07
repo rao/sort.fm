@@ -11,6 +11,10 @@ function setup() {
 	let version = "fitted-v2";
 	let fail = false;
 	let quarantine = false;
+	let insightsFail = false;
+	let confirmedMetrics: ModelMetrics | null = null;
+	let afterFit: (() => void) | undefined;
+	let beforeQueue: (() => Promise<void>) | undefined;
 	let metrics: ModelMetrics = {
 		...demoBootstrap.metrics,
 		dataset: "user_feedback" as const,
@@ -34,6 +38,8 @@ function setup() {
 						},
 						{ status: 503 },
 					);
+				confirmedMetrics = structuredClone(metrics);
+				afterFit?.();
 				return Response.json({
 					userId,
 					modelVersion: version,
@@ -43,14 +49,28 @@ function setup() {
 					metrics,
 				});
 			}
+			if (confirmedMetrics && String(input).includes("/api/queue?"))
+				await beforeQueue?.();
+			if (insightsFail && String(input).endsWith("/insights")) {
+				return Response.json(
+					{
+						code: "OFFLINE",
+						message: "Insights unavailable",
+						retryable: false,
+					},
+					{ status: 503 },
+				);
+			}
 			const response = await f.transport(input, init);
-			if (quarantine && String(input).endsWith("/insights")) {
+			if (String(input).endsWith("/insights")) {
 				const data = await response.json();
-				data.metrics = {
-					...data.metrics,
-					dataset: "synthetic",
-					labeledExamples: 1,
-				};
+				data.metrics = quarantine
+					? {
+							...data.metrics,
+							dataset: "synthetic",
+							labeledExamples: 1,
+						}
+					: (confirmedMetrics ?? data.metrics);
 				return Response.json(data);
 			}
 			return response;
@@ -61,6 +81,15 @@ function setup() {
 		f,
 		store,
 		writes: () => writes,
+		failInsights: () => {
+			insightsFail = true;
+		},
+		afterFit: (callback: () => void) => {
+			afterFit = callback;
+		},
+		beforeQueue: (callback: () => Promise<void>) => {
+			beforeQueue = callback;
+		},
 		emptyModel: () => {
 			metrics = structuredClone(coldModelMetrics);
 			version = metrics.modelVersion;
@@ -136,8 +165,10 @@ test("pending review recovery blocks retraining", async () => {
 	await f.store.load();
 	f.f.setDecisionError(true);
 	await f.store.decide("ARCHIVE");
+	const pending = structuredClone(f.f.journal.read());
 	await f.store.retrain();
 	expect(f.writes()).toBe(0);
+	expect(f.f.journal.read()).toEqual(pending);
 });
 
 test("a successful model refresh clears a previous retrain recovery alert", async () => {
@@ -183,4 +214,149 @@ test("retrain still rejects nonempty synthetic results without replacing persona
 	await f.store.retrain();
 	expect(f.store.getSnapshot().retrainError).not.toBeNull();
 	expect(f.store.getSnapshot().bootstrap?.metrics).toEqual(previous);
+});
+
+function reorderWithFreshExposures(f: ReturnType<typeof setup>) {
+	const next = [...f.f.items].reverse().map((item, position) => ({
+		...structuredClone(item),
+		prediction: { ...item.prediction, modelVersion: "fitted-v2" },
+		exposure: {
+			...item.exposure,
+			exposureId: crypto.randomUUID(),
+			modelVersion: "fitted-v2",
+			position,
+		},
+	}));
+	f.f.items.splice(0, f.f.items.length, ...next);
+	return next;
+}
+
+test("confirmed manual fit replaces queue with fresh server ordering without rewriting served exposures", async () => {
+	const f = setup();
+	await f.store.load();
+	const oldQueue = f.store.getSnapshot().queue;
+	const original = structuredClone(oldQueue);
+	f.afterFit(() => {
+		reorderWithFreshExposures(f);
+	});
+	await f.store.retrain();
+	expect(f.store.getSnapshot().queue).toEqual(f.f.items);
+	expect(f.store.getSnapshot().queue[0]!.track.trackId).toBe(
+		original[1]!.track.trackId,
+	);
+	expect(oldQueue).toEqual(original);
+	expect(f.f.calls.filter((call) => call.url.includes("/queue?"))).toHaveLength(
+		2,
+	);
+	expect(f.store.getSnapshot().refreshError).toBeNull();
+	const fresh = f.store.getSnapshot().queue[0]!;
+	await f.store.decide("KEEP");
+	expect(f.f.commands[0]!.exposureId).toBe(fresh.exposure.exposureId);
+	expect(
+		original.some(
+			(item) => item.exposure.exposureId === f.f.commands[0]!.exposureId,
+		),
+	).toBe(false);
+	expect(f.writes()).toBe(1);
+});
+
+test("manual fit holds all action locks until fresh queue reconciliation completes", async () => {
+	const f = setup();
+	await f.store.load();
+	let release!: () => void;
+	let entered!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const observed = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	f.beforeQueue(async () => {
+		entered();
+		await gate;
+	});
+	const pending = f.store.retrain();
+	try {
+		await Promise.race([pending, observed]);
+		expect(f.store.getSnapshot().retraining).toBe(true);
+		await f.store.retrain();
+		await f.store.decide("KEEP");
+		await f.store.undo(crypto.randomUUID());
+		await f.store.refresh();
+		expect(f.writes()).toBe(1);
+		expect(f.f.commands).toHaveLength(0);
+		expect(f.f.calls.some((call) => call.url.endsWith("/undo"))).toBe(false);
+	} finally {
+		release();
+		await pending;
+	}
+	expect(f.store.getSnapshot().retraining).toBe(false);
+});
+
+test("queue failure after confirmed fit retains metrics and recovers by GET without repeating fit", async () => {
+	const f = setup();
+	await f.store.load();
+	const oldQueue = structuredClone(f.store.getSnapshot().queue);
+	f.afterFit(() => {
+		reorderWithFreshExposures(f);
+		f.f.setQueueError(true);
+	});
+	await f.store.retrain();
+	expect(f.store.getSnapshot().bootstrap?.metrics?.modelVersion).toBe(
+		"fitted-v2",
+	);
+	expect(f.store.getSnapshot().queue).toEqual(oldQueue);
+	expect(f.store.getSnapshot().retrainError).toBeNull();
+	expect(f.store.getSnapshot().refreshError).toContain("model was confirmed");
+	expect(f.store.getSnapshot().refreshError).toContain("Refresh the queue");
+	expect(f.store.getSnapshot().retry).toBeNull();
+	expect(f.f.journal.read()).toBeNull();
+	await f.store.retrain();
+	await f.store.decide("KEEP");
+	expect(f.writes()).toBe(1);
+	expect(f.f.commands).toHaveLength(0);
+	f.f.setQueueError(false);
+	await f.store.refresh();
+	expect(f.store.getSnapshot().refreshError).toBeNull();
+	expect(f.store.getSnapshot().queue).toEqual(f.f.items);
+	expect(f.writes()).toBe(1);
+});
+
+test("account change during post-fit reconciliation cannot install another owner's queue", async () => {
+	const f = setup();
+	await f.store.load();
+	const oldQueue = structuredClone(f.store.getSnapshot().queue);
+	f.afterFit(() => {
+		f.f.session.user!.id = "other";
+	});
+	await f.store.retrain();
+	expect(f.writes()).toBe(1);
+	expect(f.store.getSnapshot().queue).toEqual(oldQueue);
+	expect(f.store.getSnapshot().bootstrap?.metrics?.modelVersion).toBe(
+		"fitted-v2",
+	);
+	expect(f.store.getSnapshot().refreshError).toContain("account changed");
+	expect(f.store.getSnapshot().retrainError).toBeNull();
+	expect(f.f.calls.filter((call) => call.url.includes("/queue?"))).toHaveLength(
+		1,
+	);
+});
+
+test("unavailable optional insights after a fit cannot erase confirmed metrics or discard fresh queue", async () => {
+	const f = setup();
+	await f.store.load();
+	f.afterFit(() => {
+		reorderWithFreshExposures(f);
+		f.failInsights();
+	});
+	await f.store.retrain();
+	expect(f.store.getSnapshot().bootstrap?.metrics?.modelVersion).toBe(
+		"fitted-v2",
+	);
+	expect(f.store.getSnapshot().queue).toEqual(f.f.items);
+	expect(f.store.getSnapshot().warnings.join(" ")).toContain(
+		"Insights unavailable",
+	);
+	expect(f.store.getSnapshot().retrainError).toBeNull();
+	expect(f.writes()).toBe(1);
 });

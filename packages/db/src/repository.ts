@@ -6,6 +6,7 @@ import {
 } from '@sortfm/contracts';
 import type {z} from 'zod';
 import {Database,PersistenceError,json,type Transaction} from './client';
+import {ReviewRecoveryRepository,assertReviewLease,type ReviewLeaseIdentity} from './review-recovery';
 export type FeedbackSyncLease={userId:string;feedbackRevision:number;leaseId:string};
 const fail=(code:string):never=>{throw new PersistenceError(code);};
 const iso=(v:Date|string)=>new Date(v).toISOString();
@@ -29,8 +30,7 @@ async function telemetry(tx:Transaction,v:TelemetryInput,context:Record<string,u
  if(!rows.length){const [same]=await tx`SELECT 1 FROM interaction_events WHERE event_id=${v.eventId} AND user_id=${v.userId} AND payload=${json(payload)}::jsonb`;if(!same)fail('EVENT_CONFLICT');return;}
  await tx`INSERT INTO ml_telemetry(event_id,user_id,model_version,event_type,prediction_score,uncertainty,processing_latency_ms,occurred_at,context) VALUES(${v.eventId},${v.userId},${v.modelVersion},${v.eventType},${v.predictionScore},${v.uncertainty},${v.processingLatencyMs},${v.occurredAt},${json(context)}::jsonb)`;
 }
-export class Repository {
- constructor(readonly db:Database){}
+export class Repository extends ReviewRecoveryRepository {
  async upsertUser(profile:NonNullable<z.infer<typeof AccountSessionSchema>['user']>,authorized=false){
   const p=AccountSessionSchema.shape.user.unwrap().parse(profile);
   await this.db.transaction(async tx=>{const rows=await tx`INSERT INTO users(id,spotify_user_id,profile,is_authorized) VALUES(${p.id},${p.spotifyId},${json(p)}::jsonb,${authorized}) ON CONFLICT(id) DO UPDATE SET profile=excluded.profile,is_authorized=excluded.is_authorized WHERE users.spotify_user_id IS NOT DISTINCT FROM excluded.spotify_user_id RETURNING id`;if(!rows.length)fail('ACCOUNT_IDENTITY_CONFLICT');});
@@ -58,6 +58,7 @@ export class Repository {
   const result=ReviewResultSchema.parse({decisionId:v.decisionId,...v.request,status:'PENDING',mutationStep:'PENDING',mode:track.card.source==='synthetic'?'demo':'spotify',liked:null,archived:null,canUndo:false,label:null,labelState:'inactive',feedbackRevision:owner.feedback_revision,error:null,createdAt:v.createdAt,updatedAt:v.createdAt});
   await tx`INSERT INTO review_decisions(decision_id,user_id,track_id,exposure_id,idempotency_key,request_fingerprint,request,result,created_at) VALUES(${v.decisionId},${v.userId},${v.request.trackId},${v.request.exposureId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${json(result)}::jsonb,${v.createdAt})`;
   await tx`INSERT INTO current_decisions(user_id,track_id,decision_id) VALUES(${v.userId},${v.request.trackId},${v.decisionId}) ON CONFLICT(user_id,track_id) DO UPDATE SET decision_id=excluded.decision_id`;
+  await tx`INSERT INTO review_work(command_id,user_id,decision_id,operation) VALUES(${v.decisionId},${v.userId},${v.decisionId},'review')`;
   return result;
  });}
  async getDecision(userId:string,id:string):Promise<ReviewResult|null>{return this.db.transaction(async tx=>(await tx`SELECT result FROM review_decisions WHERE user_id=${userId} AND decision_id=${id}`)[0]?.result??null);}
@@ -70,13 +71,16 @@ export class Repository {
   const [d]=await tx`SELECT d.result,c.decision_id AS current_id FROM review_decisions d LEFT JOIN current_decisions c USING(user_id,track_id) WHERE d.user_id=${v.userId} AND d.decision_id=${v.decisionId}`;
   if(!d)fail('DECISION_NOT_FOUND');if(d.current_id!==v.decisionId)fail('STALE_DECISION');if(!d.result.canUndo)fail('MUTATION_PENDING');
   const [pending]=await tx`SELECT 1 FROM undo_commands WHERE user_id=${v.userId} AND decision_id=${v.decisionId} AND settled_at IS NULL`;if(pending)fail('MUTATION_PENDING');
-  await tx`INSERT INTO undo_commands(command_id,user_id,decision_id,idempotency_key,request_fingerprint,payload,created_at) VALUES(${v.commandId},${v.userId},${v.decisionId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v)}::jsonb,${v.createdAt})`;return v;
+  await tx`INSERT INTO undo_commands(command_id,user_id,decision_id,idempotency_key,request_fingerprint,payload,created_at) VALUES(${v.commandId},${v.userId},${v.decisionId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v)}::jsonb,${v.createdAt})`;
+  await tx`INSERT INTO review_work(command_id,user_id,decision_id,operation) VALUES(${v.commandId},${v.userId},${v.decisionId},'undo')`;return v;
  });}
  /** Atomic local settlement only. Caller A must confirm remote mutations before supplying COMPLETE/UNDONE. */
- async settleDecision(userId:string,input:ReviewResult,expectedStatus:ReviewResult['status'],split:'train'|'holdout'){
+ async settleDecision(userId:string,input:ReviewResult,expectedStatus:ReviewResult['status'],split:'train'|'holdout',lease?:ReviewLeaseIdentity){
   const v=ReviewResultSchema.parse(input);if(!['train','holdout'].includes(split))fail('INVALID_SPLIT');
   await this.db.transaction(async tx=>{
    const user=await lockUser(tx,userId);
+   const work=await assertReviewLease(tx,userId,v.decisionId,lease);
+   if(work&&((v.status==='UNDONE')!==(work.operation==='undo')))fail('REVIEW_OPERATION_CONFLICT');
    const [d]=await tx`SELECT d.result,c.decision_id AS current_id,d.result=${json(v)}::jsonb AS identical FROM review_decisions d LEFT JOIN current_decisions c USING(user_id,track_id) WHERE d.user_id=${userId} AND d.decision_id=${v.decisionId} FOR UPDATE OF d`;
    if(!d)fail('DECISION_NOT_FOUND');if(d.identical)return;if(d.current_id!==v.decisionId)fail('STALE_DECISION');
    const old=d.result as ReviewResult;if(old.status!==expectedStatus)fail('STATE_CONFLICT');
@@ -110,13 +114,14 @@ export class Repository {
    }
   });
  }
- async transitionMutation(input:MutationTransitionInput){const v=MutationTransitionInputSchema.parse(input);return this.db.transaction(async tx=>{
+ async transitionMutation(input:MutationTransitionInput,lease?:ReviewLeaseIdentity){const v=MutationTransitionInputSchema.parse(input);return this.db.transaction(async tx=>{
+  await assertReviewLease(tx,v.userId,v.decisionId,lease);
   const [old]=await tx`SELECT * FROM spotify_mutations WHERE user_id=${v.userId} AND decision_id=${v.decisionId} FOR UPDATE`;
   if(!old){if(v.expectedStatus!=='PENDING')fail('STATE_CONFLICT');await tx`INSERT INTO spotify_mutations(mutation_id,user_id,decision_id,status,step,attempts,archive_playlist_id,updated_at) VALUES(${v.mutationId},${v.userId},${v.decisionId},${v.status},${v.step},${v.attempts},${v.archivePlaylistId},${v.occurredAt})`;}
   else{if(old.mutation_id!==v.mutationId||old.status!==v.expectedStatus||old.attempts>v.attempts)fail('STATE_CONFLICT');await tx`UPDATE spotify_mutations SET status=${v.status},step=${v.step},attempts=${v.attempts},archive_playlist_id=${v.archivePlaylistId},updated_at=${v.occurredAt} WHERE user_id=${v.userId} AND mutation_id=${v.mutationId}`;}
   if(v.step==='ARCHIVED_PLAYLIST_INSERTED'&&v.archivePlaylistId)await tx`INSERT INTO archive_records(user_id,decision_id,track_id,playlist_id,inserted_at) SELECT user_id,decision_id,track_id,${v.archivePlaylistId},${v.occurredAt} FROM review_decisions WHERE user_id=${v.userId} AND decision_id=${v.decisionId} ON CONFLICT DO NOTHING`;
  });}
- async setArchivePlaylist(userId:string,playlistId:string){await this.db.transaction(async tx=>{await tx`INSERT INTO archive_playlists(user_id,spotify_playlist_id) VALUES(${userId},${playlistId}) ON CONFLICT(user_id) DO NOTHING`;});return this.getArchivePlaylist(userId);}
+ async setArchivePlaylist(userId:string,playlistId:string,lease?:ReviewLeaseIdentity){await this.db.transaction(async tx=>{await assertReviewLease(tx,userId,null,lease);await tx`INSERT INTO archive_playlists(user_id,spotify_playlist_id) VALUES(${userId},${playlistId}) ON CONFLICT(user_id) DO NOTHING`;});return this.getArchivePlaylist(userId);}
  async getArchivePlaylist(userId:string):Promise<string|null>{return this.db.transaction(async tx=>(await tx`SELECT spotify_playlist_id FROM archive_playlists WHERE user_id=${userId}`)[0]?.spotify_playlist_id??null);}
  async recordModelRun(input:ModelRunInput){const v=ModelRunInputSchema.parse(input);if(v.metrics.modelVersion!==v.modelVersion||v.metrics.trainedExamples!==v.trainedExamples)fail('MODEL_METRICS_CONFLICT');await this.db.transaction(async tx=>{
   const inserted=await tx`INSERT INTO model_runs(run_id,user_id,model_version,feature_version,payload,created_at) VALUES(${v.runId},${v.userId},${v.modelVersion},${v.featureVersion},${json(v)}::jsonb,${v.createdAt}) ON CONFLICT DO NOTHING RETURNING run_id`;

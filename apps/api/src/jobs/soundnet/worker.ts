@@ -23,7 +23,7 @@ export class SoundNetWorker {
     const delay=retryDelay(job.attempts,error.retryAfterMs,this.options.random);
     if(error.code==='HTTP_429'){await this.queue.cooldown(delay);this.concurrency=Math.max(1,Math.floor(this.concurrency/2));this.successes=0;}
     else if(error.retryable){this.concurrency=Math.max(1,this.concurrency-1);this.successes=0;}
-    await this.queue.fail(job,error.code,error.retryable,delay,response?.raw??error.raw);
+    await this.queue.fail(job,error.code,error.retryable,delay,response?response.raw:error.raw);
     if(error.code==='HTTP_401'||error.code==='HTTP_403'){await this.queue.cooldown(3600000);throw error;}
     this.log({trackId:job.trackId,status:'failed',code:error.code,attempt:job.attempts,retryInMs:error.retryable&&job.attempts<this.queue.maxAttempts?delay:null,concurrency:this.concurrency});return;
    }

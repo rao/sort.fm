@@ -12,7 +12,8 @@
     "contracts:export": "bun run scripts/export-contracts.ts",
     "seed:demo": "bun run scripts/seed-demo.ts",
     "smoke": "bun run scripts/smoke-foundation.ts",
-    "smoke:ml": "bun run scripts/smoke-ml.ts"
+    "smoke:ml": "bun run scripts/smoke-ml.ts",
+    "smoke:backend": "bun --env-file=.env scripts/smoke-backend.ts"
   },
   "devDependencies": { "@types/bun": "^1.3.0", "typescript": "^5.9.3", "zod": "^4.1.12" }
 }

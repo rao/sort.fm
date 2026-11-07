@@ -3,6 +3,7 @@ import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService} from './reviews/queue';
 import {createReviewQueueModule} from './reviews/module';
+import {assembleLibraryCandidates,createMlClient,createRepositoryMl,type RepositoryMl} from './ml';
 import {buildApp} from './app';
 import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
@@ -45,14 +46,24 @@ export async function buildRuntime(options: {
   } catch {startupIssues.push('SPOTIFY_CONFIG_INVALID');}
  }
 
- const reviews=spotify&&database?createReviewQueueModule({
-  queue:new QueueService(new Repository(database)),auth:spotify.auth,
+ const repository=database?new Repository(database):null;
+ let ml:RepositoryMl|null=null;
+ if(repository&&env.ML_SERVICE_URL&&env.ML_SERVICE_SHARED_SECRET) {
+  try {ml=createRepositoryMl({repository,client:createMlClient({serviceUrl:env.ML_SERVICE_URL,sharedSecret:env.ML_SERVICE_SHARED_SECRET})});}
+  catch {startupIssues.push('ML_CONFIG_INVALID');}
+ } else if(env.ML_SERVICE_URL&&!env.ML_SERVICE_SHARED_SECRET)startupIssues.push('ML_SERVICE_SHARED_SECRET_REQUIRED');
+ const metadataTraining={permittedForTraining:Boolean(env.METADATA_RIGHTS_BASIS?.trim()),...(env.METADATA_RIGHTS_BASIS?.trim()?{rightsBasis:env.METADATA_RIGHTS_BASIS.trim()}:{})};
+ const reviews=spotify&&repository?createReviewQueueModule({
+  queue:new QueueService(repository,{
+   assemble:(rows,context)=>assembleLibraryCandidates(rows,{...context,now:new Date(context.now).toISOString(),metadataTraining}),
+   ...(ml?{score:(userId,candidates)=>ml!.score(userId,candidates)}:{}),
+  }),auth:spotify.auth,
   config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
   ...(config.demoEnabled?{demoQueue:(query:Parameters<QueueService['get']>[1])=>createDemoQueue({...query,servedAt:new Date().toISOString(),exposureId:()=>crypto.randomUUID()})}:{}),
  }):null;
 
  try {
-  const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:false},registerRoutes:async app=>{
+  const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
    if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));

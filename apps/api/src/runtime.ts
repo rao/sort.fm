@@ -1,4 +1,4 @@
-import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, Repository, SoundNetQueue, type Database} from '@sortfm/db';
+import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService} from './reviews/queue';
@@ -39,6 +39,9 @@ export async function buildRuntime(options: {
     await tx`SELECT label_id FROM calibration_labels LIMIT 0`;
     await tx`SELECT command_id FROM calibration_undos LIMIT 0`;
     await tx`SELECT source FROM effective_feedback LIMIT 0`;
+    await tx`SELECT track_id FROM available_audio_features LIMIT 0`;
+    await tx`SELECT track_id FROM musicae_jobs LIMIT 0`;
+    await tx`SELECT singleton FROM musicae_control LIMIT 0`;
    });
   } catch {
    await database?.close().catch(()=>{});
@@ -85,11 +88,11 @@ export async function buildRuntime(options: {
   service:new ReviewService(repository,{auth:spotify.auth,worker:reviewWorker}),worker:reviewWorker,
   enableWrites:()=>spotify!.auth.enableReviewWrites(),
  }):null;
- const soundnet=database?new SoundNetQueue(database):null;
- const modelReads=spotify&&repository&&a1Store&&soundnet?createMlReadModule({
+ const audio=database?new MusicaeQueue(database):null;
+ const modelReads=spotify&&repository&&a1Store&&audio?createMlReadModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},ml,
   getSummary:userId=>a1Store.transaction(tx=>tx.getSummary(userId)),
-  audioProgress:userId=>soundnet.progress(userId),latestModel:userId=>repository.latestModel(userId),
+  audioProgress:userId=>audio.audioStatus(userId),latestModel:userId=>repository.latestModel(userId),
  }):null;
  const modelRetrain=spotify?createMlRetrainModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},ml,

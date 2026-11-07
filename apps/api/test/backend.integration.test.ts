@@ -4,10 +4,12 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createMlClient} from '../src/ml';
-import {Database,migrate,Repository} from '@sortfm/db';
+import {Database,migrate,Repository,MusicaeQueue} from '@sortfm/db';
 import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema,ReviewRequestSchema,ReviewResultSchema,DecisionHistorySchema,ModelInsightsSchema,FitResponseSchema,CalibrationQueueResultSchema,CalibrationLabelResultSchema,PUBLIC_ROUTES,type ReviewResult} from '@sortfm/contracts';
 import {buildRuntime} from '../src/runtime';
 import {SpotifyHttp} from '../src/spotify/http';
+import {MusicaeClient} from '../src/jobs/soundnet/musicae-provider';
+import {MusicaeWorker} from '../src/jobs/soundnet/musicae-worker';
 
 const databaseUrl=process.env.TEST_DATABASE_URL;
 
@@ -102,7 +104,7 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   expect((await(await fetch(`${base}/api/health`)).json() as {capabilities:{ml:boolean}}).capabilities.ml).toBe(true);
   expect((await ml.evaluation({userId:session.user!.id})).status).toBe('insufficient_data');
   const insights=ModelInsightsSchema.parse(await(await fetch(`${base}/api/ml/insights`,{headers:{cookie:sessionCookie}})).json());
-  expect(insights.prediction).toBeNull();expect(insights.audioFeatures).toMatchObject({featuresReady:0,featuresTotal:4});
+  expect(insights.prediction).toBeNull();expect(insights.audioFeatures).toMatchObject({provider:'musicae',status:'pending',featuresReady:0,featuresTotal:4});
   expect(insights.metrics).toEqual(await ml.evaluation({userId:session.user!.id}));
   const analytics=PUBLIC_ROUTES.analytics.response.parse(await(await fetch(`${base}/api/analytics/summary`,{headers:{cookie:sessionCookie}})).json());
   expect(analytics.library).toMatchObject({total:4,remaining:4,reviewed:0});
@@ -191,18 +193,47 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   expect(events.filter(row=>row.event_type==='decision')).toHaveLength(4);expect(events.filter(row=>row.event_type==='undo')).toHaveLength(4);
   const emptyFit=await retrainSnapshot(0);
   expect(emptyFit.metrics).toMatchObject({status:'insufficient_data',dataset:'synthetic',baseRate:null,balancedAccuracy:null,rocAuc:null,prAuc:null,logLoss:null,brierScore:null,precisionAtK:null});
+  // Actual ingestion/store/reader path with an authored provider response, never a live provider call.
+  const audioQueue=new MusicaeQueue(db);let audioCalls=0;
+  await audioQueue.enqueueUser(userId,tracks.map(row=>row.track.id));
+  const audioClient=new MusicaeClient('controlled-provider-key',{fetch:async url=>{
+   audioCalls++;
+   const ids=new URL(url).searchParams.get('ids')!.split(',');
+   return Response.json({audio_features:ids.map(id=>id===tracks[2]!.track.id?null:{
+    id,uri:`spotify:track:${id}`,type:'audio_features',duration_ms:120000,
+    ...(id===tracks[3]!.track.id?{energy:0.72,danceability:0.45,acousticness:0.12,instrumentalness:0,liveness:0.23,speechiness:0.03}:
+     {energy:0.723,danceability:0.456,acousticness:0.123,instrumentalness:0,liveness:0.234,speechiness:0.034}),
+    valence:0.567,tempo:120,loudness:-6,key:0,mode:1,
+   })},{headers:{'x-ratelimit-requests-limit':'10000','x-ratelimit-requests-remaining':'9999'}});
+  }});
+  await new MusicaeWorker(audioQueue,audioClient,{rightsBasis:'Authored controlled integration fixtures'}).run({userId,maxRequests:1});
+  expect(audioCalls).toBe(1);
+  const enrichedInsights=ModelInsightsSchema.parse(await(await fetch(`${base}/api/ml/insights`,{headers})).json());
+  expect(enrichedInsights.audioFeatures).toMatchObject({provider:'musicae',featuresReady:2,featuresTotal:4,failed:2,status:'failed'});
+  expect(enrichedInsights.audioFeatures?.missingness.energy).toBe(0.5);
+  expect(enrichedInsights.audioFeatures?.missingness.happiness).toBe(1);
+  for(const item of queue.items){
+   expect((await repository.getExposure(userId,item.exposure.exposureId))?.features.values.energy??null).toBeNull();
+   expect((await ml.explain({userId,exposureId:item.exposure.exposureId})).prediction).toEqual(item.prediction);
+  }
   // Actual runtime composition must retain the metadata permission and shared feedback worker.
   const libraryBeforeCalibration=await repository.library(userId),writesBeforeCalibration=[...writes];
   const calibrationResponse=await fetch(`${base}/api/calibration/queue?limit=4`,{headers});
   expect(calibrationResponse.status).toBe(200);
   const calibration=CalibrationQueueResultSchema.parse(await calibrationResponse.json());
   expect(calibration.items).toHaveLength(4);
-  const preference=calibration.items[0]!;
-  expect((await repository.getExposure(userId,preference.exposure.exposureId))?.features.permittedForTraining).toBe(true);
+  const preference=calibration.items.find(item=>item.track.trackId===tracks[0]!.track.id)!;
+  const featureSnapshot=(await repository.getExposure(userId,preference.exposure.exposureId))!.features;
+  expect(featureSnapshot).toMatchObject({provenance:'musicae',permittedForTraining:true,values:{energy:0.723,instrumentalness:0}});
+  expect(featureSnapshot.values.happiness??null).toBeNull();
+  const missingItem=calibration.items.find(item=>item.track.trackId===tracks[2]!.track.id)!;
+  expect((await repository.getExposure(userId,missingItem.exposure.exposureId))?.features.values.energy??null).toBeNull();
+  expect((await ml.explain({userId,exposureId:preference.exposure.exposureId})).prediction).toEqual(preference.prediction);
   const labelResponse=await fetch(`${base}/api/calibration/labels`,{method:'POST',headers,body:JSON.stringify({trackId:preference.track.trackId,exposureId:preference.exposure.exposureId,label:0,idempotencyKey:crypto.randomUUID()})});
   expect(labelResponse.status).toBe(200);
   const label=CalibrationLabelResultSchema.parse(await labelResponse.json());
   await awaitFeedback(label.feedbackRevision,1);
+  expect((await repository.trainingExamples(userId)).examples[0]?.features).toEqual(featureSnapshot);
   await retrainSnapshot(1);
   const revokeResponse=await fetch(`${base}/api/calibration/labels/${label.labelId}/undo`,{method:'POST',headers,body:JSON.stringify({idempotencyKey:crypto.randomUUID()})});
   expect(revokeResponse.status).toBe(200);
@@ -226,6 +257,12 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   expect(fallback.fallbackReason).toContain('unavailable');
   expect((await repository.getExposure(session.user!.id,fallback.items[0]!.exposure.exposureId))?.prediction).toEqual(fallback.items[0]!.prediction);
   await runtime.close();
+  await db.transaction(tx=>tx`ALTER VIEW available_audio_features RENAME TO unavailable_audio_features`);
+  runtime=await buildRuntime({env:{NODE_ENV:'test',DATABASE_URL:databaseUrl,DATABASE_SCHEMA:schema}});
+  expect(runtime.startupIssues).toContain('DATABASE_UNAVAILABLE');
+  expect((await runtime.app.inject({url:'/api/demo/bootstrap'})).statusCode).toBe(200);
+  await runtime.close();
+  await db.transaction(tx=>tx`ALTER VIEW unavailable_audio_features RENAME TO available_audio_features`);
   await db.transaction(tx=>tx`DROP TABLE calibration_undos`);
   runtime=await buildRuntime({env:{NODE_ENV:'test',DATABASE_URL:databaseUrl,DATABASE_SCHEMA:schema}});
   expect(runtime.startupIssues).toContain('DATABASE_UNAVAILABLE');

@@ -10,6 +10,7 @@ import {createMlClient} from './client';
 import {assembleLibraryCandidates,type MlLibraryRow} from './features';
 import {createRepositoryMl} from './repository';
 import {createMlReadModule} from './reads';
+import {createMlRetrainModule} from './retrain';
 import {buildApp} from '../app';
 import {loadConfig} from '../config';
 
@@ -72,6 +73,38 @@ test.skipIf(process.env.ML_ADAPTER_INTEGRATION!=='1')('Bun adapter to real C1: m
    expect(analytics.json().library).toEqual(summary);
    expect(analytics.json().metrics).toEqual(insights.json().metrics);
   }finally{await api.close();}
+  // Separate owner: manual and automatic paths both use full repository snapshots.
+  // This fixture never mixes observe and fit at a single revision.
+  let snapshot={feedbackRevision:1,examples};
+  const manualOwner='demo:manual-retrain';
+  const manualAdapter=createRepositoryMl({client,repository:{trainingExamples:async owner=>{
+   expect(owner).toBe(manualOwner);return structuredClone(snapshot);
+  }}});
+  const retrain=createMlRetrainModule({config:{...config,secureCookies:false},ml:manualAdapter,
+   auth:{session:async token=>token==='synthetic-session'?{user:{id:manualOwner}}:null},
+  });
+  const manualApi=await buildApp({config,registerRoutes:retrain.registerRoutes});
+  const post=()=>manualApi.inject({method:'POST',url:'/api/ml/retrain',
+   headers:{origin:config.webOrigin},cookies:{sortfm_session:'synthetic-session'}});
+  try{
+   const [manual,automatic]=await Promise.all([post(),manualAdapter.fit(manualOwner)]);
+   expect(manual.statusCode).toBe(200);
+   expect(manual.json()).toEqual(automatic);
+   expect(manual.json().trainedExamples).toBe(36);
+   expect((await post()).json()).toEqual(automatic);
+   // D supplies this authoritative empty snapshot after all active labels are undone.
+   snapshot={feedbackRevision:2,examples:[]};
+   const undone=await post();expect(undone.statusCode).toBe(200);
+   expect(undone.json()).toMatchObject({feedbackRevision:2,trainedExamples:0,
+    metrics:{status:'insufficient_data',dataset:'synthetic',labeledExamples:0,trainedExamples:0,heldOutExamples:0,
+     evaluationMethod:'none',baseRate:null,balancedAccuracy:null,rocAuc:null,prAuc:null,logLoss:null,brierScore:null,precisionAtK:null}});
+   expect((await manualAdapter.evaluation(manualOwner)).labeledExamples).toBe(0);
+   expect((await post()).json()).toEqual(undone.json());
+   snapshot={feedbackRevision:1,examples};
+   const stale=await post();expect(stale.statusCode).toBe(409);
+   expect(stale.json().code).toBe('STALE_REVISION');
+   expect((await manualAdapter.evaluation(manualOwner)).labeledExamples).toBe(0);
+  }finally{await manualApi.close();}
   await expect(client.score({userId:'demo:other',featureVersion:FEATURE_VERSION,candidates:[],modelVersion:fitted.modelVersion})).rejects.toMatchObject({code:'MODEL_NOT_FOUND'});
  }finally{
   worker.kill('SIGTERM');await worker.exited;await rm(directory,{recursive:true,force:true});

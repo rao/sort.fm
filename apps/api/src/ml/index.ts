@@ -3,3 +3,4 @@ export {createMlClient,MlClientError,type MlClient,type MlFetch,type MlClientErr
 export {assembleLibraryCandidates,feedbackSplit,type MlLibraryRow,type FeatureAssemblyOptions,type TrainingPermission} from './features';
 export {createRepositoryMl,type RepositoryMl,type RepositoryMlOptions,type MlRepositoryPort} from './repository';
 export {createMlReadModule,type MlReadOptions} from './reads';
+export {createMlRetrainModule,type MlRetrainOptions} from './retrain';

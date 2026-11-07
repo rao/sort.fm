@@ -7,7 +7,7 @@ import {FeedbackWorker} from './reviews/feedback';
 import {ReviewService} from './reviews/service';
 import {ReviewWorker} from './reviews/worker';
 import {SpotifyMutations} from './spotify/mutations';
-import {assembleLibraryCandidates,createMlClient,createRepositoryMl,createMlReadModule,type RepositoryMl} from './ml';
+import {assembleLibraryCandidates,createMlClient,createRepositoryMl,createMlReadModule,createMlRetrainModule,type RepositoryMl} from './ml';
 import {buildApp} from './app';
 import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
@@ -86,11 +86,14 @@ export async function buildRuntime(options: {
   getSummary:userId=>a1Store.transaction(tx=>tx.getSummary(userId)),
   audioProgress:userId=>soundnet.progress(userId),latestModel:userId=>repository.latestModel(userId),
  }):null;
+ const modelRetrain=spotify?createMlRetrainModule({
+  auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},ml,
+ }):null;
 
  try {
   const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
    if(feedback){app.addHook('onReady',async()=>{feedback.start();});app.addHook('onClose',async()=>{await feedback.close();});}
-   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);await modelReads?.registerRoutes(app);}
+   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);await modelReads?.registerRoutes(app);await modelRetrain?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));
    }

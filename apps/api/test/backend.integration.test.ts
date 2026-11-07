@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createMlClient} from '../src/ml';
 import {Database,migrate,Repository} from '@sortfm/db';
-import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema,ReviewRequestSchema,ReviewResultSchema,DecisionHistorySchema,ModelInsightsSchema,PUBLIC_ROUTES,type ReviewResult} from '@sortfm/contracts';
+import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema,ReviewRequestSchema,ReviewResultSchema,DecisionHistorySchema,ModelInsightsSchema,FitResponseSchema,PUBLIC_ROUTES,type ReviewResult} from '@sortfm/contracts';
 import {buildRuntime} from '../src/runtime';
 import {SpotifyHttp} from '../src/spotify/http';
 
@@ -110,6 +110,29 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   expect((await fetch(`${base}/api/ml/insights`)).status).toBe(401);
   // Actual authenticated public routes and automatic workers; no direct settlement/fit.
   const userId=session.user!.id,headers={cookie:sessionCookie,origin:'http://127.0.0.1:5173','content-type':'application/json'};
+  const retrainSnapshot=async(expectedLabels:number)=>{
+   const before=await repository.trainingExamples(userId);
+   const deliveryBefore=await db.transaction(tx=>tx`SELECT target_revision,acknowledged_revision FROM feedback_sync_jobs WHERE user_id=${userId}`);
+   const response=await fetch(`${base}/api/ml/retrain`,{method:'POST',headers,body:'{}'});
+   expect(response.status).toBe(200);
+   const fit=FitResponseSchema.parse(await response.json());
+   expect(fit.userId).toBe(userId);expect(fit.feedbackRevision).toBe(before.feedbackRevision);
+   expect(fit.metrics.labeledExamples).toBe(expectedLabels);
+   expect(fit.trainedExamples).toBe(before.examples.filter(row=>row.split==='train').length);
+   expect(fit.metrics.heldOutExamples).toBe(before.examples.filter(row=>row.split==='holdout').length);
+   expect(fit.metrics).toEqual(await ml.evaluation({userId}));
+   const repeated=await fetch(`${base}/api/ml/retrain`,{method:'POST',headers,body:'{}'});
+   expect(repeated.status).toBe(200);expect(await repeated.json()).toEqual(fit);
+   expect(await repository.trainingExamples(userId)).toEqual(before);
+   expect(await db.transaction(tx=>tx`SELECT target_revision,acknowledged_revision FROM feedback_sync_jobs WHERE user_id=${userId}`)).toEqual(deliveryBefore);
+   return fit;
+  };
+  expect((await fetch(`${base}/api/ml/retrain`,{method:'POST',headers:{origin:headers.origin}})).status).toBe(401);
+  expect((await fetch(`${base}/api/ml/retrain`,{method:'POST',headers:{cookie:sessionCookie}})).status).toBe(403);
+  const injected=await fetch(`${base}/api/ml/retrain`,{method:'POST',headers,body:JSON.stringify({userId:'other-owner'})});
+  expect(injected.status).toBe(400);
+  const coldFit=await retrainSnapshot(0);
+  expect(coldFit.metrics.status).toBe('insufficient_data');
   const awaitDecision=async(id:string,expected:'COMPLETE'|'UNDONE')=>{
    const until=Date.now()+25_000;let result:ReviewResult|undefined;
    while(Date.now()<until){
@@ -147,6 +170,8 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
    expect(liked.has(item.track.trackId)).toBe(action==='KEEP'||action==='SKIP');
   }
   const archiveTrack=decisions[2]!.trackId;
+  await retrainSnapshot(3);
+  for(const item of queue.items)expect((await ml.explain({userId,exposureId:item.exposure.exposureId})).prediction).toEqual(item.prediction);
   expect(writes.indexOf(`ARCHIVE:${archiveTrack}`)).toBeLessThan(writes.indexOf(`DELETE:${archiveTrack}`));
   expect((await repository.library(userId)).map(row=>row.track.trackId)).toHaveLength(2);
   for(const decision of [...decisions].reverse()){
@@ -164,11 +189,16 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   expect(archived.has(archiveTrack)).toBe(true);
   const events:{event_type:string}[]=await db.transaction(tx=>tx`SELECT event_type FROM interaction_events WHERE user_id=${userId}`);
   expect(events.filter(row=>row.event_type==='decision')).toHaveLength(4);expect(events.filter(row=>row.event_type==='undo')).toHaveLength(4);
+  const emptyFit=await retrainSnapshot(0);
+  expect(emptyFit.metrics).toMatchObject({status:'insufficient_data',dataset:'synthetic',baseRate:null,balancedAccuracy:null,rocAuc:null,prAuc:null,logLoss:null,brierScore:null,precisionAtK:null});
   const fresh=QueueResultSchema.parse(await(await fetch(`${base}/api/queue?limit=4`,{headers})).json());
   expect(fresh.items).toHaveLength(4);expect(fresh.items.every(item=>!queue.items.some(old=>old.exposure.exposureId===item.exposure.exposureId))).toBe(true);
   worker.kill('SIGTERM');await worker.exited;
   const unavailable=await fetch(`${base}/api/ml/insights`,{headers});
   expect(unavailable.status).toBe(503);expect((await unavailable.json() as {code:string}).code).toBe('ML_UNAVAILABLE');
+  const retrainUnavailable=await fetch(`${base}/api/ml/retrain`,{method:'POST',headers,body:'{}'});
+  expect(retrainUnavailable.status).toBe(503);
+  expect(await retrainUnavailable.json()).toMatchObject({code:'ML_UNAVAILABLE',retryable:false});
   const fallback=QueueResultSchema.parse(await(await fetch(`${base}/api/queue?limit=1`,{headers:{cookie:sessionCookie}})).json());
   expect(fallback.items[0]?.prediction.modelVersion).toBe('queue:metadata:v1');
   expect(fallback.items[0]?.prediction.removalProbability).toBeNull();

@@ -17,3 +17,7 @@ Implement only authenticated GET insights and analytics registrars using the exi
 On ML failure, a validated user-matched stored model run may supply historical counts/version; label it unavailable and clear numerical evaluation metrics. If no such snapshot exists, return a sanitized retryable 503: required integer counts cannot represent unknown values. Do not infer training state from library summary or from an absent model_runs row. Preserve real library counters independently, including remaining and total populations.
 
 Verify auth/cookie/origin boundaries, fixed public response DTOs, actual data passthrough, unavailable and missing/corrupt snapshot cases, owner isolation, timeout behavior and no mutation dependencies. Root owns runtime registration; optional retrain is deferred to the existing automatic feedback workflow.
+
+## Explicit retrain extension (base 648ef84)
+
+Add a separate owner-only POST registrar for the existing retrain contract. No query fields or body data beyond an optional empty object. Reuse session/origin/CSRF security, call the existing repository snapshot fit once, validate response identity/counts, and bound total handler waiting. Surface ambiguous completion after timeout without retry, guessed success, outbox acknowledgement or synthetic model-run metadata. Preserve the read-only registrar and all Python/C2/shared/DB files. Verify concurrent same-revision fits, actual empty snapshots, stale revisions, security and transport failures before a focused feature-branch commit.

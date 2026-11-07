@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AccountSessionSchema, ExposureInputSchema, FeatureVectorSchema, ModelMetricsSchema, PredictionSchema, ReviewRequestSchema, ReviewResultSchema, TrackCardSchema, labelForAction } from "../src/index";
 import { demoQueue, demoTracks, emptyMetrics } from "../src/fixtures";
 import { UndoCommandInputSchema } from "../src/index";
+import { ScoreRequestSchema, TrainingExampleSchema } from "../src/index";
 
 const decision = {trackId: "demo:001", action: "ARCHIVE", exposureId: "00000000-0000-4000-8000-000000000001", idempotencyKey: "00000000-0000-4000-8000-000000000002"};
 describe("public review boundary", () => {
@@ -74,4 +75,12 @@ test("available metrics cannot invent counts or omit calculated measurements", (
   expect(ModelMetricsSchema.safeParse({...metrics, labeledExamples: 0}).success).toBe(false);
   expect(ModelMetricsSchema.safeParse({...metrics, baseRate: null, rocAuc: null}).success).toBe(false);
   expect(ModelMetricsSchema.safeParse({...metrics, baseRate: 0.9}).success).toBe(false);
+});
+test("scoring optionally registers a caller-owned exposure without changing training inputs", () => {
+  const candidate = {trackId: "demo:001", features: {featureVersion: "sortfm.features.v1", values: {energy: 0}, provenance: "synthetic", permittedForTraining: true}};
+  const request = {userId: "demo:guest", featureVersion: "sortfm.features.v1", modelVersion: null, candidates: [candidate]};
+  expect(ScoreRequestSchema.safeParse(request).success).toBe(true);
+  expect(ScoreRequestSchema.safeParse({...request, candidates: [{...candidate, exposureId: decision.exposureId}]}).success).toBe(true);
+  expect(ScoreRequestSchema.safeParse({...request, candidates: [{...candidate, exposureId: "not-a-uuid"}]}).success).toBe(false);
+  expect(TrainingExampleSchema.safeParse({...candidate, decisionId: completedArchive.decisionId, label: 1, split: "train", labeledAt: completedArchive.createdAt, exposureId: decision.exposureId}).success).toBe(false);
 });

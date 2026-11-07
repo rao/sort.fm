@@ -221,6 +221,42 @@ def test_c1_disabled_and_zero_feedback_use_exact_supplied_c1_order(strategy, obs
     assert result["propensityEstimate"] is None
 
 
+@pytest.mark.parametrize("strategy", ["linucb", "epsilon_greedy"])
+def test_cold_fallback_uses_c1_order_within_artist_diversity_constraints(strategy):
+    candidates, predictions, contexts, _ = selection_fixture()
+    learner = LinearUCB(2)
+    candidates[0]["artistIds"] = ["artist-x"]
+    candidates[1]["artistIds"] = ["artist-y"]
+    candidates[2]["artistIds"] = ["artist-z"]
+    history = [{"trackId": "previous", "artistIds": ["artist-x"], "strategy": "exploit"}]
+    config = {"strategy": strategy, "maxPerArtist": 1, "diversityWindow": 3}
+    arguments = dict(seed=42, step=1, config=config, history=history, fallback_order=["demo:a", "demo:c", "demo:b"])
+    result = select_candidate(candidates, predictions, contexts, learner, **arguments)
+    assert result["trackId"] == "demo:c"
+    assert result["selectionMethod"] == "c1"
+    assert result["eligibleCount"] == 2
+    assert "no_reward_observations" in result["reasons"]
+    assert "artist_diversity_applied" in result["reasons"]
+    # Turning the bandit off is an exact C1 control, including the first track.
+    arguments["config"] = {**config, "strategy": "c1"}
+    disabled = select_candidate(candidates, predictions, contexts, learner, **arguments)
+    assert disabled["trackId"] == "demo:a"
+
+
+def test_cold_fallback_reports_missing_artist_metadata_and_impossible_caps():
+    candidates, predictions, contexts, _ = selection_fixture()
+    learner = LinearUCB(2)
+    arguments = dict(seed=42, step=1, config={"maxPerArtist": 1}, history=[{"artistIds": ["artist-x"]}], fallback_order=["demo:c", "demo:a", "demo:b"])
+    unknown = select_candidate(candidates, predictions, contexts, learner, **arguments)
+    assert unknown["trackId"] == "demo:c"
+    assert "artist_metadata_unavailable" in unknown["reasons"]
+    for row in candidates:
+        row["artistIds"] = ["artist-x"]
+    relaxed = select_candidate(candidates, predictions, contexts, learner, **arguments)
+    assert relaxed["trackId"] == "demo:c"
+    assert "artist_diversity_relaxed_no_eligible_candidate" in relaxed["reasons"]
+
+
 @pytest.mark.parametrize("config", [{"strategy": "unknown"}, {"alpha": -1}, {"epsilon": 1.01}, {"maxExplorationFraction": -.1}, {"obviousKeepThreshold": float("nan")}, {"diversityWindow": -1}, {"maxPerArtist": 0}])
 def test_selector_rejects_invalid_configuration(config):
     with pytest.raises(ValueError):

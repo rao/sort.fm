@@ -173,30 +173,31 @@ def select_candidate(
     cold = learner.n_observations == 0 and method in ("linucb", "epsilon_greedy")
     propensity = None
     can_explore = False
+    eligible = ordered
+    # Cold adaptive policies still enforce the same serving constraints. Only
+    # the explicit C1 control bypasses them to preserve its exact ranked queue.
+    if method != "c1" and window:
+        counts = Counter(artist for row in history[-window:] for artist in set(row.get("artistIds") or []))
+        diverse = [index for index in eligible if all(counts[artist] < per_artist for artist in set(candidates[index].get("artistIds") or []))]
+        if not any(row.get("artistIds") for row in candidates):
+            reasons.append("artist_metadata_unavailable")
+        elif any(not row.get("artistIds") for row in candidates):
+            reasons.append("artist_metadata_partial")
+        if not diverse:
+            reasons.append("artist_diversity_relaxed_no_eligible_candidate")
+        elif len(diverse) < len(eligible):
+            eligible = diverse
+            reasons.append("artist_diversity_applied")
     if method == "c1" or cold:
-        by_id = {row["trackId"]: index for index, row in enumerate(candidates)}
+        by_id = {candidates[index]["trackId"]: index for index in eligible}
         fallback = [by_id[track_id] for track_id in (fallback_order or []) if track_id in by_id]
-        chosen = fallback[0] if fallback else min(ordered, key=lambda index: (-baseline[index], candidates[index]["trackId"]))
+        chosen = fallback[0] if fallback else min(eligible, key=lambda index: (-baseline[index], candidates[index]["trackId"]))
         greedy = chosen
-        eligible = ordered
         method = "c1"
         selection_score = baseline[chosen]
         bonus = np.zeros(len(candidates))
         reasons.append("no_reward_observations" if cold else "bandit_disabled")
     else:
-        eligible = ordered
-        if window:
-            counts = Counter(artist for row in history[-window:] for artist in set(row.get("artistIds") or []))
-            diverse = [index for index in eligible if all(counts[artist] < per_artist for artist in set(candidates[index].get("artistIds") or []))]
-            if not any(row.get("artistIds") for row in candidates):
-                reasons.append("artist_metadata_unavailable")
-            elif any(not row.get("artistIds") for row in candidates):
-                reasons.append("artist_metadata_partial")
-            if not diverse:
-                reasons.append("artist_diversity_relaxed_no_eligible_candidate")
-            elif len(diverse) < len(eligible):
-                eligible = diverse
-                reasons.append("artist_diversity_applied")
         greedy = best(eligible, scores["mean"])
         prior_explorations = sum(row.get("strategy") == "explore" for row in history)
         can_explore = prior_explorations < math.floor(fraction * (step + 1))

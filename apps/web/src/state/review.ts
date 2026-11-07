@@ -178,6 +178,20 @@ export class ReviewStore {
 		}
 	}
 	private applySnapshot(snapshot: LiveSnapshot) {
+		const previous = this.state.bootstrap;
+		const sameOwner =
+			snapshot.session.mode === "spotify" &&
+			snapshot.session.user?.id === this.ownerId &&
+			previous?.session.mode === "spotify" &&
+			previous.session.user?.id === this.ownerId;
+		// An unavailable optional read does not revoke confirmed metrics. An
+		// explicit quarantine (present insights, null metrics) still clears them.
+		const metrics =
+			snapshot.insights === null
+				? sameOwner
+					? (previous?.metrics ?? null)
+					: null
+				: snapshot.insights.metrics;
 		const known = new Map<string, QueueItem>();
 		for (const entry of this.state.history)
 			if (entry.item) known.set(entry.item.track.trackId, entry.item);
@@ -187,7 +201,7 @@ export class ReviewStore {
 			bootstrap: {
 				session: snapshot.session,
 				queue: snapshot.queue,
-				metrics: snapshot.insights?.metrics ?? null,
+				metrics,
 				notice: "Connected to Spotify. Confirmed changes update your library.",
 			},
 			queue: snapshot.queue.items,
@@ -245,14 +259,7 @@ export class ReviewStore {
 				retrainNotice: `Server confirmed model ${result.modelVersion} at feedback revision ${result.feedbackRevision}. Current song scores retain their exposure-time version.`,
 			});
 			try {
-				const snapshot = await live.snapshot();
-				this.applySnapshot(snapshot);
-				// Insights are optional; a failed read cannot erase the validated fit.
-				if (!snapshot.insights?.metrics) {
-					this.update({
-						bootstrap: { ...this.state.bootstrap!, metrics: result.metrics },
-					});
-				}
+				this.applySnapshot(await live.snapshot());
 			} catch (error) {
 				this.update({
 					refreshError: `Your model was confirmed. Refresh the queue before continuing: ${errorMessage(error)}`,

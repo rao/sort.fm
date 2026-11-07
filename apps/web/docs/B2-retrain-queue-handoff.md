@@ -12,7 +12,7 @@ Session ownership, returned account/model/count validation, pending command jour
 
 ## Changed files
 
-- `apps/web/src/state/review.ts`: fourteen lines adding post-fit reconciliation and separate read-failure handling.
+- `apps/web/src/state/review.ts`: post-fit reconciliation, separate read-failure handling, and same-owner metrics preservation during optional insights outages.
 - `apps/web/src/state/retrain.test.ts`: controlled HTTP tests for reversed server order, fresh exposures, unchanged previously served objects, lock duration, duplicate prevention, required-read failure/recovery, owner change, optional insights failure, and preservation of pending commands. Existing identity and ambiguous-fit tests remain.
 - This handoff.
 
@@ -20,9 +20,9 @@ No contracts, APIs, dependencies, styling, components, Python, or shared-root fi
 
 ## Verification
 
-- Focused retrain suite: **13 passed / 67 assertions**.
-- All frontend tests: **77 passed / 303 assertions**.
-- Root TypeScript/Bun tests: **439 passed / 2,305 assertions / 67 opt-in skips**.
+- Focused retrain suite: **17 passed / 95 assertions**.
+- All frontend tests: **81 passed / 331 assertions**.
+- Root TypeScript/Bun tests: **443 passed / 2,333 assertions / 67 opt-in skips**.
 - Root typecheck, frontend lint, web/API production build and `git diff --check`: passed.
 - Foundation HTTP smoke: passed with local socket permission after the sandbox prevented its initial server bind. No test changes were made to resolve that environment restriction.
 - Independent review: no actionable findings; reviewer additionally ran 48 relevant lifecycle tests successfully.
@@ -35,3 +35,12 @@ These are controlled HTTP/store tests, not verification of live Spotify actions,
 Review/cherry-pick the published branch onto canonical after A1's queue work. There are no migrations or install changes. Verify manual retrain followed by a newly ordered queue against A1's server implementation; the frontend uses the existing `balanced` policy and limit 20. Preserve every new response's immutable exposure/prediction pairing. On an injected follow-up queue failure, verify the fit remains confirmed and Refresh queue issues only reads before review resumes.
 
 No merge, deployment, C2 work, or playback change was performed. Playback remains subject to its existing backend/SDK gates. The final chat handoff supplies the exact published commit hash.
+
+
+## Correction after integration review
+
+The initial commit `eaf7600b42f39f9ae6ebe4027202bd12169b4e49` preserved confirmed fit metrics only inside `retrain()`. Root reproduced a combined failure: the post-fit queue request fails, then an explicit GET refresh recovers the queue while optional insights remain unavailable. Generic snapshot application incorrectly cleared the confirmed model.
+
+Preservation now belongs to snapshot application and requires both the prior and incoming sessions to be Spotify sessions for this store’s bound owner. Absent insights retain the last confirmed metrics with the outage warning; repeated GET-only recovery behaves the same way. A present insights response with quarantined null metrics explicitly clears the model instead. Valid incoming metrics remain authoritative. The retrain-only fallback was removed, so it cannot bypass quarantine. Retained old metrics do not clear an ambiguous-fit error; only a valid incoming metrics response can do that.
+
+The regression covers the exact combined failure, a second GET refresh, fresh queue adoption and a single fit POST. Additional tests verify another owner’s fresh store has no inherited metrics and quarantine works both immediately after a fit and during later refresh. All verification counts above were updated after this correction; independent follow-up review found no actionable issues. Integrate the complete branch, including the correction commit supplied in the final chat handoff, rather than the initial commit alone.

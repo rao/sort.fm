@@ -79,6 +79,7 @@ function setup() {
 	const store = new ReviewStore(createLiveClient(api, f.session, f.journal));
 	return {
 		f,
+		api,
 		store,
 		writes: () => writes,
 		failInsights: () => {
@@ -293,34 +294,49 @@ test("manual fit holds all action locks until fresh queue reconciliation complet
 	expect(f.store.getSnapshot().retraining).toBe(false);
 });
 
-test("queue failure after confirmed fit retains metrics and recovers by GET without repeating fit", async () => {
-	const f = setup();
-	await f.store.load();
-	const oldQueue = structuredClone(f.store.getSnapshot().queue);
-	f.afterFit(() => {
-		reorderWithFreshExposures(f);
-		f.f.setQueueError(true);
-	});
-	await f.store.retrain();
-	expect(f.store.getSnapshot().bootstrap?.metrics?.modelVersion).toBe(
-		"fitted-v2",
-	);
-	expect(f.store.getSnapshot().queue).toEqual(oldQueue);
-	expect(f.store.getSnapshot().retrainError).toBeNull();
-	expect(f.store.getSnapshot().refreshError).toContain("model was confirmed");
-	expect(f.store.getSnapshot().refreshError).toContain("Refresh the queue");
-	expect(f.store.getSnapshot().retry).toBeNull();
-	expect(f.f.journal.read()).toBeNull();
-	await f.store.retrain();
-	await f.store.decide("KEEP");
-	expect(f.writes()).toBe(1);
-	expect(f.f.commands).toHaveLength(0);
-	f.f.setQueueError(false);
-	await f.store.refresh();
-	expect(f.store.getSnapshot().refreshError).toBeNull();
-	expect(f.store.getSnapshot().queue).toEqual(f.f.items);
-	expect(f.writes()).toBe(1);
-});
+test.each([false, true])(
+	"queue recovery retains confirmed fit with optional insights still down: %s",
+	async (insightsStillDown) => {
+		const f = setup();
+		await f.store.load();
+		const oldQueue = structuredClone(f.store.getSnapshot().queue);
+		f.afterFit(() => {
+			reorderWithFreshExposures(f);
+			f.f.setQueueError(true);
+		});
+		await f.store.retrain();
+		expect(f.store.getSnapshot().bootstrap?.metrics?.modelVersion).toBe(
+			"fitted-v2",
+		);
+		expect(f.store.getSnapshot().queue).toEqual(oldQueue);
+		expect(f.store.getSnapshot().retrainError).toBeNull();
+		expect(f.store.getSnapshot().refreshError).toContain("model was confirmed");
+		expect(f.store.getSnapshot().refreshError).toContain("Refresh the queue");
+		expect(f.store.getSnapshot().retry).toBeNull();
+		expect(f.f.journal.read()).toBeNull();
+		await f.store.retrain();
+		await f.store.decide("KEEP");
+		expect(f.writes()).toBe(1);
+		expect(f.f.commands).toHaveLength(0);
+		f.f.setQueueError(false);
+		if (insightsStillDown) f.failInsights();
+		await f.store.refresh();
+		expect(f.store.getSnapshot().refreshError).toBeNull();
+		expect(f.store.getSnapshot().queue).toEqual(f.f.items);
+		expect(f.store.getSnapshot().bootstrap?.metrics?.modelVersion).toBe(
+			"fitted-v2",
+		);
+		if (insightsStillDown)
+			expect(f.store.getSnapshot().warnings.join(" ")).toContain(
+				"Insights unavailable",
+			);
+		await f.store.refresh();
+		expect(f.store.getSnapshot().bootstrap?.metrics?.modelVersion).toBe(
+			"fitted-v2",
+		);
+		expect(f.writes()).toBe(1);
+	},
+);
 
 test("account change during post-fit reconciliation cannot install another owner's queue", async () => {
 	const f = setup();
@@ -360,3 +376,45 @@ test("unavailable optional insights after a fit cannot erase confirmed metrics o
 	expect(f.store.getSnapshot().retrainError).toBeNull();
 	expect(f.writes()).toBe(1);
 });
+
+test("confirmed fit metrics cannot carry into a different owner's store during insights outage", async () => {
+	const f = setup();
+	await f.store.load();
+	f.afterFit(() => {
+		f.f.setQueueError(true);
+	});
+	await f.store.retrain();
+	f.f.setQueueError(false);
+	f.failInsights();
+	f.f.session.user!.id = "other";
+	await f.store.refresh();
+	expect(f.store.getSnapshot().refreshError).toContain("account changed");
+	expect(f.store.getSnapshot().bootstrap?.session.user?.id).toBe("owner");
+	const other = new ReviewStore(
+		createLiveClient(f.api, f.f.session, f.f.journal),
+	);
+	await other.load();
+	expect(other.getSnapshot().bootstrap?.session.user?.id).toBe("other");
+	expect(other.getSnapshot().bootstrap?.metrics).toBeNull();
+	expect(f.writes()).toBe(1);
+});
+
+test.each(["post-fit", "refresh"])(
+	"synthetic metric quarantine is not treated as absent insights on %s",
+	async (phase) => {
+		const f = setup();
+		await f.store.load();
+		if (phase === "post-fit")
+			f.afterFit(() => {
+				f.quarantine();
+			});
+		await f.store.retrain();
+		if (phase === "refresh") {
+			f.quarantine();
+			await f.store.refresh();
+		}
+		expect(f.store.getSnapshot().bootstrap?.metrics).toBeNull();
+		expect(f.store.getSnapshot().warnings.join(" ")).toContain("synthetic");
+		expect(f.writes()).toBe(1);
+	},
+);

@@ -32,7 +32,7 @@ def _numeric_literal(value: Any) -> Any:
     return value
 
 
-Identifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9:_-]+$")]
+Identifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9:_.-]+$")]
 Uuid = Annotated[str, StringConstraints(pattern=r"^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$")]
 # Copied from the generated TimestampSchema. Keep calendar validity, required
 # seconds, capital T/Z, and offset acceptance identical across languages.

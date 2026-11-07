@@ -14,7 +14,7 @@ test.skipIf(!url)('calibration migration backfills legacy exposure purpose, roll
   await db.transaction(tx=>tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at) VALUES(${item.exposure.exposureId},${userId},${track.trackId},${JSON.stringify(input)}::jsonb,${item.exposure.servedAt})`);
   const body=await readFile(join(directory,'012_calibration.sql'),'utf8');await expect(db.transaction(async tx=>{await tx.unsafe(body);throw new Error('INJECTED_ROLLBACK');})).rejects.toThrow('INJECTED_ROLLBACK');
   expect(await db.transaction(tx=>tx`SELECT 1 FROM information_schema.columns WHERE table_schema=${db.schema} AND table_name='exposures' AND column_name='purpose'`)).toHaveLength(0);
-  expect((await migrate(db)).applied).toEqual(['012_calibration.sql','013_musicae.sql']);expect((await migrate(db)).applied).toEqual([]);
+  expect((await migrate(db)).applied).toEqual(['012_calibration.sql','013_musicae.sql','014_playback.sql']);expect((await migrate(db)).applied).toEqual([]);
   const [legacy]=await db.transaction(tx=>tx`SELECT purpose,payload FROM exposures WHERE exposure_id=${item.exposure.exposureId}`);expect(legacy.purpose).toBe('review');expect(legacy.payload).toEqual(input);
  }finally{await db.sql.unsafe(`DROP SCHEMA IF EXISTS "${db.schema}" CASCADE`);await db.close();}
 },60000);

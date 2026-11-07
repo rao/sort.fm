@@ -1,0 +1,86 @@
+import {test,expect,describe,beforeAll,afterAll} from 'bun:test';
+import {createHash} from 'node:crypto';
+import {PLAYBACK_SDK_SCOPES,PLAYBACK_CONTROL_SCOPES,type Account,type PlaybackGrant,type PlaybackGrantPurpose,type PlaybackOAuthAttempt} from '@sortfm/contracts';
+import {Database} from '../src/client';import {migrate} from '../src/migrate';import {PostgresA1Store} from '../src/a1-store';import {PostgresPlaybackStore} from '../src/playback-store';
+const url=process.env.TEST_DATABASE_URL;
+const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
+const envelope='v1.'+Buffer.alloc(12).toString('base64url')+'.'+Buffer.alloc(16).toString('base64url')+'.'+Buffer.from('generated fixture ciphertext').toString('base64url');
+describe.skipIf(!url)('PostgreSQL playback port',()=>{
+ let db:Database,primary:PostgresA1Store,store:PostgresPlaybackStore;
+ beforeAll(async()=>{db=new Database(url!,`test_playback_${crypto.randomUUID().replaceAll('-','')}`);await migrate(db);primary=new PostgresA1Store(db);store=new PostgresPlaybackStore(db);},60000);
+ afterAll(async()=>{await db.sql.unsafe(`DROP SCHEMA "${db.schema}" CASCADE`);await db.close();},60000);
+ async function fixture(){const name=`playback-${crypto.randomUUID()}`,ownerId=`spotify:${name}`,now=Date.now()+60000,initiatingSessionHash=hash(crypto.randomUUID());
+  const account:Account={user:{id:ownerId,spotifyId:name,displayName:'Test',avatarUrl:null},accessToken:envelope,refreshToken:envelope,expiresAt:now+3600000,scopes:['user-library-read'],credentialVersion:crypto.randomUUID(),revoked:false,refreshLease:null};
+  await primary.transaction(async tx=>{await tx.putAccount(account);await tx.putSession({hash:initiatingSessionHash,userId:ownerId,expiresAt:now+3600000});});
+  const context={ownerId,initiatingSessionHash,now};
+  const grant=(purpose:PlaybackGrantPurpose='sdk'):PlaybackGrant=>({ownerId,purpose,encryptedAccessToken:envelope,encryptedRefreshToken:envelope,expiresAt:now+300000,credentialVersion:crypto.randomUUID(),scopes:[...(purpose==='sdk'?PLAYBACK_SDK_SCOPES:PLAYBACK_CONTROL_SCOPES)],revoked:false,refreshLease:null} as PlaybackGrant);
+  const attempt=(purpose:PlaybackGrantPurpose='sdk',expectedCredentialVersion:string|null=null):PlaybackOAuthAttempt=>({ownerId,purpose,initiatingSessionHash,stateHash:hash(crypto.randomUUID()),browserHash:hash(crypto.randomUUID()),encryptedVerifier:envelope,returnTo:'calibration',createdAt:now,expiresAt:now+120000,expectedCredentialVersion});
+  const publish=async(g=grant())=>{const a=attempt(g.purpose,(await store.getGrant({...context,purpose:g.purpose}))?.credentialVersion??null);await store.createOAuth(a,now);await store.consumeOAuth({...context,stateHash:a.stateHash,purpose:a.purpose,browserHash:a.browserHash});expect(await store.completeOAuth({...context,stateHash:a.stateHash,grant:g})).toBe(true);return g;};
+  return {context,account,grant,attempt,publish};
+ }
+ test('OAuth evidence is single use, invalid evidence does not consume, and publication is once-only',async()=>{const f=await fixture(),a=f.attempt();
+  await store.createOAuth(a,f.context.now);await expect(store.createOAuth(a,f.context.now)).rejects.toMatchObject({code:'STATE_CONFLICT'});
+  await expect(store.consumeOAuth({...f.context,stateHash:a.stateHash,purpose:'control',browserHash:a.browserHash})).rejects.toMatchObject({code:'OAUTH_STATE_INVALID'});
+  await expect(store.consumeOAuth({...f.context,stateHash:a.stateHash,purpose:'sdk',browserHash:hash('wrong')})).rejects.toMatchObject({code:'OAUTH_STATE_INVALID'});
+  const g=f.grant();expect(await store.completeOAuth({...f.context,stateHash:a.stateHash,grant:g})).toBe(false);
+  const results=await Promise.allSettled([1,2].map(()=>store.consumeOAuth({...f.context,stateHash:a.stateHash,purpose:'sdk',browserHash:a.browserHash})));expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(results.filter(r=>r.status==='rejected')).toHaveLength(1);
+  const consumed=(results.find(r=>r.status==='fulfilled') as PromiseFulfilledResult<PlaybackOAuthAttempt>).value;expect(consumed).toEqual(a);consumed.returnTo='review';
+  expect(await store.completeOAuth({...f.context,stateHash:a.stateHash,grant:g})).toBe(true);expect(await store.completeOAuth({...f.context,stateHash:a.stateHash,grant:f.grant()})).toBe(false);
+  const [row]=await db.transaction(tx=>tx`SELECT consumed_at,completed_at,payload FROM playback_oauth_attempts WHERE state_hash=${a.stateHash}`);expect(row.consumed_at).not.toBeNull();expect(row.completed_at).not.toBeNull();expect(row.payload.returnTo).toBe('calibration');
+  const fetched=(await store.getGrant({...f.context,purpose:'sdk'}))!;expect(fetched).toEqual(g);fetched.scopes.splice(0);expect((await store.getGrant({...f.context,purpose:'sdk'}))!.scopes).toHaveLength(3);
+ },60000);
+ test('owner and purpose boundaries prevent cross-grant use and primary OAuth collisions',async()=>{const a=await fixture(),b=await fixture(),attempt=a.attempt();await store.createOAuth(attempt,a.context.now);
+  await expect(store.consumeOAuth({...b.context,stateHash:attempt.stateHash,purpose:'sdk',browserHash:attempt.browserHash})).rejects.toMatchObject({code:'OAUTH_STATE_INVALID'});
+  await expect(store.createOAuth({...b.attempt('control'),stateHash:attempt.stateHash},b.context.now)).rejects.toMatchObject({code:'STATE_CONFLICT'});
+  await store.consumeOAuth({...a.context,stateHash:attempt.stateHash,purpose:'sdk',browserHash:attempt.browserHash});
+  expect(await store.completeOAuth({...a.context,stateHash:attempt.stateHash,grant:b.grant()})).toBe(false);expect(await store.completeOAuth({...a.context,stateHash:attempt.stateHash,grant:a.grant('control')})).toBe(false);
+  const sdk=a.grant();expect(await store.completeOAuth({...a.context,stateHash:attempt.stateHash,grant:sdk})).toBe(true);const control=await a.publish(a.grant('control'));
+  expect(await store.getGrant({...b.context,purpose:'sdk'})).toBeNull();expect(await store.getGrant({...a.context,purpose:'sdk'})).toEqual(sdk);expect(await store.getGrant({...a.context,purpose:'control'})).toEqual(control);
+  const collision=a.attempt();await primary.transaction(tx=>tx.putOAuth({stateHash:collision.stateHash,browserHash:collision.browserHash,verifier:envelope,expiresAt:collision.expiresAt}));await expect(store.createOAuth(collision,a.context.now)).rejects.toMatchObject({code:'STATE_CONFLICT'});expect(await primary.transaction(tx=>tx.getOAuth(collision.stateHash))).not.toBeNull();
+ },60000);
+ test('newer consent wins against old OAuth and refresh workers; exact scopes and ciphertext are mandatory',async()=>{const f=await fixture();await expect(store.createOAuth({...f.attempt(),encryptedVerifier:'plaintext secret'},f.context.now)).rejects.toMatchObject({code:'ENCRYPTED_CREDENTIAL_REQUIRED'});
+  const old=await f.publish(),a=f.attempt('sdk',old.credentialVersion),other=f.attempt('sdk',old.credentialVersion);await store.createOAuth(a,f.context.now);await store.createOAuth(other,f.context.now);for(const x of [a,other])await store.consumeOAuth({...f.context,stateHash:x.stateHash,purpose:'sdk',browserHash:x.browserHash});
+  const fence={...f.context,purpose:'sdk' as const,expectedCredentialVersion:old.credentialVersion,leaseId:crypto.randomUUID()};expect(await store.claimRefresh({...fence,leaseUntil:f.context.now+60000})).not.toBeNull();
+  const fresh=f.grant();await expect(store.completeOAuth({...f.context,stateHash:a.stateHash,grant:{...fresh,scopes:['streaming','user-read-email','user-library-read']} as any})).rejects.toMatchObject({code:'PLAYBACK_SCOPE_REJECTED'});
+  await expect(store.completeOAuth({...f.context,stateHash:a.stateHash,grant:{...fresh,encryptedAccessToken:'plaintext secret'}})).rejects.toMatchObject({code:'ENCRYPTED_CREDENTIAL_REQUIRED'});
+  expect(await store.completeOAuth({...f.context,stateHash:a.stateHash,grant:fresh})).toBe(true);expect(await store.completeOAuth({...f.context,stateHash:other.stateHash,grant:f.grant()})).toBe(false);
+  await expect(store.createOAuth(f.attempt('sdk',old.credentialVersion),f.context.now)).rejects.toMatchObject({code:'STATE_CONFLICT'});
+  expect(await store.completeRefresh({...fence,grant:f.grant()})).toBe(false);expect(await store.releaseRefresh(fence)).toBe(false);expect(await store.revokeGrant(fence)).toBe(false);expect(await store.getGrant({...f.context,purpose:'sdk'})).toEqual(fresh);
+ },60000);
+ test('refresh claims serialize and expired/stale leases cannot complete, release or revoke replacements',async()=>{const f=await fixture(),g=await f.publish();const base={...f.context,purpose:'sdk' as const,expectedCredentialVersion:g.credentialVersion};const a={...base,leaseId:crypto.randomUUID()},b={...base,leaseId:crypto.randomUUID()};
+  const claims=await Promise.all([a,b].map(x=>store.claimRefresh({...x,leaseUntil:base.now+60000})));expect(claims.filter(Boolean)).toHaveLength(1);const winner=claims[0]?a:b,loser=claims[0]?b:a;
+  expect(await store.releaseRefresh(loser)).toBe(false);expect(await store.revokeGrant(loser)).toBe(false);expect(await store.completeRefresh({...winner,now:base.now+60000,grant:f.grant()})).toBe(false);
+  const later={...base,now:base.now+60001,leaseId:crypto.randomUUID()};expect(await store.claimRefresh({...later,leaseUntil:base.now+120000})).not.toBeNull();expect(await store.completeRefresh({...winner,grant:f.grant()})).toBe(false);expect(await store.releaseRefresh(winner)).toBe(false);expect(await store.revokeGrant(winner)).toBe(false);
+  const fresh=f.grant();expect(await store.completeRefresh({...later,grant:fresh})).toBe(true);expect(await store.completeRefresh({...later,grant:f.grant()})).toBe(false);expect((await store.getGrant({...f.context,purpose:'sdk'}))!.refreshLease).toBeNull();
+  expect(await store.revokeGrant({...f.context,purpose:'sdk',expectedCredentialVersion:fresh.credentialVersion})).toBe(true);const revoked=(await store.getGrant({...f.context,purpose:'sdk'}))!;expect(revoked.revoked).toBe(true);expect(revoked.encryptedAccessToken).toBe('');expect(revoked.encryptedRefreshToken).toBe('');expect(await store.claimRefresh({...later,expectedCredentialVersion:fresh.credentialVersion,leaseUntil:base.now+120000})).toBeNull();
+ },60000);
+ test('logout, primary revocation, expiry and re-login fence every initiating session',async()=>{const f=await fixture(),g=await f.publish(),a=f.attempt('sdk',g.credentialVersion);await store.createOAuth(a,f.context.now);await store.consumeOAuth({...f.context,stateHash:a.stateHash,purpose:'sdk',browserHash:a.browserHash});const fence={...f.context,purpose:'sdk' as const,expectedCredentialVersion:g.credentialVersion,leaseId:crypto.randomUUID()};await store.claimRefresh({...fence,leaseUntil:f.context.now+60000});
+  await primary.transaction(tx=>tx.deleteSession(f.context.initiatingSessionHash));const denied=[()=>store.createOAuth(f.attempt('sdk',g.credentialVersion),f.context.now),()=>store.consumeOAuth({...f.context,stateHash:a.stateHash,purpose:'sdk',browserHash:a.browserHash}),()=>store.completeOAuth({...f.context,stateHash:a.stateHash,grant:f.grant()}),()=>store.getGrant({...f.context,purpose:'sdk'}),()=>store.claimRefresh({...fence,leaseUntil:f.context.now+60000}),()=>store.completeRefresh({...fence,grant:f.grant()}),()=>store.releaseRefresh(fence)];for(const call of denied)await expect(call()).rejects.toMatchObject({code:'AUTHENTICATION_REQUIRED'});
+  const newContext={...f.context,initiatingSessionHash:hash('replacement'+crypto.randomUUID())};await primary.transaction(async tx=>{await tx.putAccount({...f.account,credentialVersion:crypto.randomUUID()});await tx.deleteSessions(f.context.ownerId);await tx.putSession({hash:newContext.initiatingSessionHash,userId:newContext.ownerId,expiresAt:newContext.now+3600000});});
+  expect(await store.completeOAuth({...newContext,stateHash:a.stateHash,grant:f.grant()})).toBe(false);expect(await store.completeRefresh({...fence,...newContext,grant:f.grant()})).toBe(false);expect(await store.releaseRefresh({...fence,...newContext})).toBe(false);
+  await expect(store.getGrant({...newContext,purpose:'sdk',now:newContext.now+3600000})).rejects.toMatchObject({code:'AUTHENTICATION_REQUIRED'});
+  await primary.transaction(tx=>tx.putAccount({...f.account,revoked:true,accessToken:'',refreshToken:''}));await expect(store.getGrant({...newContext,purpose:'sdk'})).rejects.toMatchObject({code:'AUTHENTICATION_REQUIRED'});
+ },60000);
+ test('expired OAuth cannot consume or publish and invalid leases never acquire',async()=>{const f=await fixture(),a=f.attempt();await store.createOAuth(a,f.context.now);await expect(store.consumeOAuth({...f.context,now:a.expiresAt,stateHash:a.stateHash,purpose:'sdk',browserHash:a.browserHash})).rejects.toMatchObject({code:'OAUTH_STATE_INVALID'});await store.consumeOAuth({...f.context,stateHash:a.stateHash,purpose:'sdk',browserHash:a.browserHash});expect(await store.completeOAuth({...f.context,now:a.expiresAt,stateHash:a.stateHash,grant:f.grant()})).toBe(false);
+  const g=await f.publish(),fence={...f.context,purpose:'sdk' as const,expectedCredentialVersion:g.credentialVersion,leaseId:crypto.randomUUID()};await expect(store.claimRefresh({...fence,leaseUntil:f.context.now})).rejects.toMatchObject({code:'INVALID_PLAYBACK_INPUT'});expect((await store.getGrant({...f.context,purpose:'sdk'}))!.refreshLease).toBeNull();
+ },60000);
+ test('transaction rollback leaves OAuth consumption and grant publication retryable',async()=>{
+  const f=await fixture(),a=f.attempt(),g=f.grant();
+  const rollback=new PostgresPlaybackStore({transaction:<T>(work:(tx:any)=>Promise<T>)=>db.transaction(async tx=>{await work(tx);throw Error('INJECTED_ROLLBACK');},true)} as unknown as Database);
+  await expect(rollback.createOAuth(a,f.context.now)).rejects.toThrow('INJECTED_ROLLBACK');expect(await db.transaction(tx=>tx`SELECT 1 FROM playback_oauth_attempts WHERE state_hash=${a.stateHash}`)).toHaveLength(0);
+  await store.createOAuth(a,f.context.now);const consume={...f.context,stateHash:a.stateHash,purpose:'sdk' as const,browserHash:a.browserHash};await expect(rollback.consumeOAuth(consume)).rejects.toThrow('INJECTED_ROLLBACK');expect(await store.consumeOAuth(consume)).toEqual(a);
+  await expect(rollback.completeOAuth({...f.context,stateHash:a.stateHash,grant:g})).rejects.toThrow('INJECTED_ROLLBACK');expect(await store.getGrant({...f.context,purpose:'sdk'})).toBeNull();expect(await store.completeOAuth({...f.context,stateHash:a.stateHash,grant:g})).toBe(true);expect(await store.getGrant({...f.context,purpose:'sdk'})).toEqual(g);
+ },60000);
+ test('a primary session expiring while the owner lock is held cannot authorize a delayed read',async()=>{
+  const f=await fixture();await primary.transaction(tx=>tx.putSession({hash:f.context.initiatingSessionHash,userId:f.context.ownerId,expiresAt:f.context.now+30}));
+  let unlock!:()=>void,locked!:()=>void;const gate=new Promise<void>(r=>unlock=r),ready=new Promise<void>(r=>locked=r);
+  const holder=db.transaction(async tx=>{await tx`SELECT id FROM users WHERE id=${f.context.ownerId} FOR UPDATE`;locked();await gate;});
+  await ready;try{const result=store.getGrant({...f.context,purpose:'sdk'}).then(value=>({value}),error=>({error}));await Bun.sleep(80);unlock();await holder;expect(await result).toMatchObject({error:{code:'AUTHENTICATION_REQUIRED'}});}finally{unlock();await holder;}
+ },60000);
+ test('foreign primary sessions and corrupted persisted scope sets fail closed',async()=>{
+  const a=await fixture(),b=await fixture();await a.publish();await expect(store.getGrant({...a.context,initiatingSessionHash:b.context.initiatingSessionHash,purpose:'sdk'})).rejects.toMatchObject({code:'AUTHENTICATION_REQUIRED'});
+  await db.transaction(tx=>tx`UPDATE playback_grants SET payload=jsonb_set(payload,'{scopes}',${JSON.stringify([...PLAYBACK_SDK_SCOPES,'user-library-read'])}::jsonb) WHERE user_id=${a.context.ownerId} AND purpose='sdk'`);
+  await expect(store.getGrant({...a.context,purpose:'sdk'})).rejects.toMatchObject({code:'PLAYBACK_SCOPE_REJECTED'});
+ },60000);
+
+});

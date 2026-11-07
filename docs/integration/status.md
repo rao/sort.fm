@@ -15,8 +15,8 @@ Recurring oversight is attached to integration chat `01a1b753-b9c8-7941-a258-ca9
 | Integration | Master Overseer (`01a1b753-b9c8-7941-a258-ca9ffdf69301`) | `integration`, `/Users/ramin/Desktop/v2code/ubhacking2026/sort.fm-integration` | Sequential integration and shared contracts |
 | A1 | A1 / Implement Spotify OAuth and import (`01a1b769-172a-74f3-92d8-87d3a52cd775`) | `a1-spotify-oauth-import`, sibling `sort.fm-a1` | Completed module `74977aa` integrated; production bootstrap awaits D |
 | B1 | B1 / Build polished sort.fm frontend (`01a1b76d-8785-7f81-af28-dcd2e811e0aa`) | `b1-delightful-ui`, sibling `sort.fm-b1` | Completed demo `7b81689` integrated and browser-verified; B2 live wiring remains |
-| C1 | C1 / Build personalized song-removal ML (`01a1b770-9f96-7be3-b215-cb7f869ef457`) | `c1-personalized-ml`, sibling `sort.fm-c1` | Completed module `fa0d749` integrated and verified; human-label evaluation remains open |
-| D | D / Build SoundNet ingestion pipeline (`01a1b775-6f5a-75a1-af35-f60671918d54`) | `d-data-soundnet`, sibling `sort.fm-d` | Final regression checks; serialization retry fixed in its working tree |
+| C1 | C1 / Build personalized song-removal ML (`01a1b770-9f96-7be3-b215-cb7f869ef457`) | `c1-personalized-ml`, sibling `sort.fm-c1` | C1 engineering accepted by user; API-only ML adapter in progress, C2 separate |
+| D | D / Build SoundNet ingestion pipeline (`01a1b775-6f5a-75a1-af35-f60671918d54`) | `d-data-soundnet`, sibling `sort.fm-d` | D through `76c7256` integrated; feedback reconciliation interface in progress |
 
 Chat names above are the titles returned by the app. Discover current states rather than treating this table as live. Check `git worktree list`, `git status`, branch tips, and compact `wait_threads` snapshots before acting. The task's parent directory is not itself a repository; native worktree creation fails there, so these worktrees use Git directly.
 
@@ -79,3 +79,25 @@ B1 is a functioning isolated local demo, not yet a connected live UI. B2 still o
 ## Local OAuth configuration gate
 
 The canonical ignored `.env` had empty `TOKEN_ENCRYPTION_KEY`, `SESSION_SECRET` and `SPOTIFY_ALLOWED_USER_IDS`. The integration lead generated the two missing server secrets, validated a canonical-base64 32-byte encryption key and sufficiently long session secret, and restricted the file to mode 0600. Existing configured values were preserved; no secret values were printed or committed. The user has been asked for the exact Spotify owner ID. Keep live OAuth disabled while the allowlist is empty. Registered redirect matching and real-owner consent still require live verification after A1/D wiring; generation of local secrets is not provider proof.
+
+## Active real-data integration — November 7, 2026
+
+The user explicitly accepted C1 engineering and shifted priority to OAuth → real library import → Tiger Data → C1 scoring → persistent review queue. Human-label efficacy remains unverified but is not a blocker for this engineering integration. Foundation is the repository's canonical default branch; references to “main” mean that branch, not a new divergent branch.
+
+Ownership has been reconfirmed with the existing agents: integration owns bootstrap/app registrars/root scripts and canonical merges; A owns authenticated queue and A2 review/Undo with durable model feedback; B owns P0 live frontend wiring; C1 owns an isolated `apps/api/src/ml/**` transport/feature assembly adapter without changing the accepted Python service; D owns persistence/enrichment and atomic feedback reconciliation storage. C2 is running separately in `sort.fm-c2` (`c2-contextual-bandit`, chat `01a1b787-dcd2-7291-94bb-753a86557bd0`). No overlapping edits or new ownerless feature work.
+
+The ignored canonical `.env` now also has a generated server-only ML shared secret and a SoundNet rights-basis string recording the user's explicit source-use attestation. No secret values were printed or committed. The only missing local OAuth setting remains `SPOTIFY_ALLOWED_USER_IDS`; the exact configured redirect equals the API callback, but registration at Spotify and owner consent are still unverified.
+
+## D integration — completed branch through `76c7256`
+
+Merged the completed D branch including its focused cloud-test timeout fix. Duplicate shared-port ancestry caused one coordination-log conflict; retained the current canonical log. Shared contracts and generated schemas are unchanged. An independent read-only review found no confirmed P0/P1 blocker.
+
+Fresh integrated checks pass: locked install, typecheck, web/API build, foundation HTTP smoke, TypeScript-to-C1 HTTP smoke, all **214 Python tests**, contract regeneration with zero diff, and **108 TypeScript tests / 778 assertions / zero failures** against actual Tiger Data with a bounded 30-second cloud-test timeout. A1's real-adapter test passed, verifying encrypted OAuth persistence, failed-page rollback/resume, reconstructed sessions, concurrent refresh fencing, membership resync and logout using controlled Spotify responses. DB tests create and remove only disposable generated schemas; they do not seed the application schema.
+
+The first cloud suite exposed two five-second settlement-test timeouts, a cleanup-hook timeout and one connection startup timeout. Targeted reruns reproduced no assertion or lock defect, and D independently measured network/transaction latency. The two settlement cases and their lifecycle now have explicit 30-second bounds in `2b75d12`; the combined rerun passed with a 30-second command bound. This is documented cloud-test tolerance, not a production behavior change or hidden failure.
+
+Independent inspection confirms all six migrations are present in the real `sortfm` schema, TimescaleDB **2.31.0**, and the actual telemetry hypertable. Running migration again returns `applied: []`, `hypertable: true`. Main application data is still **0 users / 0 tracks / 0 telemetry events / 0 cached features**. No real Spotify import, SoundNet request, cleanup mutation or model feedback delivery is claimed.
+
+Next dependency: integration bootstrap injects `PostgresA1Store`; A and C1 publish the live queue/ML adapter; D adds durable revision-keyed fit reconciliation agreed with A. SoundNet CLI can run independently once imported Spotify IDs exist; run and inspect five distinct-artist samples before approving/enqueuing backfill. Missing audio never blocks metadata scoring. Real owner ID/consent is the external prerequisite for real songs.
+
+Follow-up verification before publishing D: `559f01f` bounds A1 DB lifecycle hooks; `76c7256` fixes eager connection construction inside skipped test suites. A fresh no-credentials run now skips DB suites without errors. The independent 35-second slow-provider test passed (1 test / 4 assertions), confirming the core HTTP path stays responsive. A later full Tiger rerun passed all persistence/A1 checks but hit the limiter test's explicit 15-second bound; its isolated unchanged rerun passed in 7.87 seconds with all 12 pacing assertions. Cloud DB timing remains variable; no rate-limit assertion failure or persistence correctness defect was reproduced. Root bootstrap edits were developed independently and are not part of this D merge.

@@ -1,3 +1,7 @@
-// Agent D implements persistence. Shared inputs are frozen in @sortfm/contracts.
-export type { TrackInput, SavedTrackInput, ExposureInput, DecisionInput, UndoCommandInput, MutationTransitionInput, FeedbackRevisionInput, ImportProgressInput, AudioFeaturesInput, ModelRunInput, TelemetryInput } from "@sortfm/contracts";
-export const DATABASE_IMPLEMENTED = false;
+export type {TrackInput,SavedTrackInput,ExposureInput,DecisionInput,UndoCommandInput,MutationTransitionInput,FeedbackRevisionInput,ImportProgressInput,AudioFeaturesInput,ModelRunInput,TelemetryInput} from '@sortfm/contracts';
+export {Database,connectDatabase,PersistenceError} from './client';
+export {migrate} from './migrate';
+export {Repository} from './repository';
+export {PostgresA1Store} from './a1-store';
+export {SoundNetQueue,type ClaimedJob} from './soundnet-queue';
+export const DATABASE_IMPLEMENTED=true;

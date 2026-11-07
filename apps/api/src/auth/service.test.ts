@@ -184,3 +184,21 @@ test('concurrent reauthorization wins over an old successful refresh without ove
   expect((await refreshing).token).toBe('access-secret');
   expect(await ctx.auth.session(first.sessionToken)).toBeNull(); expect(await ctx.auth.session(second.sessionToken)).not.toBeNull();
 });
+
+test('write permission checks use persisted owner scopes and fail closed after revocation',async()=>{
+  const {auth,store}=setup();await login(auth);
+  await expect(auth.requireScopes('spotify:owner',['user-library-modify'])).rejects.toMatchObject({code:'SPOTIFY_SCOPE_REQUIRED'});
+  await store.transaction(async tx=>{const account=(await tx.getAccount('spotify:owner'))!;await tx.putAccount({...account,scopes:[...account.scopes,'user-library-modify']});});
+  await auth.requireScopes('spotify:owner',['user-library-modify']);
+  const account=await store.transaction(tx=>tx.getAccount('spotify:owner'));
+  await auth.revoke('spotify:owner',account!.credentialVersion);
+  await expect(auth.requireScopes('spotify:owner',['user-library-modify'])).rejects.toMatchObject({code:'AUTHENTICATION_REQUIRED'});
+});
+
+test('installed review workflow requests write consent and capability requires all persisted scopes',async()=>{
+  const {auth}=setup();const old=await login(auth);auth.enableReviewWrites();
+  expect(auth.publicSession(old.account).capabilities.spotifyWrite).toBe(false);
+  const start=await auth.start();const scopes=new URL(start.url).searchParams.get('scope')!.split(' ');
+  expect(scopes).toContain('user-library-modify');expect(scopes).toContain('playlist-modify-private');expect(scopes).toContain('playlist-read-private');
+  expect(auth.publicSession({...old.account,scopes}).capabilities.spotifyWrite).toBe(true);
+});

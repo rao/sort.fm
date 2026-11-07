@@ -71,6 +71,8 @@ def benchmark_service(candidates: list[dict], training: list[dict], historical: 
         assert len(set(selections)) == 1
         return {"notice": "Authenticated in-process ASGI /policy/select with real temporary POSIX artifacts, one warm-up excluded. Includes request/response JSON, validation, authentication, checksums and persistence; excludes a network socket, TLS and deployed concurrency.",
                 "candidateCount": len(candidates), "trainingExamples": len(training), "trainedRewards": 1,
+                "policyVersion": selected["policyVersion"],
+                "reservationTtlSeconds": app.state.policy_service.reservation_ttl_seconds,
                 "selectionReplayExact": True, "authenticatedAsgiSelectionSeconds": timings,
                 "medianAuthenticatedAsgiSelectionSeconds": median(timings)}
 

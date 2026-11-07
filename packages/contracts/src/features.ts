@@ -24,10 +24,14 @@ export const FEATURE_KEYS = Object.keys(FeatureValuesSchema.shape) as (keyof z.i
 export const FeatureVectorSchema = z.strictObject({featureVersion: z.literal(FEATURE_VERSION), values: FeatureValuesSchema, provenance: z.enum(["synthetic", "licensed", "spotify", "soundnet"]), permittedForTraining: z.boolean(), rightsBasis: z.string().min(1).optional()});
 export type FeatureVector = z.infer<typeof FeatureVectorSchema>;
 export const CandidateSchema = z.strictObject({trackId: IdSchema, features: FeatureVectorSchema});
+// Optional caller-assigned ID lets ML retain the exact served prediction for /explain.
+// Unkeyed batch scoring remains supported; training inputs deliberately stay unchanged.
+export const ScoringCandidateSchema = CandidateSchema.extend({exposureId: UuidSchema.optional()});
+export type ScoringCandidate = z.infer<typeof ScoringCandidateSchema>;
 export const TrainingExampleSchema = CandidateSchema.extend({decisionId: UuidSchema, label: z.union([z.literal(0), z.literal(1)]), split: z.enum(["train", "holdout"]), labeledAt: TimestampSchema});
 export const FitRequestSchema = z.strictObject({userId: IdSchema, featureVersion: z.literal(FEATURE_VERSION), feedbackRevision: CountSchema, examples: z.array(TrainingExampleSchema), evaluationSeed: z.number().int()});
 export const FitResponseSchema = z.strictObject({userId: IdSchema, modelVersion: z.string(), featureVersion: z.literal(FEATURE_VERSION), feedbackRevision: CountSchema, trainedExamples: CountSchema, metrics: ModelMetricsSchema});
-export const ScoreRequestSchema = z.strictObject({userId: IdSchema, featureVersion: z.literal(FEATURE_VERSION), candidates: z.array(CandidateSchema).max(10000), modelVersion: z.string().nullable()});
+export const ScoreRequestSchema = z.strictObject({userId: IdSchema, featureVersion: z.literal(FEATURE_VERSION), candidates: z.array(ScoringCandidateSchema).max(10000), modelVersion: z.string().nullable()});
 export const ScoreResponseSchema = z.strictObject({userId: IdSchema, modelVersion: z.string(), featureVersion: z.literal(FEATURE_VERSION), predictions: z.array(z.strictObject({trackId: IdSchema, prediction: PredictionSchema}))});
 export const ObserveRequestSchema = z.strictObject({userId: IdSchema, eventId: UuidSchema, decisionId: UuidSchema, exposureId: UuidSchema, trackId: IdSchema, feedbackRevision: CountSchema, operation: z.enum(["upsert", "revoke"]), label: z.union([z.literal(0), z.literal(1)]).nullable(), features: FeatureVectorSchema, occurredAt: TimestampSchema}).superRefine((event, ctx) => {
   if (event.operation === "revoke" && event.label !== null) ctx.addIssue({code: "custom", message: "Revocation removes the prior label"});

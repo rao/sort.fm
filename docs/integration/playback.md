@@ -1,6 +1,6 @@
 # Browser playback contract and integration plan
 
-Status: shared contract only. A1 backend/OAuth, D persistence/migration, and B2 SDK implementation must pass acceptance before activation. Production calibration is independent. `CONTRACT_VERSION=1.0.0` and `FEATURE_VERSION=sortfm.features.v1` are unchanged.
+Status: A1 backend/OAuth is integrated; B2 SDK UI is staged on the integration branch. D persistence/migration and runtime acceptance remain pending. Do not publish the staged UI to the Vercel production branch before the playback backend is deployed. Production calibration is independent. `CONTRACT_VERSION=1.0.0` and `FEATURE_VERSION=sortfm.features.v1` are unchanged.
 
 ## Authorization and credential boundary
 

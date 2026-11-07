@@ -13,10 +13,10 @@ Recurring oversight is attached to integration chat `01a1b753-b9c8-7941-a258-ca9
 | Scope | Chat | Branch / workspace | Current coordination |
 |---|---|---|---|
 | Integration | Master Overseer (`01a1b753-b9c8-7941-a258-ca9ffdf69301`) | `integration`, `/Users/ramin/Desktop/v2code/ubhacking2026/sort.fm-integration` | Sequential integration and shared contracts |
-| A1 | A1 / Implement Spotify OAuth and import (`01a1b769-172a-74f3-92d8-87d3a52cd775`) | `a1-spotify-oauth-import`, sibling `sort.fm-a1` | Completed module `74977aa` integrated; production bootstrap awaits D |
-| B1 | B1 / Build polished sort.fm frontend (`01a1b76d-8785-7f81-af28-dcd2e811e0aa`) | `b1-delightful-ui`, sibling `sort.fm-b1` | Completed demo `7b81689` integrated and browser-verified; B2 live wiring remains |
-| C1 | C1 / Build personalized song-removal ML (`01a1b770-9f96-7be3-b215-cb7f869ef457`) | `c1-personalized-ml`, sibling `sort.fm-c1` | C1 engineering accepted by user; API-only ML adapter in progress, C2 separate |
-| D | D / Build SoundNet ingestion pipeline (`01a1b775-6f5a-75a1-af35-f60671918d54`) | `d-data-soundnet`, sibling `sort.fm-d` | D through `76c7256` integrated; feedback reconciliation interface in progress |
+| A1 | A1 / Implement Spotify OAuth and import (`01a1b769-172a-74f3-92d8-87d3a52cd775`) | `a2-safe-review-mutations`, sibling `sort.fm-a1` | Auth/import, queue, all decisions/Undo and membership fence integrated through `2c5808f`; live provider acceptance underway |
+| B1 | B1 / Build polished sort.fm frontend (`01a1b76d-8785-7f81-af28-dcd2e811e0aa`) | isolated focused branches, sibling `sort.fm-b1` | B2 live UI, expanded consent and provider callback fix integrated; user-requested smooth import rendering ready |
+| C1 | C1 / Build personalized song-removal ML (`01a1b770-9f96-7be3-b215-cb7f869ef457`) | sibling `sort.fm-c1` | Accepted engine and API adapter integrated; read-only public insights registrar in progress; C2 separate |
+| D | D / Build SoundNet ingestion pipeline (`01a1b775-6f5a-75a1-af35-f60671918d54`) | `d-data-soundnet`, sibling `sort.fm-d` | Persistence/recovery/fence integrated through `8ba63f7`; actual SoundNet five-sample acceptance underway |
 
 Chat names above are the titles returned by the app. Discover current states rather than treating this table as live. Check `git worktree list`, `git status`, branch tips, and compact `wait_threads` snapshots before acting. The task's parent directory is not itself a repository; native worktree creation fails there, so these worktrees use Git directly.
 
@@ -167,3 +167,11 @@ Independent D review passed 18 local PostgreSQL tests / 90 assertions; root runt
 Applied migration010 to the actual app schema successfully; rerun applied nothing and retained the telemetry hypertable. Runtime now installs the verified mutation routes/worker and scopes capability, plus the automatic feedback worker. C1 Python source and its previously passing 228 tests remain unchanged.
 
 Real owner login is now verified by the authorized `spotify:ram.in` account in Tiger. The user began the real import: last observed **750 of 2,768 tracks**, zero rejected entries, running. D has been authorized to run the actual five-artist SoundNet sample, inspect matching/normalization and start bounded enrichment if acceptable. Root will inspect full import, real scored queue and user-selected cleanup/Undo next. Public model-insights endpoint, learned policy integration and deployment/production cleanup remain open; no fabricated metrics or blanket completion claim.
+
+## Live scoring and local worker restart correction
+
+Three actual imported owner tracks were scored by the running C1 service, persisted, and compared against their immutable C1 explanations successfully. They report real `heuristic` model version `c1-r0-61b31a0dec0e2bdcc47cd520` with null probability, correctly reflecting no labels. Selection remains explicitly deterministic until C2 adoption. The owner has all 19 requested grants, including required review scopes. No real cleanup action has occurred yet; the user has been asked to select a song for Archive/Undo verification.
+
+The Bun watch reload during the API update interrupted the import at 1,900/2,768. Existing rows are intact; its abandoned five-minute lease expires at 20:29:53Z, after which normal recovery must rescan the legacy-baseline pass. No lease was manually stolen or cleared. Root removes API watch mode from both dev launch paths and documents explicit SIGTERM/drain/restart for subsequent backend updates. This is an operational integration correction, not a retry/ownership bypass. A is inspecting automatic recovery; D's independent provider sample is still running and includes one 90-second timeout and one valid normalized response, not yet approved for backfill.
+
+Integrated B's user-requested smooth progress rendering `b9f5c6e` as `96b9f15`: only the visual fill interpolates between confirmed counts, native accessibility/reduced motion remain intact. Root verified 40 frontend tests / 140 assertions, typecheck, build and HTTP smoke. Shared DTOs are unchanged.

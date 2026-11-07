@@ -10,6 +10,8 @@ bun run dev:api
 bun run dev:web
 ```
 
+The API deliberately runs without Bun watch mode: watch reloads discard background workers without draining their durable leases. After a verified backend update, send SIGTERM to the known API process, wait for its clean exit, then rerun `bun run dev:api`. The frontend retains Vite hot reload. Never clear an active lease merely to speed up a restart; crash recovery waits for the persisted lease expiry.
+
 The API checks existing tables and migration010's membership revision without changing schema, creates D's `PostgresA1Store`, and registers auth/import, queue and durable review/Undo workers when configuration is valid. Review, import and feedback workers drain before the database closes. Missing dependencies keep the isolated demo available and live OAuth fails closed with `503 SPOTIFY_NOT_CONFIGURED`. Startup diagnostics print only fixed codes. Health capabilities describe initialized wiring, not a continuous database or provider readiness guarantee.
 
 `dev:ml` passes the same root server environment to Python. Use one ML replica with durable `services/ml/artifacts` storage. The browser only communicates with the public API; no ML secret, Spotify token or SoundNet key is returned to it.

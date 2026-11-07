@@ -3,7 +3,7 @@
   "packageManager": "bun@1.4.3", "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "bun run scripts/dev.ts",
-    "dev:api": "bun --env-file=.env --watch apps/api/src/index.ts",
+    "dev:api": "bun --env-file=.env apps/api/src/index.ts",
     "dev:web": "bun run --filter @sortfm/web dev",
     "dev:ml": "bun --env-file=.env scripts/dev-ml.ts",
     "typecheck": "tsc --noEmit", "test": "bun test",

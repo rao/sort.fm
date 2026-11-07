@@ -651,20 +651,33 @@ export default function App({
 						</span>
 					</div>
 				</div>
-				<button
-					type="button"
-					className="player-status"
-					onClick={() => setModal("playback")}
-				>
-					<Icon name="headphones" size={18} />
-					<span>
-						Preview unavailable{" "}
+				{current?.track.spotifyUri ? (
+					<a
+						className="player-status"
+						href={`https://open.spotify.com/track/${current.track.trackId}`}
+						target="_blank"
+						rel="noreferrer"
+					>
+						<Icon name="headphones" size={18} />
+						<span>Open in Spotify</span>
+						<Icon name="external" size={14} />
+					</a>
+				) : (
+					<button
+						type="button"
+						className="player-status"
+						onClick={() => setModal("playback")}
+					>
+						<Icon name="headphones" size={18} />
 						<span>
-							• {live ? "Open this song in Spotify" : "Fictional demo track"}
+							Preview unavailable{" "}
+							<span>
+								• {live ? "Open this song in Spotify" : "Fictional demo track"}
+							</span>
 						</span>
-					</span>
-					<Icon name="info" size={14} />
-				</button>
+						<Icon name="info" size={14} />
+					</button>
+				)}
 				<div className="player-end">
 					{current?.track.spotifyUri ? (
 						<a

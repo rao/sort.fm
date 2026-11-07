@@ -214,3 +214,35 @@ test("GET recovery locks out concurrent mutation retry", async () => {
 	unblock();
 	await recovery;
 });
+
+test("UNDO_PENDING preserves the original label and retry identity until confirmed UNDONE", async () => {
+	const { ApiError } = await import("@sortfm/contracts/client");
+	const f = liveFixture();
+	let pending = true;
+	const keys: string[] = [];
+	const client = {
+		...f.client,
+		undo: async (id: string, request: Parameters<typeof f.client.undo>[1]) => {
+			keys.push(request.idempotencyKey);
+			if (pending)
+				throw new ApiError(409, {
+					code: "UNDO_PENDING",
+					message: "Restoration is pending",
+					retryable: true,
+				});
+			return f.client.undo(id, request);
+		},
+	};
+	const store = new ReviewStore(client);
+	await store.load();
+	await store.decide("ARCHIVE");
+	await store.undo(store.getSnapshot().history[0]!.result.decisionId);
+	expect(store.getSnapshot().history[0]?.result.status).toBe("COMPLETE");
+	expect(store.getSnapshot().history[0]?.result.labelState).toBe("active");
+	expect(store.getSnapshot().retry?.kind).toBe("undo");
+	expect(store.getSnapshot().noticeUndoId).toBeNull();
+	pending = false;
+	await store.retry();
+	expect(keys[0]).toBe(keys[1]);
+	expect(store.getSnapshot().history[0]?.result.status).toBe("UNDONE");
+});

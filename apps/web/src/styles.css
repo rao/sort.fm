@@ -3174,3 +3174,17 @@ input::placeholder {
 		min-height: 140px;
 	}
 }
+.cover-placeholder {
+	width: 100%;
+	height: 100%;
+	display: grid;
+	place-items: center;
+	color: #a0b09b;
+	background: linear-gradient(145deg, #2d3931, #18201c);
+}
+.player-status[href] {
+	text-decoration: none;
+}
+.player-status[href]:hover {
+	color: #c4f587;
+}

@@ -285,7 +285,7 @@ export class ReviewStore {
 	}
 	private async run(command: RetryCommand) {
 		// Set the guard before the first await: keyboard, pointer and clicks share one lock.
-		this.update({ busy: true, error: null, notice: "" });
+		this.update({ busy: true, error: null, notice: "", noticeUndoId: null });
 		try {
 			this.client.live?.journal.write(command);
 			if (command.kind === "decide") {

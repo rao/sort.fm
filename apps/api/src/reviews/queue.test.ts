@@ -1,6 +1,7 @@
 import {expect, test} from 'bun:test';
 import Fastify from 'fastify';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
+import {assembleLibraryCandidates} from '../ml';
 import {FEATURE_VERSION, QueueResultSchema, type ExposureInput, type Prediction} from '@sortfm/contracts';
 import {QueueService, type LibraryRow} from './queue';
 import {createReviewQueueModule} from './module';
@@ -106,4 +107,14 @@ test('explicit demo injection preserves public fixture queue without reading liv
     const response=await app.inject('/api/queue?mode=demo&limit=2&policy=discovery');
     expect(response.statusCode).toBe(200);expect(QueueResultSchema.parse(response.json())).toMatchObject({mode:'demo'});expect(response.json().items).toHaveLength(2);expect(calls).toHaveLength(0);
   } finally {await app.close();}
+});
+
+
+test('library-derived features include current kept tracks beyond the selected page',async()=>{
+  const rows=[row(1),row(2),row(3,'kept'),row(4)];
+  for(const row of rows)row.track.artists=[{id:'artist-one',name:'Same artist'}];
+  const {service,stored}=setup(rows,{assemble:(rows,ctx)=>assembleLibraryCandidates(rows,{...ctx,now:new Date(ctx.now).toISOString()})});
+  const result=await service.get('spotify:owner',{limit:1,policy:'balanced',mode:'spotify'});
+  expect(result.items).toHaveLength(1);expect(result.remaining).toBe(3);
+  expect(stored[0]!.features.values.artist_library_count).toBe(4);
 });

@@ -30,12 +30,13 @@ export class QueueService {
   async get(userId:string,input:{limit:number;policy:QueuePolicy;mode:'spotify'|'demo'}):Promise<QueueResult> {
     const query=QueueQuerySchema.parse(input);
     if(query.mode!=='spotify') throw new SpotifyError('MODE_NOT_SUPPORTED','Use the explicit demo endpoint for demo data.',400);
-    const rows=(await this.repository.library(userId)).filter(row=>row.track.source==='spotify' && row.track.isPlayable && ['saved','deferred'].includes(row.currentStatus) && (!row.currentDecision || ['COMPLETE','UNDONE','FAILED_TERMINAL'].includes(row.currentDecision.status)));
+    const library=[...new Map((await this.repository.library(userId)).filter(row=>row.track.source==='spotify').map(row=>[row.track.trackId,row])).values()];
+    const rows=library.filter(row=>row.track.isPlayable && ['saved','deferred'].includes(row.currentStatus) && (!row.currentDecision || ['COMPLETE','UNDONE','FAILED_TERMINAL'].includes(row.currentDecision.status)));
     rows.sort((a,b)=>Number(a.currentStatus==='deferred')-Number(b.currentStatus==='deferred') || a.track.originalAddedAt.localeCompare(b.track.originalAddedAt) || a.track.trackId.localeCompare(b.track.trackId));
     const selected=rows.slice(0,query.limit), now=(this.options.now??Date.now)();
-    const assembled=(this.options.assemble??assemble)(selected,{userId,now});
+    const assembled=(this.options.assemble??assemble)(library,{userId,now});
     const byId=new Map(assembled.map(candidate=>[candidate.trackId,candidate]));
-    if(byId.size!==selected.length || assembled.length!==selected.length) throw new Error('Candidate assembly must preserve queue identity');
+    if(byId.size!==library.length || assembled.length!==library.length || library.some(row=>!byId.has(row.track.trackId))) throw new Error('Candidate assembly must preserve queue identity');
     const candidates=selected.map(({track})=>{
       const candidate=byId.get(track.trackId); if(!candidate) throw new Error('Missing queue feature snapshot');
       return {trackId:track.trackId,features:FeatureVectorSchema.parse(candidate.features),exposureId:crypto.randomUUID()};

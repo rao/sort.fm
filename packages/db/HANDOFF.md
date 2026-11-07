@@ -30,10 +30,44 @@ DB tests create and remove isolated random schemas; none seed demo events into t
 
 1. A1/integration inject `new PostgresA1Store(connectDatabase())` into the auth/library services. A1 callback retries are bounded and only for definite 40001/40P01 rollbacks; never perform external effects inside these callbacks. Add `@sortfm/db: workspace:*` to API dependencies when wiring (API manifest belongs to integration/A).
 2. A2 owns authentication, remote Spotify orchestration and reconciliation. Persist commands before calls, use CAS mutation journal, then `settleDecision` only after confirmed remote outcomes. `createUndo` reserves the decision until reconciliation/UNDONE settlement; competing reviews are blocked. Review `README.md` for revision/split semantics. Do not bypass pending undo reservations after ambiguous remote failures.
-3. API queue reads `library(userId)` with nullable audio and currentDecision; filter statuses, playability and pending workflows. `library(userId,true)` is historical access. Completed membership snapshots and original saves are separate. Python receives `trainingExamples` via API/internal contract; feedback transport/outbox delivery remains A2/integration-owned.
+3. API queue reads `library(userId)` with nullable audio and currentDecision; filter statuses, playability and pending workflows. `library(userId,true)` is historical access. Completed membership snapshots and original saves are separate. Python receives `trainingExamples` via API/internal contract; feedback transport remains A2/integration-owned; follow-up durable reconciliation is described below.
 4. After a real imported library exists, run the five-artist SoundNet smoke, inspect matching/latency/raw data, approve it, enqueue and start the separate worker. Exact commands are in `README.md`. Run/resume are identical. Source-use basis stays explicit in `SOUNDNET_RIGHTS_BASIS`; otherwise features are stored but not authorized for training.
 5. Real end-user telemetry will appear after A2 calls settlement; the DB cannot claim a genuine swipe/demo chart before that integration. Frontend analytics route wiring and production deployment are not D-owned.
 
 ## Honest operational limits
 
 Successful committed caches avoid repeated provider charges. A crash between receiving a provider response and committing it may require another request: provider-side exactly-once billing is unavailable. The shared limiter requires every worker with the same API subscription to use the same database/schema. Five requests per second is a cap, not a throughput promise; defaults are conservative, and 2,700 requests may be slow. Real provider schema/quality, production deployment, backup restoration/PITR, and sustained backfill completion remain unverified. They do not block metadata-only operation.
+
+## Follow-up: durable revision reconciliation
+
+Migration007 and Repository claimFeedbackSync/acknowledgeFeedbackSync/retryFeedbackSync implement the agreed A2 full-/fit delivery boundary. Coalescing enqueue is atomic with every effective feedback revision, including SKIP replacement/Undo, and existing nonzero revisions are backfilled. Tests verify newer revisions survive old acknowledgements, fits may acknowledge newer snapshots, retry scheduling persists, expired leases fence stale workers, idempotent settlement does not requeue, and a forced feedback-write error rolls back the revision and queue together. This slice is verified against local PostgreSQL; integration owns the next Tiger migration/run to avoid overlapping cloud suites. No transport was added.
+
+Test-harness follow-ups also give settlement tests and A1 lifecycle hooks30-second cloud bounds; all DB clients are initialized only within enabled beforeAll hooks. Clean no-credential runs now skip DB tests instead of throwing DATABASE_URL_REQUIRED.
+
+## Review recovery follow-up
+
+Migration 008 adds per-user fenced review/Undo work and immutable non-idempotent
+archive intents. Repository methods and exact transport responsibilities are documented
+in README. Local PostgreSQL tests exercise crash reclamation, caller-clock spoofing,
+expired/cross-user/legacy fencing, ambiguous intent reconciliation, immutable facts,
+explicit retry scheduling and Undo completion safety. Integration lead owns applying
+008 to shared Tiger; no concurrent cloud migration/test was run for this follow-up.
+
+## Exposure safety follow-up
+
+Migration009 and command guards preserve same-key retries after destructive removal,
+serialize exposure consumption, reject stale exposures after settlement/Undo, and check
+confirmed membership under the owner lock. Integration lead explicitly approved this
+stricter internal behavior. API must map sanitized conflict codes and fetch fresh queue
+exposures after Undo; timestamps originate on the server. Targeted local tests cover
+concurrent distinct keys, owner/track mismatch, removed membership, exact-time staleness,
+fresh post-Undo decisions and historical idempotency reads. Tiger application remains
+with the integration lead.
+
+## Rate limiter latency fix
+
+Replaced the 250ms cross-transaction expiry requirement with a durable 30s crash hold
+that shortens to 250ms spacing only after the request starts and the transaction commits.
+A conservative monotonic remaining-time check retains rollback protection. Local
+regressions inject 400ms DB latency, delayed SQL responses near expiry, competing
+dispatchers, and post-start commit failure. No real SoundNet requests were made.

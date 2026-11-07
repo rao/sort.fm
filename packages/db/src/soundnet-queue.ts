@@ -32,23 +32,31 @@ export class SoundNetQueue {
  async retryFailed(){return this.db.transaction(async tx=>(await tx`UPDATE soundnet_jobs SET status='pending',attempts=0,error_code=NULL,available_at=now() WHERE status='failed' AND feature_version=${FEATURE_VERSION} RETURNING track_id`).length);}
  async unfinished(){return this.db.transaction(async tx=>Number((await tx`SELECT count(*) AS n FROM soundnet_jobs WHERE feature_version=${FEATURE_VERSION} AND status IN('pending','running')`)[0].n));}
  async cooldown(delayMs:number){if(!Number.isFinite(delayMs)||delayMs<0)throw new Error('INVALID_COOLDOWN');await this.db.transaction(async tx=>{await tx`UPDATE provider_limits SET paused_until=GREATEST(paused_until,clock_timestamp()+${delayMs}*interval '1 millisecond') WHERE provider='soundnet'`;});}
- /** One-token bucket with durable 250ms reservations and no burst credit.
-  * Commit the reservation first. In a second locked transaction, start only while
-  * that token is current and unexpired. A crash/rollback cannot refund a start.
-  * Starts lie within disjoint >=250ms reservation intervals: at most 5 per rolling second. */
+ /** Reserve a durable 30s crash hold before starting a request. The second transaction
+  * holds the limiter row through the actual start, then sets a 250ms spacing deadline.
+  * Commit shortens the hold; rollback retains it. Conservative elapsed-time subtraction
+  * leaves at least 250ms of the old hold after start even if the second transaction fails.
+  * This tolerates DB round trips above 250ms without repeatedly expiring unused permits. */
  async dispatch<T>(start:()=>Promise<T>,signal?:AbortSignal):Promise<T>{
   while(true){signal?.throwIfAborted();
    const reservation=await this.db.transaction(async tx=>{
     const [limit]=await tx`SELECT GREATEST(0,extract(epoch FROM (GREATEST(next_start_at,paused_until)-clock_timestamp()))*1000)::float8 AS wait_ms FROM provider_limits WHERE provider='soundnet' FOR UPDATE`;
     if(limit.wait_ms>0)return {wait:limit.wait_ms};const token=crypto.randomUUID();
-    await tx`UPDATE provider_limits SET next_start_at=clock_timestamp()+interval '250 milliseconds',permit_token=${token} WHERE provider='soundnet'`;return {token};
+    await tx`UPDATE provider_limits SET next_start_at=clock_timestamp()+interval '30 seconds',permit_token=${token} WHERE provider='soundnet'`;return {token};
    });
-   if(!reservation.token){await sleep(Math.min(reservation.wait??250,1000),signal);continue;}
+   if(!reservation.token){await sleep(Math.min(reservation.wait??250,250),signal);continue;}
    const permit=await this.db.transaction(async tx=>{
-    const [row]=await tx`SELECT permit_token,next_start_at>clock_timestamp() AND paused_until<=clock_timestamp() AS valid FROM provider_limits WHERE provider='soundnet' FOR UPDATE`;
-    if(!row.valid||row.permit_token!==reservation.token)return null;signal?.throwIfAborted();
+    const checkedAt=performance.now();
+    const [row]=await tx`SELECT permit_token,extract(epoch FROM (next_start_at-clock_timestamp()))*1000 AS remaining_ms,paused_until<=clock_timestamp() AS valid FROM provider_limits WHERE provider='soundnet' FOR UPDATE`;
+    signal?.throwIfAborted();
+    // Subtract the entire round trip, including time before the server measurement,
+    // so clock skew and a delayed SQL response cannot grant a nearly expired hold.
+    if(!row.valid||row.permit_token!==reservation.token||Number(row.remaining_ms)-(performance.now()-checkedAt)<=250)return null;
     // Rejection is handled immediately while COMMIT is pending; network response is awaited outside the transaction.
-    const response=start().then(value=>({ok:true as const,value}),error=>({ok:false as const,error}));return {response};
+    const response=start().then(value=>({ok:true as const,value}),error=>({ok:false as const,error}));
+    // Measure spacing AFTER the request starts. Slow DB responses can only reduce throughput.
+    await tx`UPDATE provider_limits SET next_start_at=clock_timestamp()+interval '250 milliseconds',permit_token=NULL WHERE provider='soundnet'`;
+    return {response};
    });
    if(!permit)continue;const result=await permit.response;if(!result.ok)throw result.error;return result.value;
   }

@@ -12,7 +12,7 @@ describe.skipIf(!url)('PostgreSQL repositories',()=>{
  const item=createDemoQueue({exposureId:()=>crypto.randomUUID(),limit:1}).items[0]!;
  const features={featureVersion:FEATURE_VERSION,values:{energy:null},provenance:'synthetic' as const,permittedForTraining:true};
  const decision={userId,decisionId:crypto.randomUUID(),request:{trackId:track.trackId,action:'KEEP' as const,exposureId:item.exposure.exposureId,idempotencyKey:createIdempotencyKey()},requestFingerprint:'first',createdAt:now};
- beforeAll(async()=>{db=new Database(url!,`test_d_${crypto.randomUUID().replaceAll('-','')}`);repo=new Repository(db);const result=await migrate(db);expect(result.applied).toHaveLength(6);expect((await migrate(db)).applied).toHaveLength(0);await repo.upsertUser({id:userId,spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertUser({id:other,spotifyId:null,displayName:'Other',avatarUrl:null});});
+ beforeAll(async()=>{db=new Database(url!,`test_d_${crypto.randomUUID().replaceAll('-','')}`);repo=new Repository(db);const result=await migrate(db);expect(result.applied).toHaveLength(9);expect((await migrate(db)).applied).toHaveLength(0);await repo.upsertUser({id:userId,spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertUser({id:other,spotifyId:null,displayName:'Other',avatarUrl:null});});
  afterAll(async()=>{await db.sql.unsafe(`DROP SCHEMA "${db.schema}" CASCADE`);await db.close();});
  test('snapshots preserve first added time and status, nullable audio joins remain usable',async()=>{
   await repo.upsertSavedTracks([{userId,track,originalAddedAt:track.originalAddedAt,syncedAt:now,currentStatus:'kept'}]);
@@ -34,7 +34,7 @@ describe.skipIf(!url)('PostgreSQL repositories',()=>{
   await repo.settleDecision(userId,result,'PENDING','train');expect((await repo.trainingExamples(userId)).examples).toHaveLength(1);
   await repo.settleDecision(userId,result,'PENDING','train');expect((await repo.trainingExamples(userId)).feedbackRevision).toBe(1);
   const undo={userId,commandId:crypto.randomUUID(),decisionId:decision.decisionId,request:{idempotencyKey:createIdempotencyKey()},requestFingerprint:'undo',createdAt:now};await repo.createUndo(undo);
-  await expect(repo.createDecision({...decision,decisionId:crypto.randomUUID(),request:{...decision.request,idempotencyKey:createIdempotencyKey()}})).rejects.toThrow('MUTATION_PENDING');
+  await expect(repo.createDecision({...decision,decisionId:crypto.randomUUID(),request:{...decision.request,idempotencyKey:createIdempotencyKey()}})).rejects.toThrow('EXPOSURE_ALREADY_CONSUMED');
   await expect(repo.createUndo({...undo,commandId:crypto.randomUUID(),request:{idempotencyKey:createIdempotencyKey()}})).rejects.toThrow('MUTATION_PENDING');
   await repo.settleDecision(userId,{...result,status:'UNDONE',canUndo:false,label:null,labelState:'revoked',feedbackRevision:2},'COMPLETE','train');
   expect((await repo.trainingExamples(userId)).examples).toHaveLength(0);expect((await repo.trainingExamples(userId)).feedbackRevision).toBe(2);

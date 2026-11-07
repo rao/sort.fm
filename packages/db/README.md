@@ -57,7 +57,7 @@ bun --env-file=../sort.fm/.env apps/api/src/jobs/soundnet/cli.ts retry-failed
 
 `run` processes queued tracks globally, deduplicated by `(trackId,featureVersion)`. Smoke approval expires after seven days. Repeating enqueue/smoke skips committed successful caches; rerunning smoke itself does not authorize the backfill. The worker drains due and future retries, then exits once no unfinished jobs remain. SIGINT/SIGTERM stops claiming and aborts in-flight requests; interrupted leases recover within three minutes. A process supervisor may restart `run` after a DB outage. All instances sharing a RapidAPI subscription **must share the same database/schema**; uncoordinated external clients using the same key are outside this limiter.
 
-Rate control is a durable one-token bucket with no burst credit, conservative 250ms reservation windows. A committed permit is validated under a row lock before the actual request starts, retaining pacing even if that transaction fails. At most five starts occur in any rolling second. Provider responses are awaited after releasing the DB transaction. Defaults start at three concurrent requests; 20 successes permit a one-slot ramp, while transient failures reduce concurrency and 429 halves it. A persisted global cooldown honors numeric/date `Retry-After` headers; retries use capped exponential backoff with jitter. Five attempts per track, 90-second timeout, 1 MiB response cap. Authentication failures stop the worker with an hour cooldown to avoid burning requests across the queue.
+Rate control uses a durable 30-second crash reservation with no burst credit. A second transaction validates token identity, cooldown and sufficient remaining hold under a row lock; conservative monotonic elapsed-time subtraction rejects delayed, nearly expired permits. After the actual request starts, it sets a 250ms spacing deadline and clears the token. Only a successful commit shortens the hold; rollback preserves the original reservation. This tolerates database round trips longer than 250ms without starving dispatch. A failed start transaction may conservatively pause provider starts for up to 30 seconds. At most five starts occur in any rolling second. Provider responses are awaited after releasing the DB transaction. Defaults start at three concurrent requests; 20 successes permit a one-slot ramp, while transient failures reduce concurrency and 429 halves it. A persisted global cooldown honors numeric/date `Retry-After` headers; retries use capped exponential backoff with jitter. Five attempts per track, 90-second timeout, 1 MiB response cap. Authentication failures stop the worker with an hour cooldown to avoid burning requests across the queue.
 
 Leases renew every 30 seconds and fence stale writers. Completion stores the feature cache and success atomically. Raw valid JSON that cannot normalize is retained in `soundnet_failures`; non-2xx provider bodies and headers are not logged. Successful smoke writes are reconciled with expired worker leases. **Committed successes are not fetched again.** A crash after a provider response but before cache commit may require another billable request; exactly-once provider charging cannot be guaranteed without provider idempotency support. Provider failures never block metadata-only library reads or the API request path.
 
@@ -77,9 +77,31 @@ const queue = new SoundNetQueue(db);
 - `upsertSavedTracks` batches validated inputs in two SQL statements and preserves original timestamps/status. `library(userId)` returns current confirmed membership, or partial snapshots before the first complete sync. Each item includes `track`, `currentStatus`, nullable `audioFeatures`, and nullable `currentDecision` (including pending workflows). `library(userId,true)` explicitly reads all historical snapshots. API queue owners must filter review status and playability and avoid currently pending decisions.
 - `insertExposure`/`getExposure` retain immutable predictions and feature vectors. `createDecision` persists/deduplicates the command before side effects. Reused keys with different payloads conflict. `createUndo` reserves a settled current decision and blocks competing commands while restoration runs. `transitionMutation` is a CAS journal for the caller's remote workflow; `setArchivePlaylist` and archive records persist successful insertion facts.
 - `settleDecision(userId,result,expectedStatus,split)` validates the result and atomically changes decision state, current membership/count, feedback revision, and genuine swipe telemetry. A2 must confirm remote state first, supply the correct next revision, and persist undo before restoration. The repository never performs or guesses a Spotify mutation. Pending/failed replacement reviews preserve effective training feedback. SKIP replacing an active label writes a revised null tombstone. Fixed split membership survives subsequent reviews/undo. Pending undo commands remain reserved until reconciliation completes; do not start a fresh review to bypass an ambiguous restore.
-- `trainingExamples(userId)` returns a revision-consistent `{feedbackRevision, examples}` snapshot, including immutable feature-at-exposure vectors and stable train/holdout splits. Pass these to Python using the frozen `/fit` contract; for `/score`, combine library metadata with nullable audio using C's feature assembly. For `/observe`, A2 still owns transport/outbox delivery. No model training occurs here. SQL view `sortfm.ml_training_examples` supports a separately provisioned restricted read role; all queries must filter authenticated `user_id`.
+- `trainingExamples(userId)` returns a revision-consistent `{feedbackRevision, examples}` snapshot, including immutable feature-at-exposure vectors and stable train/holdout splits. Pass these to Python using the frozen `/fit` contract; for `/score`, combine library metadata with nullable audio using C's feature assembly. A2 owns ML transport; the durable revision queue below schedules full `/fit` reconciliation atomically with feedback. No model training occurs here. SQL view `sortfm.ml_training_examples` supports a separately provisioned restricted read role; all queries must filter authenticated `user_id`.
 - `recordModelRun` and `latestModel` preserve immutable versions and validated evaluation metrics. `recordTelemetry` deduplicates event IDs outside the hypertable, then writes both event and time-series row atomically. `analytics(userId,from,to)` returns minute buckets by event type/model, observed score/uncertainty/latency means and action counts. No fabricated model metrics. `queue.progress(userId)` matches `AudioFeatureStatus`, including missingness across all current tracks, not just successful ones.
 - `saveImportProgress` is a separate summary record and cannot overwrite A1's lease/checkpoint payload. `importProgress` reads A1's authoritative progress preferentially. DB inputs retain the shared names; no public DTO fields were renamed.
+
+## Durable feedback reconciliation
+
+Migration `007_feedback_sync.sql` adds one coalescing job per user and backfills existing nonzero feedback revisions. `settleDecision` updates this row in the same transaction as feedback, including SKIP replacement and Undo. No ML request runs in the database transaction.
+
+The A-owned worker uses these `Repository` methods (`now`/`retryAt` are epoch milliseconds):
+
+```ts
+const claim = await repository.claimFeedbackSync(workerId, Date.now(), 120_000);
+if (claim) {
+  const snapshot = await repository.trainingExamples(claim.userId);
+  // A sends /fit with snapshot.examples + snapshot.feedbackRevision and validates success.
+  // Only after that successful response:
+  await repository.acknowledgeFeedbackSync(
+    claim.userId, claim.leaseId, snapshot.feedbackRevision,
+  );
+  // On retryable transport failure, instead call:
+  // await repository.retryFeedbackSync(claim.userId, claim.leaseId, retryAt);
+}
+```
+
+`claimFeedbackSync` returns `{userId,feedbackRevision,leaseId}` or null. The fitted snapshot may be newer than the revision observed at claim time. Acknowledgement only advances the delivered revision; newer target revisions stay pending. A stale/expired lease or a revision beyond the pending target returns false and cannot erase work. Failed/abandoned workers recover through lease expiry; retry times persist. Duplicate settlement does not enqueue again. All clients must use this queue for durable delivery rather than claiming a fire-and-forget `/observe` succeeded. Choose a bounded ML request timeout shorter than the lease (maximum permitted lease ten minutes). A owns retry policy, `/fit` authorization/transport and success validation; D owns persistence only.
 
 ## Analytics proof and recovery
 
@@ -118,3 +140,60 @@ bun --env-file=../sort.fm/.env -e 'const p=Bun.spawn(["bun","test"],{env:{...pro
 ```
 
 Tests create and clean only randomly named `test_*` schemas. Provider responses are mocked. The opt-in slow test runs a real local HTTP server with a 35-second response and verifies another HTTP path stays responsive. Live provider quality, production deployment, end-user swipes, PITR restoration and sustained 2,700-track throughput are separate integration gates.
+
+### Review and Undo recovery (migration 008)
+
+`createDecision` and `createUndo` atomically enqueue durable work. Both the immediate
+API kick and the restart worker must call `claimReviewWork(workerId, nowEpochMs,
+leaseMs)` before Spotify I/O. Claims serialize by **user**, including archive creation
+across different tracks; independent users may run concurrently. DB time determines
+expiry (the supplied clock value is validated, never trusted for ownership). Leases
+last at most 10 minutes; renew while working. `ReviewWorkLease` contains
+`{userId, decisionId, commandId, operation, leaseId, result, mutation}`.
+
+Pass the lease to `transitionMutation(input, lease)`,
+`settleDecision(userId, result, expectedStatus, split, lease)`, and
+`setArchivePlaylist(userId, playlistId, lease)`. These writes take the same user lock
+and validate ownership in their transaction. Expired or stolen leases fail with
+`REVIEW_LEASE_LOST`; legacy unfenced calls fail with `REVIEW_LEASE_REQUIRED` while
+any lease for that user remains active. `renewReviewWork`, `retryReviewWork`, and
+`completeReviewWork` return false for stale tokens. Retry persists its next eligible
+time. Completion requires a persisted terminal review or a settled Undo; it cannot
+silently discard uncertain restoration. A crash after settlement but before completion
+may return an already-terminal result on the next claim: retire it without provider I/O.
+
+Before a non-idempotent POST, call `beginReviewEffect(lease, request)` with one of:
+
+- `{kind:'create_archive', name, public:false, description}` (one durable intent per user).
+- `{kind:'add_archive', playlistId, trackId}` (one per decision; owner playlist and track checked).
+
+The returned `{effect, shouldExecute}` grants execution only for a new intent or an
+explicitly retryable previous attempt. An existing `intent` means the POST may have
+succeeded: read/reconcile its remote outcome, **never blindly repeat it**. Request facts
+are immutable; changing the playlist, track, name or description fails with
+`REVIEW_EFFECT_CONFLICT`. Read via `getReviewEffect(lease, kind)`. Resolve using
+`settleReviewEffect(lease, kind, 'confirmed'|'retryable', remoteId)`; only a definitive
+non-execution response (such as a classified 429) warrants `retryable` with null ID.
+Timeouts, connection loss and ambiguous 5xx keep the intent unresolved. Confirmation
+uses the playlist ID for both effect kinds; create confirmation atomically registers
+the canonical archive playlist. Initial and recovered calls use these same records.
+
+`getMutation`, `getPendingUndo`, `getDecisionByIdempotencyKey` and
+`getUndoByIdempotencyKey` provide restart and HTTP retry lookups. Callers must compare
+request identity before returning a lookup result; command creation remains the atomic
+idempotency authority. Migration 008 backfills unfinished existing commands. No Spotify
+transport or HTTP worker scheduling lives in this package.
+
+### New-command eligibility (migration 009)
+
+The integration-approved guards execute under the same owner lock as settlement:
+identical idempotency keys return the original persisted command **before** eligibility
+checks; different keys cannot consume an exposure twice. Exposure owner and track must
+match exactly. Once a confirmed library snapshot exists, the track must still be a
+current member. A replacement decision needs `exposure.servedAt` strictly later than
+the current decision's `updatedAt`, including after Undo. A2 supplies server-generated
+timestamps and must fetch a fresh queue exposure after restoration. Stable errors are
+`EXPOSURE_NOT_FOUND`, `EXPOSURE_TRACK_MISMATCH`, `EXPOSURE_ALREADY_CONSUMED`,
+`STALE_EXPOSURE`, and `TRACK_NOT_IN_LIBRARY`. Existing `MUTATION_PENDING` still guards
+active review/Undo operations. Migration 009 backfills consumption without deleting or
+rewriting any historical duplicate decisions. No public DTO changes.

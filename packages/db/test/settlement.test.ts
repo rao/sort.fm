@@ -8,7 +8,7 @@ const url=process.env.TEST_DATABASE_URL;
 describe.skipIf(!url)('settlement invariants',()=>{
  let db:Database;let repo:Repository;let store:PostgresA1Store;const userId='test:settle';const now=new Date().toISOString();const track={...demoTracks[0]!,isPlayable:true};
  async function command(action:ReviewResult['action']){
-  const item=createDemoQueue({limit:1,exposureId:()=>crypto.randomUUID()}).items[0]!;
+  const item=createDemoQueue({limit:1,servedAt:new Date(Date.now()+1).toISOString(),exposureId:()=>crypto.randomUUID()}).items[0]!;
   await repo.insertExposure({userId,exposure:item.exposure,prediction:item.prediction,features:{featureVersion:FEATURE_VERSION,values:{},provenance:'synthetic',permittedForTraining:true}});
   return repo.createDecision({userId,decisionId:crypto.randomUUID(),request:{trackId:track.trackId,action,exposureId:item.exposure.exposureId,idempotencyKey:createIdempotencyKey()},requestFingerprint:crypto.randomUUID(),createdAt:now});
  }

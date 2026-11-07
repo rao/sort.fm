@@ -6,6 +6,8 @@ import {
 } from '@sortfm/contracts';
 import type {z} from 'zod';
 import {Database,PersistenceError,json,type Transaction} from './client';
+import {ReviewRecoveryRepository,assertReviewLease,type ReviewLeaseIdentity} from './review-recovery';
+export type FeedbackSyncLease={userId:string;feedbackRevision:number;leaseId:string};
 const fail=(code:string):never=>{throw new PersistenceError(code);};
 const iso=(v:Date|string)=>new Date(v).toISOString();
 export async function upsertSavedTracks(tx:Transaction,inputs:SavedTrackInput[]) {
@@ -28,8 +30,7 @@ async function telemetry(tx:Transaction,v:TelemetryInput,context:Record<string,u
  if(!rows.length){const [same]=await tx`SELECT 1 FROM interaction_events WHERE event_id=${v.eventId} AND user_id=${v.userId} AND payload=${json(payload)}::jsonb`;if(!same)fail('EVENT_CONFLICT');return;}
  await tx`INSERT INTO ml_telemetry(event_id,user_id,model_version,event_type,prediction_score,uncertainty,processing_latency_ms,occurred_at,context) VALUES(${v.eventId},${v.userId},${v.modelVersion},${v.eventType},${v.predictionScore},${v.uncertainty},${v.processingLatencyMs},${v.occurredAt},${json(context)}::jsonb)`;
 }
-export class Repository {
- constructor(readonly db:Database){}
+export class Repository extends ReviewRecoveryRepository {
  async upsertUser(profile:NonNullable<z.infer<typeof AccountSessionSchema>['user']>,authorized=false){
   const p=AccountSessionSchema.shape.user.unwrap().parse(profile);
   await this.db.transaction(async tx=>{const rows=await tx`INSERT INTO users(id,spotify_user_id,profile,is_authorized) VALUES(${p.id},${p.spotifyId},${json(p)}::jsonb,${authorized}) ON CONFLICT(id) DO UPDATE SET profile=excluded.profile,is_authorized=excluded.is_authorized WHERE users.spotify_user_id IS NOT DISTINCT FROM excluded.spotify_user_id RETURNING id`;if(!rows.length)fail('ACCOUNT_IDENTITY_CONFLICT');});
@@ -50,13 +51,21 @@ export class Repository {
   const [old]=await tx`SELECT * FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
   if(old){if(old.request_fingerprint!==v.requestFingerprint || json(old.request)!==json(v.request)){
    const [same]=await tx`SELECT 1 FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey} AND request_fingerprint=${v.requestFingerprint} AND request=${json(v.request)}::jsonb`;if(!same)fail('IDEMPOTENCY_CONFLICT');}return old.result;}
+  const [exposure]=await tx`SELECT track_id,served_at FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`;
+  if(!exposure)fail('EXPOSURE_NOT_FOUND');if(exposure.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
+  if((await tx`SELECT 1 FROM exposure_consumptions WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`).length)fail('EXPOSURE_ALREADY_CONSUMED');
   const [current]=await tx`SELECT d.result FROM current_decisions c JOIN review_decisions d USING(user_id,decision_id) WHERE c.user_id=${v.userId} AND c.track_id=${v.request.trackId}`;
   if(current && !['COMPLETE','UNDONE','FAILED_TERMINAL'].includes(current.result.status))fail('MUTATION_PENDING');
   const [undoing]=await tx`SELECT 1 FROM undo_commands u JOIN review_decisions d USING(user_id,decision_id) WHERE u.user_id=${v.userId} AND d.track_id=${v.request.trackId} AND u.settled_at IS NULL`;if(undoing)fail('MUTATION_PENDING');
   const [track]=await tx`SELECT t.card FROM saved_tracks s JOIN tracks t USING(track_id) WHERE s.user_id=${v.userId} AND s.track_id=${v.request.trackId}`;if(!track)fail('TRACK_NOT_OWNED');
+  const [membership]=await tx`SELECT 1 FROM library_state s WHERE s.user_id=${v.userId} AND NOT EXISTS(SELECT 1 FROM library_membership m WHERE m.user_id=s.user_id AND m.track_id=${v.request.trackId})`;
+  if(membership)fail('TRACK_NOT_IN_LIBRARY');
+  if(current&&new Date(exposure.served_at).getTime()<=Date.parse(current.result.updatedAt))fail('STALE_EXPOSURE');
   const result=ReviewResultSchema.parse({decisionId:v.decisionId,...v.request,status:'PENDING',mutationStep:'PENDING',mode:track.card.source==='synthetic'?'demo':'spotify',liked:null,archived:null,canUndo:false,label:null,labelState:'inactive',feedbackRevision:owner.feedback_revision,error:null,createdAt:v.createdAt,updatedAt:v.createdAt});
   await tx`INSERT INTO review_decisions(decision_id,user_id,track_id,exposure_id,idempotency_key,request_fingerprint,request,result,created_at) VALUES(${v.decisionId},${v.userId},${v.request.trackId},${v.request.exposureId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${json(result)}::jsonb,${v.createdAt})`;
+  await tx`INSERT INTO exposure_consumptions(user_id,exposure_id,decision_id) VALUES(${v.userId},${v.request.exposureId},${v.decisionId})`;
   await tx`INSERT INTO current_decisions(user_id,track_id,decision_id) VALUES(${v.userId},${v.request.trackId},${v.decisionId}) ON CONFLICT(user_id,track_id) DO UPDATE SET decision_id=excluded.decision_id`;
+  await tx`INSERT INTO review_work(command_id,user_id,decision_id,operation) VALUES(${v.decisionId},${v.userId},${v.decisionId},'review')`;
   return result;
  });}
  async getDecision(userId:string,id:string):Promise<ReviewResult|null>{return this.db.transaction(async tx=>(await tx`SELECT result FROM review_decisions WHERE user_id=${userId} AND decision_id=${id}`)[0]?.result??null);}
@@ -69,13 +78,16 @@ export class Repository {
   const [d]=await tx`SELECT d.result,c.decision_id AS current_id FROM review_decisions d LEFT JOIN current_decisions c USING(user_id,track_id) WHERE d.user_id=${v.userId} AND d.decision_id=${v.decisionId}`;
   if(!d)fail('DECISION_NOT_FOUND');if(d.current_id!==v.decisionId)fail('STALE_DECISION');if(!d.result.canUndo)fail('MUTATION_PENDING');
   const [pending]=await tx`SELECT 1 FROM undo_commands WHERE user_id=${v.userId} AND decision_id=${v.decisionId} AND settled_at IS NULL`;if(pending)fail('MUTATION_PENDING');
-  await tx`INSERT INTO undo_commands(command_id,user_id,decision_id,idempotency_key,request_fingerprint,payload,created_at) VALUES(${v.commandId},${v.userId},${v.decisionId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v)}::jsonb,${v.createdAt})`;return v;
+  await tx`INSERT INTO undo_commands(command_id,user_id,decision_id,idempotency_key,request_fingerprint,payload,created_at) VALUES(${v.commandId},${v.userId},${v.decisionId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v)}::jsonb,${v.createdAt})`;
+  await tx`INSERT INTO review_work(command_id,user_id,decision_id,operation) VALUES(${v.commandId},${v.userId},${v.decisionId},'undo')`;return v;
  });}
  /** Atomic local settlement only. Caller A must confirm remote mutations before supplying COMPLETE/UNDONE. */
- async settleDecision(userId:string,input:ReviewResult,expectedStatus:ReviewResult['status'],split:'train'|'holdout'){
+ async settleDecision(userId:string,input:ReviewResult,expectedStatus:ReviewResult['status'],split:'train'|'holdout',lease?:ReviewLeaseIdentity){
   const v=ReviewResultSchema.parse(input);if(!['train','holdout'].includes(split))fail('INVALID_SPLIT');
   await this.db.transaction(async tx=>{
    const user=await lockUser(tx,userId);
+   const work=await assertReviewLease(tx,userId,v.decisionId,lease);
+   if(work&&((v.status==='UNDONE')!==(work.operation==='undo')))fail('REVIEW_OPERATION_CONFLICT');
    const [d]=await tx`SELECT d.result,c.decision_id AS current_id,d.result=${json(v)}::jsonb AS identical FROM review_decisions d LEFT JOIN current_decisions c USING(user_id,track_id) WHERE d.user_id=${userId} AND d.decision_id=${v.decisionId} FOR UPDATE OF d`;
    if(!d)fail('DECISION_NOT_FOUND');if(d.identical)return;if(d.current_id!==v.decisionId)fail('STALE_DECISION');
    const old=d.result as ReviewResult;if(old.status!==expectedStatus)fail('STATE_CONFLICT');
@@ -89,6 +101,7 @@ export class Repository {
    await tx`UPDATE review_decisions SET result=${json(v)}::jsonb WHERE user_id=${userId} AND decision_id=${v.decisionId}`;
    if(v.status==='UNDONE')await tx`UPDATE undo_commands SET settled_at=${v.updatedAt} WHERE user_id=${userId} AND decision_id=${v.decisionId} AND settled_at IS NULL`;
    if(changedLabel){await tx`UPDATE users SET feedback_revision=${revision} WHERE id=${userId}`;
+    await tx`INSERT INTO feedback_sync_jobs(user_id,target_revision) VALUES(${userId},${revision}) ON CONFLICT(user_id) DO UPDATE SET target_revision=GREATEST(feedback_sync_jobs.target_revision,excluded.target_revision),available_at=LEAST(feedback_sync_jobs.available_at,clock_timestamp()),updated_at=clock_timestamp()`;
     await tx`INSERT INTO feedback(user_id,decision_id,revision,label,revoked,split,occurred_at) VALUES(${userId},${v.decisionId},${revision},${v.label},${v.labelState==='revoked'},${prior?.split??split},${v.updatedAt}) ON CONFLICT(user_id,decision_id) DO UPDATE SET revision=excluded.revision,label=excluded.label,revoked=excluded.revoked,occurred_at=excluded.occurred_at`;
    }
    if(v.status==='COMPLETE'||v.status==='UNDONE'){
@@ -108,13 +121,14 @@ export class Repository {
    }
   });
  }
- async transitionMutation(input:MutationTransitionInput){const v=MutationTransitionInputSchema.parse(input);return this.db.transaction(async tx=>{
+ async transitionMutation(input:MutationTransitionInput,lease?:ReviewLeaseIdentity){const v=MutationTransitionInputSchema.parse(input);return this.db.transaction(async tx=>{
+  await assertReviewLease(tx,v.userId,v.decisionId,lease);
   const [old]=await tx`SELECT * FROM spotify_mutations WHERE user_id=${v.userId} AND decision_id=${v.decisionId} FOR UPDATE`;
   if(!old){if(v.expectedStatus!=='PENDING')fail('STATE_CONFLICT');await tx`INSERT INTO spotify_mutations(mutation_id,user_id,decision_id,status,step,attempts,archive_playlist_id,updated_at) VALUES(${v.mutationId},${v.userId},${v.decisionId},${v.status},${v.step},${v.attempts},${v.archivePlaylistId},${v.occurredAt})`;}
   else{if(old.mutation_id!==v.mutationId||old.status!==v.expectedStatus||old.attempts>v.attempts)fail('STATE_CONFLICT');await tx`UPDATE spotify_mutations SET status=${v.status},step=${v.step},attempts=${v.attempts},archive_playlist_id=${v.archivePlaylistId},updated_at=${v.occurredAt} WHERE user_id=${v.userId} AND mutation_id=${v.mutationId}`;}
   if(v.step==='ARCHIVED_PLAYLIST_INSERTED'&&v.archivePlaylistId)await tx`INSERT INTO archive_records(user_id,decision_id,track_id,playlist_id,inserted_at) SELECT user_id,decision_id,track_id,${v.archivePlaylistId},${v.occurredAt} FROM review_decisions WHERE user_id=${v.userId} AND decision_id=${v.decisionId} ON CONFLICT DO NOTHING`;
  });}
- async setArchivePlaylist(userId:string,playlistId:string){await this.db.transaction(async tx=>{await tx`INSERT INTO archive_playlists(user_id,spotify_playlist_id) VALUES(${userId},${playlistId}) ON CONFLICT(user_id) DO NOTHING`;});return this.getArchivePlaylist(userId);}
+ async setArchivePlaylist(userId:string,playlistId:string,lease?:ReviewLeaseIdentity){await this.db.transaction(async tx=>{await assertReviewLease(tx,userId,null,lease);await tx`INSERT INTO archive_playlists(user_id,spotify_playlist_id) VALUES(${userId},${playlistId}) ON CONFLICT(user_id) DO NOTHING`;});return this.getArchivePlaylist(userId);}
  async getArchivePlaylist(userId:string):Promise<string|null>{return this.db.transaction(async tx=>(await tx`SELECT spotify_playlist_id FROM archive_playlists WHERE user_id=${userId}`)[0]?.spotify_playlist_id??null);}
  async recordModelRun(input:ModelRunInput){const v=ModelRunInputSchema.parse(input);if(v.metrics.modelVersion!==v.modelVersion||v.metrics.trainedExamples!==v.trainedExamples)fail('MODEL_METRICS_CONFLICT');await this.db.transaction(async tx=>{
   const inserted=await tx`INSERT INTO model_runs(run_id,user_id,model_version,feature_version,payload,created_at) VALUES(${v.runId},${v.userId},${v.modelVersion},${v.featureVersion},${json(v)}::jsonb,${v.createdAt}) ON CONFLICT DO NOTHING RETURNING run_id`;
@@ -128,6 +142,25 @@ export class Repository {
   const owner=await lockUser(tx,userId);const rows=await tx`SELECT * FROM ml_training_examples WHERE user_id=${userId} ORDER BY labeled_at,decision_id`;
   return {feedbackRevision:owner.feedback_revision,examples:rows.map((r:any)=>({decisionId:r.decision_id,trackId:r.track_id,label:r.label,split:r.split,labeledAt:iso(r.labeled_at),features:r.features}))};
  });}
+ /** Claim one user's latest pending revision. DB time is authoritative for lease expiry. */
+ async claimFeedbackSync(workerId:string,now:number,leaseMs:number):Promise<FeedbackSyncLease|null>{
+  if(!workerId||workerId.length>128||!Number.isFinite(now)||!Number.isInteger(leaseMs)||leaseMs<1||leaseMs>600000)fail('INVALID_FEEDBACK_LEASE');
+  return this.db.transaction(async tx=>{
+   const [job]=await tx`SELECT user_id,target_revision FROM feedback_sync_jobs WHERE target_revision>acknowledged_revision AND available_at<=clock_timestamp() AND (lease_id IS NULL OR lease_until<=clock_timestamp()) ORDER BY available_at,user_id FOR UPDATE SKIP LOCKED LIMIT 1`;
+   if(!job)return null;const leaseId=crypto.randomUUID();
+   await tx`UPDATE feedback_sync_jobs SET lease_id=${leaseId},lease_until=clock_timestamp()+${leaseMs}*interval '1 millisecond',worker_id=${workerId},updated_at=clock_timestamp() WHERE user_id=${job.user_id}`;
+   return {userId:job.user_id,feedbackRevision:job.target_revision,leaseId};
+  });
+ }
+ /** Ack the actual successfully fitted snapshot, possibly newer than the claimed revision. */
+ async acknowledgeFeedbackSync(userId:string,leaseId:string,revision:number):Promise<boolean>{
+  if(!Number.isInteger(revision)||revision<0)fail('INVALID_FEEDBACK_REVISION');
+  return this.db.transaction(async tx=>(await tx`UPDATE feedback_sync_jobs SET acknowledged_revision=${revision},lease_id=NULL,lease_until=NULL,worker_id=NULL,updated_at=clock_timestamp() WHERE user_id=${userId} AND lease_id=${leaseId} AND lease_until>clock_timestamp() AND acknowledged_revision<=${revision} AND target_revision>=${revision} RETURNING user_id`).length>0);
+ }
+ async retryFeedbackSync(userId:string,leaseId:string,retryAt:number):Promise<void>{
+  if(!Number.isFinite(retryAt))fail('INVALID_RETRY_TIME');
+  await this.db.transaction(async tx=>{await tx`UPDATE feedback_sync_jobs SET available_at=${new Date(retryAt).toISOString()},lease_id=NULL,lease_until=NULL,worker_id=NULL,updated_at=clock_timestamp() WHERE user_id=${userId} AND lease_id=${leaseId} AND lease_until>clock_timestamp()`;});
+ }
  recordTelemetry(input:TelemetryInput){return this.db.transaction(tx=>telemetry(tx,TelemetryInputSchema.parse(input)));}
  async analytics(userId:string,from:string,to:string):Promise<{bucket:string;eventType:string;modelVersion:string|null;events:number;predictionScore:number|null;uncertainty:number|null;latencyMs:number;kept:number;archived:number;unliked:number;skipped:number}[]>{
   if(!Number.isFinite(Date.parse(from))||!Number.isFinite(Date.parse(to))||Date.parse(from)>=Date.parse(to))fail('INVALID_TIME_RANGE');

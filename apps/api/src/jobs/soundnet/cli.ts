@@ -3,9 +3,11 @@ import {Repository} from '../../../../../packages/db/src/repository';
 import {SoundNetQueue} from '../../../../../packages/db/src/soundnet-queue';
 import {FEATURE_VERSION} from '@sortfm/contracts';
 import {SoundNetClient,ProviderError} from './provider';import {SoundNetWorker} from './worker';import {normalizeSoundNet} from './normalize';
-const usage='Usage: bun apps/api/src/jobs/soundnet/cli.ts <enqueue|status|smoke|approve-smoke|run|retry-failed> [--user USER_ID]';
+import {TITLE_VERIFIER} from './identity';
+import {titleSmoke,approveTitleSmoke} from './title-smoke';
+const usage='Usage: bun apps/api/src/jobs/soundnet/cli.ts <enqueue|status|smoke|smoke-title|approve-smoke|run|retry-failed> [--user USER_ID] [--attempt ACCEPTANCE_ID]';
 export async function main(args=process.argv.slice(2)){
- const command=args[0];if(!command||!['enqueue','status','smoke','approve-smoke','run','retry-failed'].includes(command))throw new Error(usage);
+ const command=args[0];if(!command||!['enqueue','status','smoke','smoke-title','approve-smoke','run','retry-failed'].includes(command))throw new Error(usage);
  const userIndex=args.indexOf('--user');const userId=userIndex<0?undefined:args[userIndex+1];
  if(['enqueue','status','smoke'].includes(command)&&!userId)throw new Error('--user is required');
  const db=connectDatabase();const queue=new SoundNetQueue(db);const stop=new AbortController();
@@ -15,11 +17,13 @@ export async function main(args=process.argv.slice(2)){
   if(command==='status'){console.log(await queue.progress(userId!));return;}
   if(command==='retry-failed'){console.log({requeued:await queue.retryFailed()});return;}
   if(command==='approve-smoke'){
+   const index=args.indexOf('--attempt');if(index>=0){const id=args[index+1];if(!id)throw new Error('ACCEPTANCE_ID_REQUIRED');console.log({approved:await approveTitleSmoke(db,id,process.env.SOUNDNET_RIGHTS_BASIS)});return;}
    const report=await db.transaction(async tx=>(await tx`SELECT report FROM provider_smoke WHERE provider='soundnet-review'`)[0]?.report);
    if(!report||Date.now()-Date.parse(report.createdAt)>86400000||report.samples.length!==5||report.samples.some((s:any)=>s.status!=='success'))throw new Error('FIVE_RECENT_SUCCESSFUL_SMOKE_SAMPLES_REQUIRED');
    await queue.approveSmoke({...report,operatorReviewed:true});console.log({approved:true});return;
   }
   const key=process.env.SOUNDNET_RAPIDAPI_KEY;if(!key)throw new Error('SOUNDNET_RAPIDAPI_KEY_REQUIRED');const client=new SoundNetClient(key);
+  if(command==='smoke-title'){const result=await titleSmoke(db,queue,client,stop.signal);console.log(result);if(!result.passed)process.exitCode=1;return;}
   if(command==='smoke'){
    const library=await new Repository(db).library(userId!);const byArtist=new Map<string,typeof library[number]>();
    for(const item of library)if(item.track.source==='spotify')byArtist.set(item.track.artists[0]!.name,item);
@@ -45,8 +49,9 @@ export async function main(args=process.argv.slice(2)){
    if(samples.length!==5||samples.some(sample=>sample.status!=='success'))process.exitCode=1;
    console.log({next:'Review raw cached responses against Spotify metadata, then run approve-smoke only if acceptable.'});return;
   }
-  if(!await queue.smokeApproved())throw new Error('RUN_AND_REVIEW_SMOKE_BEFORE_BACKFILL');
-  const worker=new SoundNetWorker(queue,client,{concurrency:Number(process.env.SOUNDNET_CONCURRENCY??3),maxConcurrency:Number(process.env.SOUNDNET_MAX_CONCURRENCY??5),rightsBasis:process.env.SOUNDNET_RIGHTS_BASIS,log:event=>console.log(JSON.stringify(event))});
+  const mode=process.env.SOUNDNET_LOOKUP_MODE??'spotify_id';if(mode!=='spotify_id'&&mode!=='title_artist')throw new Error('INVALID_LOOKUP_MODE');
+  if(!await queue.smokeApproved(mode,TITLE_VERIFIER))throw new Error('RUN_AND_REVIEW_SMOKE_BEFORE_BACKFILL');
+  const worker=new SoundNetWorker(queue,client,{lookupMode:mode,concurrency:Number(process.env.SOUNDNET_CONCURRENCY??3),maxConcurrency:Number(process.env.SOUNDNET_MAX_CONCURRENCY??5),rightsBasis:process.env.SOUNDNET_RIGHTS_BASIS,log:event=>console.log(JSON.stringify(event))});
   await worker.run(stop.signal);
  }finally{process.off('SIGTERM',shutdown);process.off('SIGINT',shutdown);await db.close();}
 }

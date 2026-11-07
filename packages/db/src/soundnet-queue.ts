@@ -1,4 +1,4 @@
-import {AudioFeaturesInputSchema,AudioFeatureStatusSchema,FEATURE_VERSION,type AudioFeaturesInput,type AudioFeatureStatus} from '@sortfm/contracts';
+import {TrackCardSchema,type TrackCard,AudioFeaturesInputSchema,AudioFeatureStatusSchema,FEATURE_VERSION,type AudioFeaturesInput,type AudioFeatureStatus} from '@sortfm/contracts';
 import {Database,json} from './client';
 export type ClaimedJob={trackId:string;featureVersion:typeof FEATURE_VERSION;token:string;attempts:number};
 export class SoundNetQueue {
@@ -15,16 +15,28 @@ export class SoundNetQueue {
   const [job]=await tx`UPDATE soundnet_jobs SET status='running',attempts=attempts+1,lease_token=${token},lease_until=clock_timestamp()+${leaseMs}*interval '1 millisecond',updated_at=now() WHERE track_id=${row.track_id} AND feature_version=${row.feature_version} RETURNING attempts`;
   return {trackId:row.track_id,featureVersion:FEATURE_VERSION,token,attempts:job.attempts};
  });}
+ async trackMetadata(trackId:string):Promise<TrackCard|null>{return this.db.transaction(async tx=>{const [row]=await tx`SELECT card FROM tracks WHERE track_id=${trackId}`;return row?TrackCardSchema.parse(row.card):null;});}
+ /** Start evidence only once for the live lease. A crash leaves a visible started row;
+  * a recovered lease gets its own row and consumes another existing attempt. */
+ async beginAttempt(job:ClaimedJob,endpoint:'spotify_id'|'title_artist'):Promise<TrackCard|null>{return this.db.transaction(async tx=>{
+  const [live]=await tx`SELECT track_id FROM soundnet_jobs WHERE track_id=${job.trackId} AND feature_version=${job.featureVersion} AND lease_token=${job.token} AND attempts=${job.attempts} AND status='running' AND lease_until>clock_timestamp() FOR UPDATE`;
+  if(!live)return null;
+  const [row]=await tx`SELECT card FROM tracks WHERE track_id=${job.trackId}`;const track=TrackCardSchema.parse(row.card);
+  const rows=await tx`INSERT INTO soundnet_attempts(lease_token,track_id,feature_version,attempt,endpoint,expected_track) VALUES(${job.token},${job.trackId},${job.featureVersion},${job.attempts},${endpoint},${json(track)}::jsonb) ON CONFLICT DO NOTHING RETURNING lease_token`;
+  return rows.length?track:null;
+ });}
  async renew(job:ClaimedJob,leaseMs=180000):Promise<boolean>{return this.db.transaction(async tx=>(await tx`UPDATE soundnet_jobs SET lease_until=clock_timestamp()+${leaseMs}*interval '1 millisecond' WHERE track_id=${job.trackId} AND feature_version=${job.featureVersion} AND lease_token=${job.token} AND status='running' AND lease_until>clock_timestamp() RETURNING track_id`).length>0);}
  async complete(job:ClaimedJob,input:AudioFeaturesInput):Promise<boolean>{const v=AudioFeaturesInputSchema.parse(input);if(v.status!=='success'||v.trackId!==job.trackId||v.normalized.featureVersion!==job.featureVersion)throw new Error('CACHE_IDENTITY_CONFLICT');return this.db.transaction(async tx=>{
   const rows=await tx`UPDATE soundnet_jobs SET status='success',lease_token=NULL,lease_until=NULL,error_code=NULL,updated_at=now() WHERE track_id=${job.trackId} AND feature_version=${job.featureVersion} AND lease_token=${job.token} AND status='running' AND lease_until>clock_timestamp() RETURNING track_id`;
   if(!rows.length)return false;
+  await tx`UPDATE soundnet_attempts SET outcome='success',raw=${json(v.raw)}::jsonb,finished_at=clock_timestamp() WHERE lease_token=${job.token}`;
   await tx`INSERT INTO audio_features(track_id,feature_version,provider,raw,normalized,data_quality,fetched_at) VALUES(${v.trackId},${job.featureVersion},${v.provider},${json(v.raw)}::jsonb,${json(v.normalized)}::jsonb,${json(v.dataQuality)}::jsonb,${v.fetchedAt}) ON CONFLICT DO NOTHING`;return true;
  });}
  async fail(job:ClaimedJob,code:string,retryable:boolean,delayMs:number,raw?:unknown):Promise<boolean>{
   if(!/^[A-Z0-9_]+$/.test(code)||!Number.isFinite(delayMs)||delayMs<0)throw new Error('INVALID_RETRY');
   return this.db.transaction(async tx=>{
    const rows=await tx`UPDATE soundnet_jobs SET status=${retryable&&job.attempts<this.maxAttempts?'pending':'failed'},available_at=clock_timestamp()+${delayMs}*interval '1 millisecond',error_code=${code},lease_token=NULL,lease_until=NULL,updated_at=now() WHERE track_id=${job.trackId} AND feature_version=${job.featureVersion} AND lease_token=${job.token} AND status='running' AND lease_until>clock_timestamp() RETURNING track_id`;
+   if(rows.length)await tx`UPDATE soundnet_attempts SET outcome=${code},raw=${raw===undefined?null:json(raw)}::jsonb,finished_at=clock_timestamp() WHERE lease_token=${job.token}`;
    if(rows.length && raw!==undefined)await tx`INSERT INTO soundnet_failures(track_id,feature_version,attempt,lease_token,error_code,raw) VALUES(${job.trackId},${job.featureVersion},${job.attempts},${job.token},${code},${json(raw)}::jsonb) ON CONFLICT DO NOTHING`;
    return rows.length>0;
   });
@@ -74,7 +86,11 @@ export class SoundNetQueue {
   return AudioFeatureStatusSchema.parse({provider:'soundnet',status:rows.length===ready.length?'complete':rows.some((r:any)=>r.status==='running')?'running':ready.length+failed===rows.length?'failed':'pending',featuresReady:ready.length,featuresTotal:rows.length,failed,missingness,reason});
  });}
  async approveSmoke(report:unknown){await this.db.transaction(async tx=>{await tx`INSERT INTO provider_smoke(provider,verified_at,report) VALUES('soundnet',now(),${json(report)}::jsonb) ON CONFLICT(provider) DO UPDATE SET verified_at=excluded.verified_at,report=excluded.report`;});}
- async smokeApproved(){return this.db.transaction(async tx=>Boolean((await tx`SELECT 1 FROM provider_smoke WHERE provider='soundnet' AND verified_at>now()-interval '7 days'`)[0]));}
+ async smokeApproved(mode:'spotify_id'|'title_artist'='spotify_id',verifier?:string){return this.db.transaction(async tx=>{
+  const [row]=await tx`SELECT report FROM provider_smoke WHERE provider='soundnet' AND verified_at>now()-interval '7 days'`;
+  if(!row)return false;if(mode==='spotify_id')return (row.report.lookupMode??'spotify_id')==='spotify_id';
+  return row.report.lookupMode===mode&&Boolean(verifier)&&row.report.verifier===verifier&&row.report.version==='soundnet.title-acceptance.v1'&&row.report.operatorReviewed===true&&typeof row.report.id==='string';
+ });}
 }
 export function sleep(ms:number,signal?:AbortSignal):Promise<void>{return new Promise((resolve,reject)=>{
  if(signal?.aborted){reject(signal.reason);return;}const abort=()=>{clearTimeout(timer);reject(signal?.reason);};

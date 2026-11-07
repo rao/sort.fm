@@ -1,7 +1,8 @@
 import {SoundNetQueue,sleep,type ClaimedJob} from '../../../../../packages/db/src/soundnet-queue';
 import {SoundNetClient,ProviderError,retryDelay} from './provider';
 import {normalizeSoundNet} from './normalize';
-export type WorkerOptions={concurrency?:number;maxConcurrency?:number;random?:()=>number;rightsBasis?:string;log?:(event:Record<string,unknown>)=>void};
+import {normalizeVerifiedTitle,titleLookup} from './identity';
+export type WorkerOptions={lookupMode?:'spotify_id'|'title_artist';concurrency?:number;maxConcurrency?:number;random?:()=>number;rightsBasis?:string;log?:(event:Record<string,unknown>)=>void};
 export class SoundNetWorker {
  concurrency:number;private successes=0;private maxConcurrency:number;private log:(event:Record<string,unknown>)=>void;
  constructor(readonly queue:SoundNetQueue,readonly client:SoundNetClient,private options:WorkerOptions={}){
@@ -15,8 +16,13 @@ export class SoundNetWorker {
   try{
    let response:Awaited<ReturnType<SoundNetClient['fetch']>>|undefined;let normalized:ReturnType<typeof normalizeSoundNet>;
    try{
-    response=await this.queue.dispatch(()=>this.client.fetch(job.trackId,combined),combined);
-    try{normalized=normalizeSoundNet(response.raw,job.trackId,{permittedForTraining:Boolean(this.options.rightsBasis),...(this.options.rightsBasis?{rightsBasis:this.options.rightsBasis}:{})});}catch{throw new ProviderError('INVALID_FEATURES',false);}
+    const mode=this.options.lookupMode??'spotify_id';
+    const track=await this.queue.beginAttempt(job,mode);if(!track)return;
+    let lookup:ReturnType<typeof titleLookup>|undefined;
+    if(mode==='title_artist'){try{lookup=titleLookup(track);}catch{throw new ProviderError('UNSUPPORTED_IDENTITY',false);}}
+    response=await this.queue.dispatch(()=>this.client.fetch(job.trackId,combined,lookup),combined);
+    const rights={permittedForTraining:Boolean(this.options.rightsBasis),...(this.options.rightsBasis?{rightsBasis:this.options.rightsBasis}:{})};
+    try{normalized=mode==='title_artist'?normalizeVerifiedTitle(response.raw,track,rights):normalizeSoundNet(response.raw,job.trackId,rights);}catch{throw new ProviderError(mode==='title_artist'?'IDENTITY_REJECTED':'INVALID_FEATURES',false);}
    }catch(error){
     if(combined.aborted)return; // Keep the lease for another worker to recover; no false success.
     if(!(error instanceof ProviderError))throw error; // Database failure must terminate, not masquerade as a provider retry.

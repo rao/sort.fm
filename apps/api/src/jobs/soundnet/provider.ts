@@ -7,11 +7,14 @@ export function parseRetryAfter(value:string|null,now=Date.now()) {if(!value)ret
 export class SoundNetClient {
  readonly timeoutMs:number;private fetcher:Fetcher;
  constructor(private key:string,options:{fetch?:Fetcher;timeoutMs?:number}={}){if(!key)throw new Error('SOUNDNET_RAPIDAPI_KEY_REQUIRED');this.fetcher=options.fetch??fetch;this.timeoutMs=options.timeoutMs??90000;if(!Number.isFinite(this.timeoutMs)||this.timeoutMs<1||this.timeoutMs>120000)throw new Error('INVALID_TIMEOUT');}
- async fetch(trackId:string,signal?:AbortSignal):Promise<{raw:unknown;latencyMs:number;bytes:number}>{
+ async fetch(trackId:string,signal?:AbortSignal,lookup?:{title:string;artists:string[]}):Promise<{raw:unknown;latencyMs:number;bytes:number}>{
   if(!/^[A-Za-z0-9]{22}$/.test(trackId))throw new ProviderError('INVALID_TRACK_ID',false);
+  if(lookup&&(!lookup.title.trim()||!lookup.artists.length||lookup.artists.some(a=>!a.trim())))throw new ProviderError('INVALID_LOOKUP',false);
+  const url=lookup?`https://track-analysis.p.rapidapi.com/pktx/analysis?${new URLSearchParams({song:lookup.title,artist:lookup.artists.join(', ')})}`:`https://track-analysis.p.rapidapi.com/pktx/spotify/${encodeURIComponent(trackId)}`;
   const started=performance.now();const timeout=AbortSignal.timeout(this.timeoutMs);const combined=signal?AbortSignal.any([signal,timeout]):timeout;
   try{
-   const response=await this.fetcher(`https://track-analysis.p.rapidapi.com/pktx/spotify/${encodeURIComponent(trackId)}`,{headers:{'x-rapidapi-key':this.key,'x-rapidapi-host':'track-analysis.p.rapidapi.com'},signal:combined,redirect:'error'});
+   combined.throwIfAborted();
+   const response=await this.fetcher(url,{headers:{'x-rapidapi-key':this.key,'x-rapidapi-host':'track-analysis.p.rapidapi.com'},signal:combined,redirect:'error'});
    if(!response.ok){await response.body?.cancel();throw new ProviderError(`HTTP_${response.status}`,response.status===408||response.status===429||response.status>=500,parseRetryAfter(response.headers.get('retry-after')));}
    const reader=response.body?.getReader();if(!reader)throw new ProviderError('EMPTY_BODY',false);const decoder=new TextDecoder();let text='',bytes=0;
    while(true){const chunk=await reader.read();if(chunk.done)break;bytes+=chunk.value.byteLength;if(bytes>1048576){await reader.cancel();throw new ProviderError('BODY_TOO_LARGE',false);}text+=decoder.decode(chunk.value,{stream:true});}

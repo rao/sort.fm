@@ -1,4 +1,4 @@
-import {connectDatabase, PostgresA1Store, Repository, SoundNetQueue, type Database} from '@sortfm/db';
+import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, Repository, SoundNetQueue, type Database} from '@sortfm/db';
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService} from './reviews/queue';
@@ -13,6 +13,7 @@ import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
 import {createSpotifyModule} from './auth/module';
 import type {SpotifyHttp,Fetch} from './spotify/http';
+import {CalibrationQueue,CalibrationService,createCalibrationModule} from './calibration';
 
 /** Integration bootstrap. Missing external services leave the isolated demo usable. */
 export async function buildRuntime(options: {
@@ -34,6 +35,10 @@ export async function buildRuntime(options: {
     await tx`SELECT user_id FROM library_membership LIMIT 0`;
     await tx`SELECT feedback_revision FROM users LIMIT 0`;
     await tx`SELECT membership_revision FROM users LIMIT 0`;
+    await tx`SELECT purpose FROM exposures LIMIT 0`;
+    await tx`SELECT label_id FROM calibration_labels LIMIT 0`;
+    await tx`SELECT command_id FROM calibration_undos LIMIT 0`;
+    await tx`SELECT source FROM effective_feedback LIMIT 0`;
    });
   } catch {
    await database?.close().catch(()=>{});
@@ -89,11 +94,20 @@ export async function buildRuntime(options: {
  const modelRetrain=spotify?createMlRetrainModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},ml,
  }):null;
+ const calibrationStore=database?new PostgresCalibrationStore(database):null;
+ const calibration=spotify&&calibrationStore?createCalibrationModule({
+  auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
+  service:new CalibrationService(calibrationStore,{...(feedback?{feedback}:{})}),
+  queue:new CalibrationQueue(calibrationStore,{
+   assemble:(rows,{userId,now})=>assembleLibraryCandidates(rows,{userId,now:new Date(now).toISOString(),metadataTraining}),
+   ...(ml?{score:(userId,candidates)=>ml!.score(userId,candidates)}:{}),
+  }),
+ }):null;
 
  try {
   const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
    if(feedback){app.addHook('onReady',async()=>{feedback.start();});app.addHook('onClose',async()=>{await feedback.close();});}
-   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);await modelReads?.registerRoutes(app);await modelRetrain?.registerRoutes(app);}
+   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);await modelReads?.registerRoutes(app);await modelRetrain?.registerRoutes(app);await calibration?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));
    }

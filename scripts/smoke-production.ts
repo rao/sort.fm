@@ -38,6 +38,11 @@ const queue=QueueResultSchema.parse(await(await request('/api/queue?mode=demo&li
 check(queue.mode==='demo'&&queue.items.every(item=>item.track.source==='synthetic'),'Demo queue leaked live tracks.');
 await request('/api/queue',401);
 await request('/api/ml/insights',401);
+for(const path of ['/api/calibration/queue','/api/calibration/history']){
+ const response=await request(path,401,{headers:{origin:web}});
+ check(response.headers.get('cache-control')?.includes('no-store'),'Calibration responses must not be cached.');
+ check(response.headers.get('access-control-allow-origin')===web,'Calibration browser origin is not allowed.');
+}
 // This request cannot fit a model: it carries no owner session or cookie.
 await request('/api/ml/retrain',401,{method:'POST',headers:{origin:web}});
 const preflight=await request('/api/ml/retrain',204,{method:'OPTIONS',headers:{origin:web,'access-control-request-method':'POST','access-control-request-headers':'content-type'}});

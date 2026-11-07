@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createMlClient} from '../src/ml';
 import {Database,migrate,Repository} from '@sortfm/db';
-import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema,ReviewRequestSchema,ReviewResultSchema,DecisionHistorySchema,ModelInsightsSchema,FitResponseSchema,PUBLIC_ROUTES,type ReviewResult} from '@sortfm/contracts';
+import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema,ReviewRequestSchema,ReviewResultSchema,DecisionHistorySchema,ModelInsightsSchema,FitResponseSchema,CalibrationQueueResultSchema,CalibrationLabelResultSchema,PUBLIC_ROUTES,type ReviewResult} from '@sortfm/contracts';
 import {buildRuntime} from '../src/runtime';
 import {SpotifyHttp} from '../src/spotify/http';
 
@@ -191,6 +191,27 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   expect(events.filter(row=>row.event_type==='decision')).toHaveLength(4);expect(events.filter(row=>row.event_type==='undo')).toHaveLength(4);
   const emptyFit=await retrainSnapshot(0);
   expect(emptyFit.metrics).toMatchObject({status:'insufficient_data',dataset:'synthetic',baseRate:null,balancedAccuracy:null,rocAuc:null,prAuc:null,logLoss:null,brierScore:null,precisionAtK:null});
+  // Actual runtime composition must retain the metadata permission and shared feedback worker.
+  const libraryBeforeCalibration=await repository.library(userId),writesBeforeCalibration=[...writes];
+  const calibrationResponse=await fetch(`${base}/api/calibration/queue?limit=4`,{headers});
+  expect(calibrationResponse.status).toBe(200);
+  const calibration=CalibrationQueueResultSchema.parse(await calibrationResponse.json());
+  expect(calibration.items).toHaveLength(4);
+  const preference=calibration.items[0]!;
+  expect((await repository.getExposure(userId,preference.exposure.exposureId))?.features.permittedForTraining).toBe(true);
+  const labelResponse=await fetch(`${base}/api/calibration/labels`,{method:'POST',headers,body:JSON.stringify({trackId:preference.track.trackId,exposureId:preference.exposure.exposureId,label:0,idempotencyKey:crypto.randomUUID()})});
+  expect(labelResponse.status).toBe(200);
+  const label=CalibrationLabelResultSchema.parse(await labelResponse.json());
+  await awaitFeedback(label.feedbackRevision,1);
+  await retrainSnapshot(1);
+  const revokeResponse=await fetch(`${base}/api/calibration/labels/${label.labelId}/undo`,{method:'POST',headers,body:JSON.stringify({idempotencyKey:crypto.randomUUID()})});
+  expect(revokeResponse.status).toBe(200);
+  const revoked=CalibrationLabelResultSchema.parse(await revokeResponse.json());
+  expect(revoked.state).toBe('revoked');
+  await awaitFeedback(revoked.feedbackRevision,0);
+  expect(await repository.library(userId)).toEqual(libraryBeforeCalibration);
+  expect(writes).toEqual(writesBeforeCalibration);
+  expect((await ml.explain({userId,exposureId:preference.exposure.exposureId})).prediction).toEqual(preference.prediction);
   const fresh=QueueResultSchema.parse(await(await fetch(`${base}/api/queue?limit=4`,{headers})).json());
   expect(fresh.items).toHaveLength(4);expect(fresh.items.every(item=>!queue.items.some(old=>old.exposure.exposureId===item.exposure.exposureId))).toBe(true);
   worker.kill('SIGTERM');await worker.exited;
@@ -204,6 +225,12 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   expect(fallback.items[0]?.prediction.removalProbability).toBeNull();
   expect(fallback.fallbackReason).toContain('unavailable');
   expect((await repository.getExposure(session.user!.id,fallback.items[0]!.exposure.exposureId))?.prediction).toEqual(fallback.items[0]!.prediction);
+  await runtime.close();
+  await db.transaction(tx=>tx`DROP TABLE calibration_undos`);
+  runtime=await buildRuntime({env:{NODE_ENV:'test',DATABASE_URL:databaseUrl,DATABASE_SCHEMA:schema}});
+  expect(runtime.startupIssues).toContain('DATABASE_UNAVAILABLE');
+  expect((await runtime.app.inject({url:'/api/health'})).json().capabilities.database).toBe(false);
+  expect((await runtime.app.inject({url:'/api/demo/bootstrap'})).statusCode).toBe(200);
  } finally {
   await runtime?.close();
   await db.sql.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);

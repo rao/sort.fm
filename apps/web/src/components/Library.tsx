@@ -67,6 +67,7 @@ export function Library({
 						</div>
 					</div>
 					<Progress
+						smooth
 						value={total}
 						max={total || 12}
 						label="Library import progress"

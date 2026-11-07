@@ -263,11 +263,26 @@ export function Progress({
 	value,
 	max,
 	label,
+	smooth = false,
 }: {
 	value: number;
 	max: number;
 	label: string;
+	smooth?: boolean;
 }) {
+	if (smooth) {
+		const fraction = Math.min(1, Math.max(0, value / Math.max(1, max)));
+		return (
+			<span className="smooth-progress">
+				<progress aria-label={label} max={Math.max(1, max)} value={value} />
+				<span
+					aria-hidden="true"
+					className="smooth-progress-fill"
+					style={{ transform: `scaleX(${fraction})` }}
+				/>
+			</span>
+		);
+	}
 	return <progress aria-label={label} max={Math.max(1, max)} value={value} />;
 }
 export function duration(ms: number) {

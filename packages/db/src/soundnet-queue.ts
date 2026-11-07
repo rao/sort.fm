@@ -66,7 +66,12 @@ export class SoundNetQueue {
   const ready=rows.filter((r:any)=>r.normalized);const failed=rows.filter((r:any)=>!r.normalized&&r.status==='failed').length;
   const missingness:Record<string,number>={};const keys=['energy','danceability','happiness','acousticness','instrumentalness','liveness','speechiness','tempo_bpm','loudness_db','key_sin','key_cos','mode_major','soundnet_popularity'];
   for(const key of keys)missingness[key]=rows.length?rows.filter((r:any)=>r.normalized?.values[key]==null).length/rows.length:0;
-  return AudioFeatureStatusSchema.parse({provider:'soundnet',status:rows.length===ready.length?'complete':rows.some((r:any)=>r.status==='running')?'running':ready.length+failed===rows.length?'failed':'pending',featuresReady:ready.length,featuresTotal:rows.length,failed,missingness,reason:null});
+  const [acceptance]=await tx`SELECT EXISTS(SELECT 1 FROM provider_smoke WHERE provider='soundnet' AND verified_at>clock_timestamp()-interval '7 days') AS approved,(SELECT report FROM provider_smoke WHERE provider='soundnet-review') AS review`;
+  const failedSmoke=Array.isArray(acceptance.review?.samples)&&acceptance.review.samples.some((s:any)=>s.status==='failed');
+  const reason=rows.length>ready.length&&!acceptance.approved
+   ?failedSmoke?'SoundNet verification failed; bulk ingestion is paused. Library metadata and cached audio features remain available.':'Awaiting five-track SoundNet verification. Library metadata remains available.'
+   :null;
+  return AudioFeatureStatusSchema.parse({provider:'soundnet',status:rows.length===ready.length?'complete':rows.some((r:any)=>r.status==='running')?'running':ready.length+failed===rows.length?'failed':'pending',featuresReady:ready.length,featuresTotal:rows.length,failed,missingness,reason});
  });}
  async approveSmoke(report:unknown){await this.db.transaction(async tx=>{await tx`INSERT INTO provider_smoke(provider,verified_at,report) VALUES('soundnet',now(),${json(report)}::jsonb) ON CONFLICT(provider) DO UPDATE SET verified_at=excluded.verified_at,report=excluded.report`;});}
  async smokeApproved(){return this.db.transaction(async tx=>Boolean((await tx`SELECT 1 FROM provider_smoke WHERE provider='soundnet' AND verified_at>now()-interval '7 days'`)[0]));}

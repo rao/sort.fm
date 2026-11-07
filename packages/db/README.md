@@ -225,3 +225,11 @@ taste-context writes remain one transaction. This fence prevents a stale scan fr
 restoring removed tracks or hiding Undo restoration without blocking reviews for an
 entire long-running import. It cannot make Spotify's externally changing paginated
 library a snapshot; A1's existing head/total checks remain necessary.
+
+Live-provider failures: SoundNet's observed HTTP200 `{error:"Failed to pull track data"}`
+response is classified as retryable `PROVIDER_TRACK_UNAVAILABLE`, subject to the same
+five-attempt cap as other transient failures. Unknown/invalid feature bodies remain
+validation failures. A failed smoke gate leaves bulk work unapproved and reports the
+metadata fallback through `AudioFeatureStatus.reason`; private vendor diagnostics are
+not exposed publicly. Keep the initial failed samples when recording any diagnostic
+retry—later individual successes do not by themselves establish five-sample acceptance.

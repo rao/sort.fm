@@ -87,3 +87,26 @@ The regression suite also forces an old SERIALIZABLE import snapshot to overlap 
 READ COMMITTED destructive-command/Undo creation. New command creation touches the owner
 row without changing its semantic revision, so PostgreSQL aborts/retries the stale
 import snapshot and the pending-command guard sees the new work.
+
+## Live SoundNet acceptance and fallback (November 7)
+
+The first five distinct-artist requests produced one valid cached response (1.795s),
+two 90-second timeouts, and two HTTP200 bodies reporting `Failed to pull track data`.
+The successful response's encoded title/artist identity matched the Spotify metadata;
+its duration differed by only 200ms and all 14 normalized fields were present. No
+schema normalization change was needed. The original failure report remains in
+`provider_smoke` under `soundnet-review`; retry evidence is appended separately and
+must not replace or hide that initial acceptance result. Bulk approval was not granted.
+
+The known HTTP200 upstream-fetch error is now `PROVIDER_TRACK_UNAVAILABLE`, retryable
+within the existing five-attempt budget (with backoff/concurrency reduction). Failed
+smoke acceptance is exposed through sanitized `AudioFeatureStatus.reason`. Metadata
+and already cached features remain usable; no fabricated features or Spotify mutations
+are introduced. This fallback is the operational path until five acceptable samples
+and explicit operator approval establish provider readiness.
+
+One bounded retry of the original timed-out sample also timed out after 90,001ms.
+It was appended to the original report's retries array; no bulk worker was started.
+After the imported library reached 2,768 tracks, a repeat enqueue added 1,117 jobs;
+2,767 uncached tracks are queued and the one valid result remains cached. Aggregate
+audio missingness is 99.9639%; the verified cached vector itself has no missing fields.

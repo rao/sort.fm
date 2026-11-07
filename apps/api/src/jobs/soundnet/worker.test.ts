@@ -40,3 +40,10 @@ test('SoundNet HTTP 200 pull failures retry within the existing attempt budget',
  await worker.process({trackId:id,featureVersion:'sortfm.features.v1',token:crypto.randomUUID(),attempts:5});
  expect(failures[0]!.slice(1,3)).toEqual(['PROVIDER_TRACK_UNAVAILABLE',true]);expect(failures[0]![4]).toEqual({error:'Failed to pull track data'});expect(events[0]!.retryInMs).toBeNull();expect(worker.concurrency).toBe(2);
 });
+test('literal JSON null from the provider is retained in failed-feature diagnostics',async()=>{
+ const failures:unknown[][]=[];
+ const queue={maxAttempts:5,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),fail:async(...args:unknown[])=>{failures.push(args);return true;}} as unknown as SoundNetQueue;
+ const client=new SoundNetClient('secret',{fetch:async()=>Response.json(null)});
+ await new SoundNetWorker(queue,client).process({trackId:id,featureVersion:'sortfm.features.v1',token:crypto.randomUUID(),attempts:1});
+ expect(failures[0]!.slice(1,3)).toEqual(['INVALID_FEATURES',false]);expect(failures[0]![4]).toBeNull();
+});

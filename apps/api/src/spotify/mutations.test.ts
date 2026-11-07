@@ -63,3 +63,44 @@ test('archive reconciliation marker supports canonical dotted Spotify usernames'
   const client=setup(async()=>{throw new Error('No network needed');});
   expect(client.marker('spotify:ram.in')).toBe('sort.fm archive [sortfm:ram.in]');
 });
+
+test('archive verification rejects a response identifying a different playlist',async()=>{
+  const client=setup(async()=>Response.json({id:trackId,public:false,owner:{id:'owner'}}));
+  await expect(client.verifyArchive('spotify:owner',playlistId)).rejects.toMatchObject({code:'SPOTIFY_INVALID_RESPONSE'});
+});
+
+test('unidentifiable or contradictory playlist items cannot confirm absence or a backup',async()=>{
+  for(const item of [{},{id:null},{id:trackId,uri:`spotify:track:${playlistId}`},{id:trackId,type:'track',uri:`spotify:episode:${trackId}`}]) {
+    const client=setup(async()=>Response.json({offset:0,total:1,items:[{item}]}));
+    await expect(client.archiveContains('spotify:owner',playlistId,trackId)).rejects.toMatchObject({code:'SPOTIFY_INVALID_RESPONSE'});
+  }
+});
+
+test('an episode with the same identifier is not an archived track',async()=>{
+  const client=setup(async()=>Response.json({offset:0,total:1,items:[{item:{id:trackId,type:'episode',uri:`spotify:episode:${trackId}`}}]}));
+  expect(await client.archiveContains('spotify:owner',playlistId,trackId)).toBe(false);
+});
+
+test('valid playlist identities retain local, unavailable, legacy and relinked compatibility',async()=>{
+  const client=setup(async()=>Response.json({offset:0,total:4,items:[
+    {item:null},
+    {item:{id:null,type:'track',uri:'spotify:local:artist:album:title:120',is_local:true}},
+    {item:{id:playlistId,type:'episode',uri:`spotify:episode:${playlistId}`}},
+    {track:{id:playlistId,type:'track',uri:`spotify:track:${playlistId}`,linked_from:{id:trackId}}},
+  ]}));
+  expect(await client.archiveContains('spotify:owner',playlistId,trackId)).toBe(true);
+});
+
+test.each([
+  {id:trackId},
+  {id:playlistId,type:'track',uri:`spotify:track:${playlistId}`,linked_from:{id:trackId,type:'episode',uri:`spotify:episode:${playlistId}`}},
+  {id:playlistId,type:'track',linked_from:{id:trackId,type:'track',uri:`spotify:track:${playlistId}`}},
+])('ambiguous types and contradictory relinked identities cannot prove a backup: %j',async(item)=>{
+  const client=setup(async()=>Response.json({offset:0,total:1,items:[{item}]}));
+  await expect(client.archiveContains('spotify:owner',playlistId,trackId)).rejects.toMatchObject({code:'SPOTIFY_INVALID_RESPONSE'});
+});
+
+test('an explicit track URI resolves identity when other optional fields are missing',async()=>{
+  const client=setup(async()=>Response.json({offset:0,total:1,items:[{item:{uri:`spotify:track:${trackId}`}}]}));
+  expect(await client.archiveContains('spotify:owner',playlistId,trackId)).toBe(true);
+});

@@ -2,9 +2,11 @@ import {
 	PUBLIC_ROUTES,
 	ErrorEnvelopeSchema,
 	ReviewRequestSchema,
+	PlayRequestSchema,
 	UndoRequestSchema,
 	UuidSchema,
 	type AccountSession,
+	type ModelMetrics,
 	type QueueResult,
 	type ReviewRequest,
 	type ReviewResult,
@@ -16,9 +18,38 @@ import type { ReviewClient } from "./demo-client";
 export type LibrarySummary = ReturnType<
 	typeof PUBLIC_ROUTES.librarySummary.response.parse
 >;
-export type InsightsData = ReturnType<
+type WireInsightsData = ReturnType<
 	typeof PUBLIC_ROUTES.insights.response.parse
 >;
+// Frontend view only: quarantine model metrics without losing independent audio status.
+export type InsightsData = Omit<WireInsightsData, "metrics"> & {
+	metrics: ModelMetrics | null;
+};
+export function isEmptyModelEvaluation(metrics: ModelMetrics): boolean {
+	// C1 maps an empty example set to "synthetic" because the shared enum has no
+	// "none" value. Accept only its exact no-feedback/no-evaluation combination.
+	return (
+		metrics.status === "insufficient_data" &&
+		metrics.evaluationMethod === "none" &&
+		metrics.evaluatedAt === null &&
+		[
+			metrics.labeledExamples,
+			metrics.trainedExamples,
+			metrics.heldOutExamples,
+			metrics.heldOutPositive,
+			metrics.heldOutNegative,
+		].every((value) => value === 0) &&
+		[
+			metrics.baseRate,
+			metrics.balancedAccuracy,
+			metrics.rocAuc,
+			metrics.prAuc,
+			metrics.logLoss,
+			metrics.brierScore,
+			metrics.precisionAtK,
+		].every((value) => value === null)
+	);
+}
 export type ImportStatus = ReturnType<
 	typeof PUBLIC_ROUTES.syncStatus.response.parse
 >;
@@ -145,15 +176,22 @@ export function createLiveApi(
 		inFlight.set(key, request);
 		return request;
 	}
-	async function extra<T>(route: {
-		path: string;
-		method: string;
-		response: { parse(value: unknown): T };
-	}): Promise<T> {
+	async function extra<T>(
+		route: {
+			path: string;
+			method: string;
+			response: { parse(value: unknown): T };
+		},
+		body?: unknown,
+	): Promise<T> {
 		const response = await boundedFetch(`${base}${route.path}`, {
 			method: route.method,
 			credentials: "include",
-			headers: { Accept: "application/json" },
+			headers: {
+				Accept: "application/json",
+				...(body === undefined ? {} : { "Content-Type": "application/json" }),
+			},
+			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		});
 		const payload = await response.json().catch(() => null);
 		if (!response.ok) {
@@ -187,6 +225,10 @@ export function createLiveApi(
 		importStatus: () => read("import", () => extra(PUBLIC_ROUTES.syncStatus)),
 		startImport: () => extra(PUBLIC_ROUTES.sync),
 		logout: () => extra(PUBLIC_ROUTES.logout),
+		playerStatus: () => read("player", () => extra(PUBLIC_ROUTES.playerStatus)),
+		play: async (trackUri: string) =>
+			extra(PUBLIC_ROUTES.play, PlayRequestSchema.parse({ trackUri })),
+		retrain: () => extra(PUBLIC_ROUTES.retrain),
 		insights: () => read("insights", shared.insights),
 		history: () => read("history", shared.history),
 	};
@@ -245,6 +287,16 @@ export function createLiveClient(
 			throw new Error("A live queue returned demo data. Review is paused.");
 		for (const result of [history, insights])
 			if (isUnauthorized(result.error)) throw result.error;
+		let safeInsights: InsightsData | null = insights.data;
+		if (
+			insights.data?.metrics.dataset === "synthetic" &&
+			!isEmptyModelEvaluation(insights.data.metrics)
+		) {
+			safeInsights = { ...insights.data, metrics: null, prediction: null };
+			insights.error = new Error(
+				"Live insights returned synthetic model metrics. Personal model data is unavailable.",
+			);
+		}
 		if (history.data?.items.some((item) => item.mode !== "spotify"))
 			throw new Error("Live history returned demo decisions.");
 		return {
@@ -253,7 +305,7 @@ export function createLiveClient(
 			summary,
 			history: history.data?.items ?? null,
 			historyHasMore: !!history.data?.nextCursor,
-			insights: insights.data,
+			insights: safeInsights,
 			warnings: [
 				history.error && `History: ${errorMessage(history.error)}`,
 				insights.error && `Model: ${errorMessage(insights.error)}`,

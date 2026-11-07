@@ -15,6 +15,7 @@ import {
 	type LiveSnapshot,
 	type LibrarySummary,
 	type InsightsData,
+	isEmptyModelEvaluation,
 	type PendingCommand,
 } from "../data/live-client";
 export type QueueItem = QueueResult["items"][number];
@@ -35,6 +36,9 @@ function settles(command: RetryCommand, result: ReviewResult) {
 	);
 }
 export type ReviewState = {
+	retraining: boolean;
+	retrainError: string | null;
+	retrainNotice: string;
 	bootstrap:
 		| (Omit<DemoBootstrap, "metrics"> & { metrics: ModelMetrics | null })
 		| null;
@@ -89,6 +93,9 @@ export function actionFromDrag(x: number, y: number): ReviewAction | null {
 }
 export class ReviewStore {
 	private state: ReviewState = {
+		retraining: false,
+		retrainError: null,
+		retrainNotice: "",
 		bootstrap: null,
 		summary: null,
 		insights: null,
@@ -111,10 +118,13 @@ export class ReviewStore {
 		noticeRevision: 0,
 	};
 	private listeners = new Set<() => void>();
+	private ownerId: string | null;
 	constructor(
 		private client: ReviewClient,
 		private settleMs = 0,
-	) {}
+	) {
+		this.ownerId = client.live?.session.user?.id ?? null;
+	}
 	getSnapshot = () => this.state;
 	subscribe = (listener: () => void) => {
 		this.listeners.add(listener);
@@ -127,7 +137,13 @@ export class ReviewStore {
 		for (const listener of this.listeners) listener();
 	}
 	async load() {
-		if (this.state.loading || this.state.busy || this.state.bootstrap) return;
+		if (
+			this.state.loading ||
+			this.state.busy ||
+			this.state.retraining ||
+			this.state.bootstrap
+		)
+			return;
 		this.update({ loading: true, error: null });
 		try {
 			if (this.client.live) {
@@ -187,8 +203,54 @@ export class ReviewStore {
 						})),
 			historyHasMore: snapshot.historyHasMore,
 			warnings: snapshot.warnings,
+			...(snapshot.insights?.metrics ? { retrainError: null } : {}),
 			refreshError: null,
 		});
+	}
+	async retrain() {
+		const live = this.client.live;
+		if (
+			!live ||
+			!this.state.bootstrap ||
+			this.state.busy ||
+			this.state.retraining ||
+			this.state.loading ||
+			this.state.refreshing ||
+			this.state.retry ||
+			this.state.refreshError ||
+			this.state.retrainError
+		)
+			return;
+		this.update({ retraining: true, retrainError: null, retrainNotice: "" });
+		try {
+			const session = await live.api.session();
+			if (session.mode !== "spotify" || session.user?.id !== this.ownerId)
+				throw new Error("Your account changed. Reconnect before training.");
+			const result = await live.api.retrain();
+			if (
+				result.userId !== this.ownerId ||
+				result.modelVersion !== result.metrics.modelVersion ||
+				result.trainedExamples !== result.metrics.trainedExamples ||
+				(result.metrics.dataset === "synthetic" &&
+					!isEmptyModelEvaluation(result.metrics))
+			)
+				throw new Error(
+					"The training result does not match this account or model. Refresh server data to reconcile.",
+				);
+			this.update({
+				bootstrap: { ...this.state.bootstrap!, metrics: result.metrics },
+				insights: this.state.insights
+					? { ...this.state.insights, metrics: result.metrics }
+					: null,
+				retrainNotice: `Server confirmed model ${result.modelVersion} at feedback revision ${result.feedbackRevision}. Current song scores retain their exposure-time version.`,
+			});
+		} catch (error) {
+			this.update({
+				retrainError: `${errorMessage(error)} Refresh server data to check the current model before requesting another fit.`,
+			});
+		} finally {
+			this.update({ retraining: false });
+		}
 	}
 	async refresh() {
 		if (
@@ -196,6 +258,7 @@ export class ReviewStore {
 			!this.state.bootstrap ||
 			this.state.loading ||
 			this.state.busy ||
+			this.state.retraining ||
 			this.state.refreshing ||
 			this.state.retry
 		)
@@ -214,6 +277,7 @@ export class ReviewStore {
 		if (
 			!this.client.live ||
 			this.state.busy ||
+			this.state.retraining ||
 			this.state.refreshing ||
 			!this.state.retry
 		)
@@ -247,6 +311,7 @@ export class ReviewStore {
 		if (
 			!item ||
 			this.state.busy ||
+			this.state.retraining ||
 			this.state.retry ||
 			this.state.refreshing ||
 			this.state.refreshError
@@ -265,6 +330,7 @@ export class ReviewStore {
 	async undo(decisionId: string) {
 		if (
 			this.state.busy ||
+			this.state.retraining ||
 			this.state.retry ||
 			this.state.refreshing ||
 			this.state.refreshError
@@ -280,6 +346,7 @@ export class ReviewStore {
 		if (
 			this.state.retry &&
 			!this.state.busy &&
+			!this.state.retraining &&
 			!this.state.refreshing &&
 			!this.state.terminal
 		)

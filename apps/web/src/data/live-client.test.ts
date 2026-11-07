@@ -4,7 +4,11 @@ import { createIdempotencyKey } from "@sortfm/contracts/client";
 import { pendingJournal } from "./live-client";
 import { ReviewStore } from "../state/review";
 
-import { liveFixture } from "../test-support/live-fixture";
+import {
+	coldModelMetrics,
+	partialAudioFeatures,
+	liveFixture,
+} from "../test-support/live-fixture";
 
 describe("live adapter and command lifecycle", () => {
 	test("only credentialed live routes are used; totals are not derived from history", async () => {
@@ -331,4 +335,124 @@ test("a stub response during recovery cannot erase an earlier ambiguous command"
 	expect(f.journal.read()?.request.idempotencyKey).toBe(key);
 	expect(store.getSnapshot().unavailable).toBe(false);
 	expect(store.getSnapshot().retry).not.toBeNull();
+});
+
+test.each(["KEEP", "SKIP"] as const)(
+	"HTTP fixture supports %s Undo with a contract-valid non-provider mutation step",
+	async (action) => {
+		const f = liveFixture();
+		const store = new ReviewStore(f.client);
+		await store.load();
+		await store.decide(action);
+		await store.undo(f.history[0]!.decisionId);
+		expect(store.getSnapshot().error).toBeNull();
+		expect(store.getSnapshot().history[0]?.result.mutationStep).toBe("NONE");
+		expect(store.getSnapshot().remaining).toBe(2);
+	},
+);
+
+test("synthetic model metrics in a live response are isolated instead of labeled personal feedback", async () => {
+	const { createLiveApi, createLiveClient } = await import("./live-client");
+	const f = liveFixture();
+	const api = createLiveApi({
+		fetch: (async (input, init) => {
+			const response = await f.transport(input, init);
+			if (String(input).endsWith("/insights")) {
+				const data = await response.json();
+				data.metrics = { ...coldModelMetrics, labeledExamples: 1 };
+				data.audioFeatures = partialAudioFeatures;
+				return Response.json(data);
+			}
+			return response;
+		}) as typeof fetch,
+	});
+	const store = new ReviewStore(createLiveClient(api, f.session, f.journal));
+	await store.load();
+	expect(store.getSnapshot().bootstrap?.metrics).toBeNull();
+	expect(store.getSnapshot().warnings.join(" ")).toContain("synthetic");
+	expect(store.getSnapshot().insights?.audioFeatures).toEqual(
+		partialAudioFeatures,
+	);
+	expect(store.getSnapshot().queue).toHaveLength(2);
+});
+
+test("C1 empty evaluation preserves audio through first feedback, Undo-to-empty and refresh", async () => {
+	const { createLiveApi, createLiveClient } = await import("./live-client");
+	const f = liveFixture();
+	const api = createLiveApi({
+		fetch: (async (input, init) => {
+			const response = await f.transport(input, init);
+			if (!String(input).endsWith("/insights")) return response;
+			const data = await response.json();
+			const count = f.history.filter(
+				(item) => item.labelState === "active",
+			).length;
+			data.metrics = count
+				? {
+						...coldModelMetrics,
+						dataset: "user_feedback",
+						labeledExamples: count,
+					}
+				: coldModelMetrics;
+			data.audioFeatures = partialAudioFeatures;
+			return Response.json(data);
+		}) as typeof fetch,
+	});
+	const store = new ReviewStore(createLiveClient(api, f.session, f.journal));
+	await store.load();
+	const expectEmpty = () => {
+		expect(store.getSnapshot().bootstrap?.metrics).toEqual(coldModelMetrics);
+		expect(store.getSnapshot().insights?.audioFeatures).toEqual(
+			partialAudioFeatures,
+		);
+		expect(store.getSnapshot().warnings).toEqual([]);
+	};
+	expectEmpty();
+	await store.decide("KEEP");
+	expect(store.getSnapshot().bootstrap?.metrics?.labeledExamples).toBe(1);
+	await store.undo(f.history[0]!.decisionId);
+	expect(store.getSnapshot().history[0]?.result.labelState).toBe("revoked");
+	expectEmpty();
+	await store.refresh();
+	expectEmpty();
+});
+
+test("computed synthetic evaluation remains quarantined while independent audio survives", async () => {
+	const { createLiveApi, createLiveClient } = await import("./live-client");
+	const f = liveFixture();
+	const api = createLiveApi({
+		fetch: (async (input, init) => {
+			const response = await f.transport(input, init);
+			if (!String(input).endsWith("/insights")) return response;
+			const data = await response.json();
+			data.metrics = {
+				...coldModelMetrics,
+				status: "available",
+				evaluationMethod: "fixed_holdout",
+				labeledExamples: 60,
+				trainedExamples: 40,
+				heldOutExamples: 20,
+				heldOutPositive: 10,
+				heldOutNegative: 10,
+				baseRate: 0.5,
+				balancedAccuracy: 0.8,
+				rocAuc: 0.8,
+				prAuc: 0.8,
+				logLoss: 0.2,
+				brierScore: 0.1,
+				precisionAtK: 0.8,
+				evaluatedAt: "2026-11-07T16:00:00.000Z",
+			};
+			data.audioFeatures = partialAudioFeatures;
+			return Response.json(data);
+		}) as typeof fetch,
+	});
+	const store = new ReviewStore(createLiveClient(api, f.session, f.journal));
+	await store.load();
+	expect(store.getSnapshot().bootstrap?.metrics).toBeNull();
+	expect(store.getSnapshot().insights?.metrics).toBeNull();
+	expect(store.getSnapshot().insights?.audioFeatures).toEqual(
+		partialAudioFeatures,
+	);
+	expect(store.getSnapshot().warnings.join(" ")).toContain("synthetic");
 });

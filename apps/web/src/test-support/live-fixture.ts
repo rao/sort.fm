@@ -2,6 +2,8 @@
 import { demoBootstrap } from "@sortfm/contracts/fixtures";
 import {
 	type AccountSession,
+	type ModelMetrics,
+	type AudioFeatureStatus,
 	type ReviewRequest,
 	type ReviewResult,
 	labelForAction,
@@ -30,6 +32,7 @@ export function liveFixture() {
 			...item.track,
 			trackId: `${i}`.repeat(22),
 			source: "spotify" as const,
+			isPlayable: true,
 			spotifyUri:
 				`spotify:track:${`${i}`.repeat(22)}` as `spotify:track:${string}`,
 		},
@@ -77,7 +80,11 @@ export function liveFixture() {
 		if (url.endsWith("/api/ml/insights"))
 			return json({
 				prediction: null,
-				metrics: demoBootstrap.metrics,
+				metrics: {
+					...demoBootstrap.metrics,
+					dataset: "user_feedback",
+					reason: "Controlled HTTP fixture; no live training.",
+				},
 				audioFeatures: {
 					provider: "soundnet",
 					status: "disabled",
@@ -145,7 +152,9 @@ export function liveFixture() {
 			}
 			Object.assign(original, {
 				status: "UNDONE",
-				mutationStep: "RESTORED",
+				mutationStep: ["ARCHIVE", "UNLIKE"].includes(original.action)
+					? "RESTORED"
+					: "NONE",
 				liked: true,
 				label: null,
 				labelState: "revoked",
@@ -192,3 +201,34 @@ export function liveFixture() {
 		},
 	};
 }
+
+// Matches C1 evaluate([]), including its frozen-enum fallback. No user data.
+export const coldModelMetrics: ModelMetrics = {
+	status: "insufficient_data",
+	reason: "At least 20 fixed held-out labels are required.",
+	modelVersion: "untrained-v0",
+	dataset: "synthetic",
+	evaluationMethod: "none",
+	labeledExamples: 0,
+	trainedExamples: 0,
+	heldOutExamples: 0,
+	heldOutPositive: 0,
+	heldOutNegative: 0,
+	baseRate: null,
+	balancedAccuracy: null,
+	rocAuc: null,
+	prAuc: null,
+	logLoss: null,
+	brierScore: null,
+	precisionAtK: null,
+	evaluatedAt: null,
+};
+export const partialAudioFeatures: AudioFeatureStatus = {
+	provider: "soundnet",
+	status: "failed",
+	featuresReady: 3,
+	featuresTotal: 2768,
+	failed: 1,
+	missingness: { energy: 1 },
+	reason: "Controlled fixture: provider temporarily unavailable.",
+};

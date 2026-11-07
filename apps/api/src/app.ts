@@ -31,7 +31,6 @@ export async function buildApp(options: {config?: ApiConfig; logger?: boolean; r
   await app.register(cors, {origin: [config.webOrigin, config.apiOrigin], credentials: true, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type", "Accept"]});
 
   app.get(PUBLIC_ROUTES.health.path, async () => PUBLIC_ROUTES.health.response.parse({status: "ok", service: "api", contractVersion: CONTRACT_VERSION, capabilities: {demo: config.demoEnabled, spotify: false, database: false, ml: false}}));
-  app.get(PUBLIC_ROUTES.me.path, async () => AccountSessionSchema.parse({mode: "anonymous", user: null, capabilities: {spotifyRead: false, spotifyWrite: false, playback: false}}));
   app.get(PUBLIC_ROUTES.demoBootstrap.path, async (_request, reply) => {
     if (!config.demoEnabled) return reply.code(404).send({code: "DEMO_DISABLED", message: "Demo mode is disabled.", retryable: false});
     return DemoBootstrapSchema.parse({...demoBootstrap, queue: createDemoQueue({servedAt: new Date().toISOString(), exposureId: () => crypto.randomUUID()})});
@@ -45,6 +44,10 @@ export async function buildApp(options: {config?: ApiConfig; logger?: boolean; r
 
   // A/B/C/D can register their modules here; unowned features remain explicit 501s.
   await options.registerRoutes?.(app);
+  // A1 owns the real session route; retain anonymous behavior when it is not installed.
+  if (!app.hasRoute({method: "GET", url: PUBLIC_ROUTES.me.path})) {
+  app.get(PUBLIC_ROUTES.me.path, async () => AccountSessionSchema.parse({mode: "anonymous", user: null, capabilities: {spotifyRead: false, spotifyWrite: false, playback: false}}));
+  }
   for (const route of Object.values(PUBLIC_ROUTES)) {
     if (app.hasRoute({method: route.method, url: route.path})) continue;
     app.route({method: route.method, url: route.path, handler: async (request, reply) => {

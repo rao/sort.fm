@@ -56,7 +56,7 @@ export async function buildRuntime(options: {
  const repository=database?new Repository(database):null;
  let ml:RepositoryMl|null=null;
  if(repository&&env.ML_SERVICE_URL&&env.ML_SERVICE_SHARED_SECRET) {
-  try {ml=createRepositoryMl({repository,client:createMlClient({serviceUrl:env.ML_SERVICE_URL,sharedSecret:env.ML_SERVICE_SHARED_SECRET})});}
+  try {ml=createRepositoryMl({repository,client:createMlClient({serviceUrl:env.ML_SERVICE_URL,sharedSecret:env.ML_SERVICE_SHARED_SECRET,allowRailwayPrivateHttp:env.ML_ALLOW_RAILWAY_PRIVATE_HTTP==='true'})});}
   catch {startupIssues.push('ML_CONFIG_INVALID');}
  } else if(env.ML_SERVICE_URL&&!env.ML_SERVICE_SHARED_SECRET)startupIssues.push('ML_SERVICE_SHARED_SECRET_REQUIRED');
  const metadataTraining={permittedForTraining:Boolean(env.METADATA_RIGHTS_BASIS?.trim()),...(env.METADATA_RIGHTS_BASIS?.trim()?{rightsBasis:env.METADATA_RIGHTS_BASIS.trim()}:{})};

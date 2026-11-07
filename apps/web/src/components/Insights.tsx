@@ -276,7 +276,12 @@ function AudioFeatureDetails({
 	return (
 		<>
 			<div className="data-row">
-				<span>SoundNet enrichment</span>
+				<span>
+					{audio
+						? { soundnet: "SoundNet", musicae: "Musicae" }[audio.provider]
+						: "Audio"}{" "}
+					enrichment
+				</span>
 				<strong>{audio?.status ?? "Not connected"}</strong>
 			</div>
 			{audio && (

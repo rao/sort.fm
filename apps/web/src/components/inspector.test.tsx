@@ -115,18 +115,23 @@ test("unplayable tracks retain Spotify fallback without enabling playback reques
 	expect(html).not.toContain("Play selected song");
 });
 
-test.each(["empty", "quarantined"])(
-	"%s model still displays independent audio progress and provider failure",
-	async (modelState) => {
+test.each([
+	["empty", "soundnet", "SoundNet"],
+	["quarantined", "soundnet", "SoundNet"],
+	["empty", "musicae", "Musicae"],
+	["quarantined", "musicae", "Musicae"],
+] as const)(
+	"%s model displays independent %s audio progress and provider failure",
+	async (modelState, provider, providerName) => {
 		const f = liveFixture();
 		const store = new ReviewStore(f.client);
 		await store.load();
 		const state = structuredClone(store.getSnapshot());
 		state.bootstrap!.metrics = modelState === "empty" ? coldModelMetrics : null;
-		state.insights!.audioFeatures = partialAudioFeatures;
+		state.insights!.audioFeatures = { ...partialAudioFeatures, provider };
 		const html = renderToStaticMarkup(<Insights state={state} />);
 		for (const text of [
-			"SoundNet enrichment",
+			`${providerName} enrichment`,
 			"3 / 2768",
 			"Failed enrichment",
 			partialAudioFeatures.reason!,
@@ -150,4 +155,14 @@ test("retrain recovery alert disables another fit while leaving refresh availabl
 	const html = renderToStaticMarkup(<Insights state={state} />);
 	expect(html).toMatch(/class="button secondary small" disabled=""/);
 	expect(html).toContain('class="text-button">Refresh model data');
+});
+
+test("missing audio status uses a neutral heading without naming an unreported provider", async () => {
+	const store = new ReviewStore(liveFixture().client);
+	await store.load();
+	const state = { ...store.getSnapshot(), insights: null };
+	const html = renderToStaticMarkup(<Insights state={state} />);
+	expect(html).toContain("Audio enrichment");
+	expect(html).not.toContain("SoundNet enrichment");
+	expect(html).not.toContain("Musicae enrichment");
 });

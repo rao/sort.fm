@@ -17,6 +17,8 @@ export type ImportJob = {
   retryAt: number | null; restart: boolean; restarts: number; pass: number;
   seenIds: string[]; rejected: number; duplicates: number;
   firstPageHash: string | null; sourceTotal: number | null;
+  /** Capture before the first provider page; preserve on resume. Null/legacy requires a fresh pass. */
+  membershipRevision: number | null;
 };
 export type ImportObservation = {
   userId: string; jobId: string; pass: number; offset: number; raw: unknown;
@@ -25,6 +27,8 @@ export type ImportObservation = {
 };
 export type ImportMembership = {
   userId: string; jobId: string; pass: number;
+  /** Revision captured before this pass; publication atomically compares it under the owner lock. */
+  expectedMembershipRevision: number;
   /** Unique successfully normalized members; raw rejected entries remain in observations. */
   trackIds: string[];
   /** Provider-reported total, including entries that could not be normalized. */
@@ -55,6 +59,8 @@ export interface A1Transaction {
   deleteOAuth(stateHash: string): Promise<void>;
   getJob(userId: string): Promise<ImportJob | null>;
   putJob(job: ImportJob): Promise<void>;
+  /** Monotonic revision of confirmed import/removal/restoration membership, read under the owner lock. */
+  getMembershipRevision(userId: string): Promise<number>;
   /** Preserve first originalAddedAt and existing review status on conflict (userId, trackId). */
   upsertSavedTracks(rows: SavedTrackInput[]): Promise<void>;
   /** Idempotent key (userId, jobId, pass, offset); retain raw invalid/local/null entries too. */
@@ -62,6 +68,11 @@ export interface A1Transaction {
   /** Replace membership only inside the fenced successful job-completion transaction.
    * Empty completion clears membership; failed/partial scans preserve the prior set.
    * Retain original save dates, review state and all history independently.
+   * Reject stale revisions with IMPORT_MEMBERSHIP_CHANGED, and unresolved destructive
+   * review/Undo with MEMBERSHIP_MUTATION_PENDING, including work with expired leases.
+   * Successful publication and confirmed destructive settlement/Undo each increment
+   * the revision atomically. Publication and destructive command creation must share
+   * the owner lock so provider IO cannot slip between the guard and publication.
    */
   completeImportMembership(input: ImportMembership): Promise<void>;
   getSummary(userId: string): Promise<LibrarySummary>;

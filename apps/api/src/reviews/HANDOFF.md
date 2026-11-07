@@ -16,7 +16,7 @@ const reviews = createReviewQueueModule({queue, auth: spotify.auth, config});
 await reviews.registerRoutes(app);
 ```
 
-Both assembler and scorer are optional. The built-in metadata snapshot does not infer training permission. C1 supplies assembly/scoring; root config supplies the explicit rights basis. Queue uses the server-resolved session account only. Register before any queue fallback. This registrar owns only `GET /api/queue`; demo stays on the existing explicit demo endpoint.
+Both assembler and scorer are optional. The built-in metadata snapshot does not infer training permission. C1 supplies assembly/scoring; root config supplies the explicit rights basis. Queue uses the server-resolved session account only. Register before any queue fallback. This registrar owns only `GET /api/queue`. Root may inject `demoQueue(query) => createDemoQueue(...)` to retain explicit `?mode=demo` without session access; missing callback returns 404 DEMO_DISABLED. The separate demo bootstrap remains root-owned.
 
 Queue reads D's current membership, selects playable saved/deferred Spotify tracks, excludes in-flight decisions, puts deferred tracks last, and persists each exact feature/prediction/exposure snapshot before returning it. Scoring has a 2-second deadline; failures never leak upstream text. Fallback rotates exposure IDs so late scoring cannot contradict a served baseline; scorer inputs are cloned. Every request gets new exposure IDs. No cursor is advertised because the frozen query contract has no cursor input: subsequent reads derive eligibility from durable decisions.
 

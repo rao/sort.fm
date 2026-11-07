@@ -1,5 +1,6 @@
 import {expect, test} from 'bun:test';
 import Fastify from 'fastify';
+import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {FEATURE_VERSION, QueueResultSchema, type ExposureInput, type Prediction} from '@sortfm/contracts';
 import {QueueService, type LibraryRow} from './queue';
 import {createReviewQueueModule} from './module';
@@ -69,7 +70,7 @@ test('route uses server session identity and rejects duplicate cookies, spoofed 
     expect((await app.inject({url:'/api/queue',headers:{cookie:'sortfm_session=valid',origin:'https://evil.test'}})).statusCode).toBe(403);
     const result=await app.inject({url:'/api/queue?limit=1',headers:{cookie:'sortfm_session=valid'}});
     expect(result.statusCode).toBe(200); expect(result.headers['cache-control']).toBe('no-store'); expect(calls).toEqual(['spotify:owner']);
-    expect((await app.inject({url:'/api/queue?mode=demo'})).statusCode).toBe(400);
+    expect((await app.inject({url:'/api/queue?mode=demo'})).statusCode).toBe(404);
   } finally {await app.close();}
 });
 
@@ -94,4 +95,15 @@ test('late scorer cannot overwrite a fallback exposure identity or feature snaps
   expect(stored[0]!.features.values.duration_ms).toBe(120000);
   await new Promise(resolve=>setTimeout(resolve,20));
   expect(result.items[0]!.prediction.modelKind).toBe('untrained');
+});
+
+
+test('explicit demo injection preserves public fixture queue without reading live accounts',async()=>{
+  const {service,calls}=setup();const app=Fastify();
+  const module=createReviewQueueModule({queue:service,config:{secureCookies:false,apiOrigin:'http://127.0.0.1:3000',webOrigin:'http://127.0.0.1:5173'},auth:{session:async()=>{throw new Error('Demo must not access sessions');}},demoQueue:query=>createDemoQueue({limit:query.limit,policy:query.policy,exposureId:()=>crypto.randomUUID()})});
+  await app.register(module.registerRoutes);
+  try {
+    const response=await app.inject('/api/queue?mode=demo&limit=2&policy=discovery');
+    expect(response.statusCode).toBe(200);expect(QueueResultSchema.parse(response.json())).toMatchObject({mode:'demo'});expect(response.json().items).toHaveLength(2);expect(calls).toHaveLength(0);
+  } finally {await app.close();}
 });

@@ -1,6 +1,6 @@
 import {ZodError} from 'zod';
 import type {FastifyInstance, FastifyReply, FastifyRequest} from 'fastify';
-import {QueueQuerySchema} from '@sortfm/contracts';
+import {QueueQuerySchema, QueueResultSchema, type QueueResult} from '@sortfm/contracts';
 import {authenticationRequired, safeError, SpotifyError} from '../spotify/errors';
 import type {QueueService} from './queue';
 
@@ -34,12 +34,15 @@ export function reviewRouteSecurity({config,auth}:ReviewRouteOptions) {
   }
   return {owner,csrf,safe};
 }
-export function createReviewQueueModule(options:ReviewRouteOptions & {queue:QueueService}) {
+export function createReviewQueueModule(options:ReviewRouteOptions & {queue:QueueService;demoQueue?:(query:ReturnType<typeof QueueQuerySchema.parse>)=>QueueResult|Promise<QueueResult>}) {
   const security=reviewRouteSecurity(options);
   const registerRoutes=async(app:FastifyInstance)=>{
     app.get('/api/queue',security.safe(async(req)=>{
       const query=QueueQuerySchema.parse(req.query);
-      if(query.mode!=='spotify') throw new SpotifyError('MODE_NOT_SUPPORTED','Use the explicit demo endpoint for demo data.',400);
+      if(query.mode==='demo') {
+        if(!options.demoQueue) throw new SpotifyError('DEMO_DISABLED','Demo mode is not enabled.',404);
+        return QueueResultSchema.parse(await options.demoQueue(query));
+      }
       return options.queue.get(await security.owner(req),query);
     }));
   };

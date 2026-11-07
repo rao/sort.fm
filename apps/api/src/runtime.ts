@@ -1,5 +1,8 @@
-import {connectDatabase, PostgresA1Store, type Database} from '@sortfm/db';
+import {connectDatabase, PostgresA1Store, Repository, type Database} from '@sortfm/db';
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
+import {createDemoQueue} from '@sortfm/contracts/fixtures';
+import {QueueService} from './reviews/queue';
+import {createReviewQueueModule} from './reviews/module';
 import {buildApp} from './app';
 import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
@@ -42,9 +45,15 @@ export async function buildRuntime(options: {
   } catch {startupIssues.push('SPOTIFY_CONFIG_INVALID');}
  }
 
+ const reviews=spotify&&database?createReviewQueueModule({
+  queue:new QueueService(new Repository(database)),auth:spotify.auth,
+  config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
+  ...(config.demoEnabled?{demoQueue:(query:Parameters<QueueService['get']>[1])=>createDemoQueue({...query,servedAt:new Date().toISOString(),exposureId:()=>crypto.randomUUID()})}:{}),
+ }):null;
+
  try {
   const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:false},registerRoutes:async app=>{
-   if(spotify)await spotify.registerRoutes(app);
+   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));
    }

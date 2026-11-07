@@ -167,3 +167,41 @@ test('automatic recovery gets a new bounded reconciliation budget after source s
   stable = true; now = 30_001; await importer.run(userId);
   expect(await importer.status(userId)).toMatchObject({status:'complete', processed:100});
 });
+
+test('successful resync publishes current membership while retaining original snapshots', async () => {
+  const store = new TestStore();
+  const a = worker(store, source(1, {page:() => ({offset:0, limit:50, total:1, items:[item(1)], next:null})}));
+  await a.requestSync(userId); await a.run(userId);
+  const b = worker(store, source(1, {page:() => ({offset:0, limit:50, total:1, items:[item(2)], next:null})}));
+  await b.requestSync(userId); await b.run(userId);
+  expect(await b.summary(userId)).toMatchObject({total:1, remaining:1});
+  expect(store.data.saved.size).toBe(2);
+  const empty = worker(store, source(0)); await empty.requestSync(userId); await empty.run(userId);
+  expect(await empty.summary(userId)).toMatchObject({total:0, remaining:0}); expect(store.data.saved.size).toBe(2);
+});
+
+test('failed scans leave the prior confirmed membership unchanged', async () => {
+  const store = new TestStore(), first = worker(store, source(1)); await first.requestSync(userId); await first.run(userId);
+  const broken = worker(store, source(60, {page:offset => {
+    if (offset === 50) throw new SpotifyError('SPOTIFY_FORBIDDEN', 'Denied', 403);
+    return {offset, limit:50, total:60, items:Array.from({length:50}, (_, i) => item(i+100)), next:'https://api.spotify.com/v1/me/tracks'};
+  }}));
+  await broken.requestSync(userId); await broken.run(userId);
+  expect(await broken.status(userId)).toMatchObject({status:'failed', processed:50});
+  expect(await broken.summary(userId)).toMatchObject({total:1, remaining:1}); expect(store.data.saved.size).toBe(51);
+});
+
+test('published total includes rejected source slots while remaining counts actionable tracks only', async () => {
+  const store = new TestStore(), importer = worker(store, source(2, {page:() => ({offset:0, limit:50, total:2, items:[item(1), {added_at:item(1).added_at, track:null}], next:null})}));
+  await importer.requestSync(userId); await importer.run(userId);
+  expect(await importer.summary(userId)).toMatchObject({total:2, remaining:1});
+});
+
+test('heartbeat retains ownership through slow pages, verification and optional context', async () => {
+  const store = new TestStore(), api = source(1), original = api.get;
+  api.get = async (user, path) => {await new Promise(r => setTimeout(r, 350)); return original(user, path);};
+  const importer = new LibraryImporter(store, api, {leaseDurationMs:200});
+  await importer.requestSync(userId); await importer.run(userId);
+  expect(await importer.status(userId)).toMatchObject({status:'complete', processed:1});
+  expect(store.data.jobs.get(userId)?.lease).toBeNull();
+});

@@ -1,9 +1,9 @@
 import type {SavedTrackInput} from '@sortfm/contracts';
-import type {A1Store, A1Transaction, Account, Session, OAuthAttempt, ImportJob, ImportObservation, TasteContext} from '../store';
+import type {A1Store, A1Transaction, Account, Session, OAuthAttempt, ImportJob, ImportObservation, TasteContext, CompleteImportMembershipInput} from '../store';
 
 /** Transactional dependency double, never used by a production entry point. */
 export class TestStore implements A1Store {
-  data = {accounts:new Map<string, Account>(), sessions:new Map<string, Session>(), oauth:new Map<string, OAuthAttempt>(), jobs:new Map<string, ImportJob>(), saved:new Map<string, SavedTrackInput>(), observations:new Map<string, ImportObservation>(), taste:new Map<string, TasteContext>()};
+  data = {accounts:new Map<string, Account>(), sessions:new Map<string, Session>(), oauth:new Map<string, OAuthAttempt>(), jobs:new Map<string, ImportJob>(), saved:new Map<string, SavedTrackInput>(), observations:new Map<string, ImportObservation>(), taste:new Map<string, TasteContext>(), membership:new Map<string, CompleteImportMembershipInput>()};
   private tail: Promise<unknown> = Promise.resolve();
   failNextPage = false;
   async transaction<T>(work: (tx: A1Transaction) => Promise<T>): Promise<T> {
@@ -23,11 +23,14 @@ export class TestStore implements A1Store {
           if (this.failNextPage) {this.failNextPage = false; throw new Error('simulated commit failure');}
         },
         putObservations:async rows => {for (const r of rows) d.observations.set(`${r.userId}/${r.jobId}/${r.pass}/${r.offset}`, r);},
+        completeImportMembership:async input => {d.membership.set(input.userId, input);},
         getSummary:async user => {
           const rows = [...d.saved.values()].filter(x => x.userId === user);
           const count = (s: string) => rows.filter(x => x.currentStatus === s).length;
           const kept = count('kept'), archived = count('archived'), unliked = count('unliked'), skipped = count('deferred');
-          return {total:rows.length, reviewed:kept + archived + unliked, remaining:count('saved') + skipped, kept, archived, unliked, skipped};
+          const membership = d.membership.get(user), ids = new Set(membership?.trackIds);
+          const remaining = rows.filter(r => ids.has(r.track.trackId) && ['saved', 'deferred'].includes(r.currentStatus)).length;
+          return {total:membership?.sourceTotal ?? 0, reviewed:kept + archived + unliked, remaining, kept, archived, unliked, skipped};
         },
         putTasteContext:async c => {d.taste.set(c.userId, c);},
       });

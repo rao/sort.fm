@@ -25,6 +25,7 @@ export type TasteContext = {
   completeHistory: false; events: {trackId: string; playedAt: string}[];
   error: ErrorEnvelope | null;
 };
+export type CompleteImportMembershipInput = {userId: string; jobId: string; pass: number; trackIds: string[]; sourceTotal: number; observedAt: string};
 export type LibrarySummary = {total: number; reviewed: number; remaining: number; archived: number; unliked: number; kept: number; skipped: number};
 
 /**
@@ -49,6 +50,8 @@ export interface A1Transaction {
   upsertSavedTracks(rows: SavedTrackInput[]): Promise<void>;
   /** Idempotent key (userId, jobId, pass, offset); retain raw invalid/local/null entries too. */
   putObservations(rows: ImportObservation[]): Promise<void>;
+  /** Publish confirmed membership only inside the fenced successful completion transaction. */
+  completeImportMembership(input: CompleteImportMembershipInput): Promise<void>;
   getSummary(userId: string): Promise<LibrarySummary>;
   putTasteContext(context: TasteContext): Promise<void>;
 }

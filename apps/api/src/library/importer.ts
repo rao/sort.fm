@@ -10,14 +10,15 @@ const recentSchema = z.object({items:z.array(z.object({track:z.object({id:Spotif
 export interface LibraryReader {get(userId: string, path: string): Promise<unknown>}
 const idle = (): LibraryImportStatus => ({jobId:null, status:'idle', processed:0, total:null, failed:0, nextOffset:0, updatedAt:null, error:null});
 const changed = () => new SpotifyError('LIBRARY_CHANGED', 'Liked Songs changed during pagination or returned inconsistent pages. Retry to reconcile the library.', 409, true);
-const LEASE_MS = 300_000;
+
 
 export class LibraryImporter {
   private readonly now: () => number;
+  private readonly leaseMs: number;
   private readonly running = new Map<string, Promise<void>>();
   private recoveryTimer?: ReturnType<typeof setInterval>;
   private closing = false;
-  constructor(readonly store: A1Store, private readonly reader: LibraryReader, options: {now?: () => number; onError?: (error: SpotifyError) => void} = {}) {this.now = options.now ?? Date.now; this.onError = options.onError ?? (() => {});}
+  constructor(readonly store: A1Store, private readonly reader: LibraryReader, options: {now?: () => number; leaseDurationMs?: number; onError?: (error: SpotifyError) => void} = {}) {this.now = options.now ?? Date.now; this.leaseMs = options.leaseDurationMs ?? 300_000; if (!Number.isSafeInteger(this.leaseMs) || this.leaseMs < 100) throw new Error("Import lease must be at least 100ms"); this.onError = options.onError ?? (() => {});}
   private readonly onError: (error: SpotifyError) => void;
   private timestamp() {return new Date(this.now()).toISOString();}
   async status(userId: string) {return LibraryImportStatusSchema.parse(await this.store.transaction(async tx => (await tx.getJob(userId))?.progress ?? idle()));}
@@ -62,11 +63,25 @@ export class LibraryImporter {
       const row = await tx.getJob(userId);
       if (!row || row.progress.status === 'complete' || (row.retryAt ?? 0) > this.now() || (row.lease && row.lease.until > this.now()) || (row.progress.status === 'failed' && !row.progress.error?.retryable)) return null;
       if (row.progress.status === 'failed') row.restarts = 0;
-      row.lease = {id:leaseId, until:this.now() + LEASE_MS};
+      row.lease = {id:leaseId, until:this.now() + this.leaseMs};
       row.progress = {...row.progress, status:'running', error:null, updatedAt:this.timestamp()};
       await tx.putJob(row); return row;
     });
     if (!job) return;
+    // Keep a live worker's lease through long 429/401 recovery and optional context.
+    // A paused/crashed worker cannot resurrect a lease that already expired or moved.
+    let renewing = false;
+    const heartbeat = setInterval(() => {
+      if (renewing) return;
+      renewing = true;
+      void this.store.transaction(async tx => {
+        const current = await tx.getJob(userId);
+        if (current?.progress.jobId === job!.progress.jobId && current.lease?.id === leaseId && current.lease.until > this.now()) {
+          await tx.putJob({...current, lease:{id:leaseId, until:this.now() + this.leaseMs}});
+        }
+      }).catch(error => this.onError(safeError(error))).finally(() => {renewing = false;});
+    }, Math.min(30_000, Math.floor(this.leaseMs / 5)));
+    heartbeat.unref();
     try {
       // Spotify provides offsets, not immutable snapshots. Check the head before resuming.
       if (job.progress.nextOffset > 0 && !job.restart) {
@@ -90,7 +105,7 @@ export class LibraryImporter {
           if (seen.has(normalized.track.trackId)) duplicates++; else seen.add(normalized.track.trackId);
           rows.push(SavedTrackInputSchema.parse({userId, track:normalized.track, originalAddedAt:normalized.track.originalAddedAt, syncedAt:this.timestamp(), currentStatus:'saved'}));
         }
-        const next: ImportJob = {...job, seenIds:[...seen], rejected, duplicates, sourceTotal:page.total, firstPageHash:offset === 0 ? this.fingerprint(page) : job.firstPageHash, lease:{id:leaseId, until:this.now() + LEASE_MS}, progress:{...job.progress, processed:seen.size, total:page.total, failed:rejected, nextOffset:offset+page.items.length, updatedAt:this.timestamp()}};
+        const next: ImportJob = {...job, seenIds:[...seen], rejected, duplicates, sourceTotal:page.total, firstPageHash:offset === 0 ? this.fingerprint(page) : job.firstPageHash, lease:{id:leaseId, until:this.now() + this.leaseMs}, progress:{...job.progress, processed:seen.size, total:page.total, failed:rejected, nextOffset:offset+page.items.length, updatedAt:this.timestamp()}};
         // The only page-commit boundary: track rows, raw observations and cursor together.
         await this.store.transaction(async tx => {
           this.fence(await tx.getJob(userId), job!, leaseId);
@@ -103,7 +118,7 @@ export class LibraryImporter {
         // Context is optional and explicitly limited to the available recent 50 events.
         const context = await this.recentContext(userId);
         const complete: ImportJob = {...job, lease:null, retryAt:null, progress:{...job.progress, status:'complete', updatedAt:this.timestamp(), error:null}};
-        await this.store.transaction(async tx => {this.fence(await tx.getJob(userId), job!, leaseId); await tx.putTasteContext(context); await tx.putJob(complete);});
+        await this.store.transaction(async tx => {this.fence(await tx.getJob(userId), job!, leaseId); await tx.completeImportMembership({userId, jobId:job!.progress.jobId!, pass:job!.pass, trackIds:job!.seenIds, sourceTotal:page.total, observedAt:this.timestamp()}); await tx.putTasteContext(context); await tx.putJob(complete);});
         return;
       }
     } catch (error) {
@@ -118,17 +133,17 @@ export class LibraryImporter {
         current.progress = {...current.progress, status:'failed', updatedAt:this.timestamp(), error:safe.envelope()};
         await tx.putJob(current);
       });
-    }
+    } finally {clearInterval(heartbeat);}
   }
   private fence(current: ImportJob | null, expected: ImportJob, leaseId: string) {
-    if (!current || current.progress.jobId !== expected.progress.jobId || current.lease?.id !== leaseId || current.lease.until <= this.now()) throw new SpotifyError('IMPORT_LEASE_LOST', 'Another worker is resuming this import.', 409, true);
+    if (!current || current.progress.jobId !== expected.progress.jobId || current.pass !== expected.pass || current.progress.nextOffset !== expected.progress.nextOffset || current.lease?.id !== leaseId || current.lease.until <= this.now()) throw new SpotifyError('IMPORT_LEASE_LOST', 'Another worker is resuming this import.', 409, true);
   }
   private async release(job: ImportJob, leaseId: string) {
     await this.store.transaction(async tx => {const current = await tx.getJob(job.userId); if (current?.lease?.id === leaseId) await tx.putJob({...current, lease:null, progress:{...current.progress, status:'pending'}});});
   }
   private async restart(job: ImportJob, leaseId: string): Promise<ImportJob> {
     if (job.restarts >= 2) throw changed();
-    const next: ImportJob = {...job, restart:false, restarts:job.restarts+1, pass:job.pass+1, seenIds:[], rejected:0, duplicates:0, sourceTotal:null, firstPageHash:null, lease:{id:leaseId, until:this.now() + LEASE_MS}, progress:{...job.progress, processed:0, failed:0, nextOffset:0, total:null, updatedAt:this.timestamp()}};
+    const next: ImportJob = {...job, restart:false, restarts:job.restarts+1, pass:job.pass+1, seenIds:[], rejected:0, duplicates:0, sourceTotal:null, firstPageHash:null, lease:{id:leaseId, until:this.now() + this.leaseMs}, progress:{...job.progress, processed:0, failed:0, nextOffset:0, total:null, updatedAt:this.timestamp()}};
     await this.store.transaction(async tx => {this.fence(await tx.getJob(job.userId), job, leaseId); await tx.putJob(next);});
     return next;
   }

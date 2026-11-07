@@ -33,3 +33,11 @@ Independent code review found and verified the late-scoring identity fix; no out
 ## Remaining A2 work
 
 Decision/history/Undo routes and Spotify mutation reconciliation are the next slice. D is adding a transactional, revision-keyed full-fit outbox; A owns delivery, C1 owns typed ML transport. Do not claim mutations or durable feedback delivery from this queue commit. Live owner OAuth and controlled real-track mutation checks still require the user's allowlisted Spotify account.
+
+## Durable feedback transport
+
+`new FeedbackWorker(repository, repositoryMl)` uses D migration 007 / `c98ec4e` and C1 API adapter `5230fdd`. Register `start()` on Fastify ready and `close()` on close. Optional `kick()` after a decision reduces latency; correctness comes from periodic durable claims, not the kick. It fits the authoritative frozen training snapshot, verifies the response owner/revision, and acknowledges that actual revision. Failures and timeouts schedule durable retry. No `/observe` is sent for the same revision.
+
+Validated with an isolated live Tiger schema plus a real FastAPI process: Keep settlement → reconstruct worker → fit/ack revision1, then Undo → reconstruct worker → fit/ack revision2 with zero active labels. Ten assertions passed. Four transport unit tests verify newer-snapshot acknowledgement, rejected stale/cross-user results, timeout, retry, and shutdown. No real Spotify state was touched.
+
+Queue feature assembly now uses the full distinct current Spotify library before page selection, preserving artist counts across kept/deferred/unplayable tracks. Ten queue tests / 42 assertions pass.

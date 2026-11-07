@@ -57,7 +57,9 @@ export function createSpotifyModule(options: {config: SpotifyConfig; store: A1St
     }));
     app.get(PUBLIC_ROUTES.authCallback.path, safe(async (req, reply) => {
       reply.header('Set-Cookie', cookie(oauthName, '', 0));
-      const query = z.strictObject({state:z.string().max(128).optional(), code:z.string().max(4096).optional(), error:z.string().max(256).optional()}).parse(req.query);
+      // OAuth 2.0 section 4.1.2 requires ignoring unknown response parameters.
+      // Strip provider metadata (e.g. Spotify's ubi); validate auth fields normally.
+      const query = z.object({state:z.string().max(128).optional(), code:z.string().max(4096).optional(), error:z.string().max(256).optional()}).parse(req.query);
       const result = await auth.callback(query, cookieValue(req, oauthName));
       reply.header('Set-Cookie', [cookie(oauthName, '', 0), cookie(sessionName, result.sessionToken, config.sessionTtlMs / 1000)]);
       return reply.redirect(config.webOrigin);

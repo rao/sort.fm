@@ -183,3 +183,17 @@ the canonical archive playlist. Initial and recovered calls use these same recor
 request identity before returning a lookup result; command creation remains the atomic
 idempotency authority. Migration 008 backfills unfinished existing commands. No Spotify
 transport or HTTP worker scheduling lives in this package.
+
+### New-command eligibility (migration 009)
+
+The integration-approved guards execute under the same owner lock as settlement:
+identical idempotency keys return the original persisted command **before** eligibility
+checks; different keys cannot consume an exposure twice. Exposure owner and track must
+match exactly. Once a confirmed library snapshot exists, the track must still be a
+current member. A replacement decision needs `exposure.servedAt` strictly later than
+the current decision's `updatedAt`, including after Undo. A2 supplies server-generated
+timestamps and must fetch a fresh queue exposure after restoration. Stable errors are
+`EXPOSURE_NOT_FOUND`, `EXPOSURE_TRACK_MISMATCH`, `EXPOSURE_ALREADY_CONSUMED`,
+`STALE_EXPOSURE`, and `TRACK_NOT_IN_LIBRARY`. Existing `MUTATION_PENDING` still guards
+active review/Undo operations. Migration 009 backfills consumption without deleting or
+rewriting any historical duplicate decisions. No public DTO changes.

@@ -5,7 +5,7 @@ const url=process.env.TEST_DATABASE_URL;
 describe.skipIf(!url)('durable feedback reconciliation',()=>{
  let db:Database;let repo:Repository;const userId='test:feedback';const now=new Date().toISOString();const track=demoTracks[0]!;
  async function complete(action:ReviewResult['action'],revision:number){
-  const item=createDemoQueue({limit:1,exposureId:()=>crypto.randomUUID()}).items[0]!;
+  const item=createDemoQueue({limit:1,servedAt:new Date(Date.now()+1).toISOString(),exposureId:()=>crypto.randomUUID()}).items[0]!;
   await repo.insertExposure({userId,exposure:item.exposure,prediction:item.prediction,features:{featureVersion:FEATURE_VERSION,values:{},provenance:'synthetic',permittedForTraining:true}});
   const pending=await repo.createDecision({userId,decisionId:crypto.randomUUID(),request:{trackId:track.trackId,action,exposureId:item.exposure.exposureId,idempotencyKey:createIdempotencyKey()},requestFingerprint:crypto.randomUUID(),createdAt:now});
   const destructive=action==='UNLIKE'||action==='ARCHIVE';

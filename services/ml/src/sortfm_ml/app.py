@@ -16,6 +16,10 @@ from .schemas import (
     MLHealth, ModelMetrics, ObserveRequest, ObserveResponse, ScoreRequest, ScoreResponse,
 )
 from .service import ModelService, ServiceError
+from .policy_service import PolicyService
+from .policy_schemas import (PolicyDecision, PolicyDiagnostics, PolicyDiagnosticsQuery,
+                             PolicyExposure, PolicyExposureQuery, PolicyFeedbackRequest,
+                             PolicySelectRequest)
 
 
 def create_app(
@@ -30,6 +34,8 @@ def create_app(
         os.getenv("ML_ARTIFACT_DIR", "artifacts") if storage_dir is None else storage_dir
     )
     application.state.model_service = model_service
+    policy_service = PolicyService(model_service)
+    application.state.policy_service = policy_service
 
     @application.exception_handler(ServiceError)
     async def model_error(_request: Request, error: ServiceError) -> JSONResponse:
@@ -114,7 +120,27 @@ def create_app(
 
     @internal.post("/observe", response_model=ObserveResponse)
     def observe(payload: ObserveRequest) -> dict:
-        return model_service.observe(payload.model_dump(exclude_unset=True))
+        return policy_service.observe(payload.model_dump(exclude_unset=True))
+
+    # C2-local proposals: shared C1 route DTOs remain unchanged. Integration
+    # owns public exposure mapping, user authentication and Tiger Data writes.
+    @internal.post("/policy/select", response_model=PolicyDecision, response_model_exclude_unset=True)
+    def policy_select(payload: PolicySelectRequest) -> dict:
+        return policy_service.select(payload.model_dump(exclude_unset=True))
+
+    @internal.post("/policy/feedback", response_model=ObserveResponse)
+    def policy_feedback(payload: PolicyFeedbackRequest) -> dict:
+        body = payload.model_dump(exclude_unset=True)
+        usefulness = body.pop("usefulness", None)
+        return policy_service.observe(body, usefulness, require_policy=True)
+
+    @internal.get("/policy/diagnostics", response_model=PolicyDiagnostics, response_model_exclude_unset=True)
+    def policy_diagnostics(query: Annotated[PolicyDiagnosticsQuery, Query()]) -> dict:
+        return policy_service.diagnostics(query.userId)
+
+    @internal.get("/policy/exposure", response_model=PolicyExposure, response_model_exclude_unset=True)
+    def policy_exposure(query: Annotated[PolicyExposureQuery, Query()]) -> dict:
+        return policy_service.exposure(query.userId, query.exposureId)
 
     @internal.get("/evaluation", response_model=ModelMetrics)
     def evaluation(query: Annotated[EvaluationQuery, Query()]) -> dict:

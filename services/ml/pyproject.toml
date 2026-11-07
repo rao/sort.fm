@@ -4,22 +4,30 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sortfm-ml"
-version = "0.1.0"
+version = "0.2.0"
 description = "Internal ML service for sort.fm"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115,<1",
+    "joblib>=1.4,<2",
+    "numpy>=2.0,<3",
+    "pydantic>=2.8,<3",
+    "scikit-learn>=1.5,<2",
     "uvicorn>=0.30,<1",
 ]
 
 [dependency-groups]
 dev = [
     "httpx>=0.28,<1",
+    "jsonschema>=4.23,<5",
     "pytest>=8,<10",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sortfm_ml"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"fixtures" = "sortfm_ml/fixtures"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

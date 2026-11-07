@@ -22,7 +22,7 @@ export class TestStore implements A1Store {
           }
           if (this.failNextPage) {this.failNextPage = false; throw new Error('simulated commit failure');}
         },
-        putObservations:async rows => {for (const r of rows) d.observations.set(`${r.userId}/${r.jobId}/${r.offset}`, r);},
+        putObservations:async rows => {for (const r of rows) d.observations.set(`${r.userId}/${r.jobId}/${r.pass}/${r.offset}`, r);},
         getSummary:async user => {
           const rows = [...d.saved.values()].filter(x => x.userId === user);
           const count = (s: string) => rows.filter(x => x.currentStatus === s).length;

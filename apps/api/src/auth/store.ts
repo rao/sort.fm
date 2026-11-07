@@ -11,12 +11,12 @@ export type OAuthAttempt = {stateHash: string; browserHash: string; verifier: st
 export type ImportJob = {
   userId: string; progress: LibraryImportStatus;
   lease: {id: string; until: number} | null;
-  retryAt: number | null; restart: boolean; restarts: number;
+  retryAt: number | null; restart: boolean; restarts: number; pass: number;
   seenIds: string[]; rejected: number; duplicates: number;
   firstPageHash: string | null; sourceTotal: number | null;
 };
 export type ImportObservation = {
-  userId: string; jobId: string; offset: number; raw: unknown;
+  userId: string; jobId: string; pass: number; offset: number; raw: unknown;
   reason: 'null_track' | 'local_track' | 'invalid_track' | 'invalid_timestamp' | null;
   trackId: string | null; observedAt: string;
 };
@@ -47,7 +47,7 @@ export interface A1Transaction {
   putJob(job: ImportJob): Promise<void>;
   /** Preserve first originalAddedAt and existing review status on conflict (userId, trackId). */
   upsertSavedTracks(rows: SavedTrackInput[]): Promise<void>;
-  /** Idempotent key (userId, jobId, offset); retain raw invalid/local/null entries too. */
+  /** Idempotent key (userId, jobId, pass, offset); retain raw invalid/local/null entries too. */
   putObservations(rows: ImportObservation[]): Promise<void>;
   getSummary(userId: string): Promise<LibrarySummary>;
   putTasteContext(context: TasteContext): Promise<void>;

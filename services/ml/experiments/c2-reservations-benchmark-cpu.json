@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "sortfm.c2-benchmark.v1",
+  "notice": "Local synthetic CPU timings, one warm-up excluded; no HTTP, persistence, concurrency, load, real listener, or deployment SLA claims.",
+  "machine": "arm64",
+  "python": "3.11.12",
+  "numpy": "2.4.6",
+  "scikitLearn": "1.9.1",
+  "seed": 42,
+  "candidateCount": 2700,
+  "trainingExamples": 100,
+  "contextColumns": 50,
+  "repeats": 5,
+  "inputDigest": "264f4bf67c68bd0e30645d6af32bb45328fa1c15f84e0a6a19aadc2711c59f4d",
+  "selectionReplayExact": true,
+  "chosenTrackId": "demo:c2-library-01424",
+  "policyConfig": {
+    "strategy": "linucb",
+    "alpha": 0.5,
+    "maxExplorationFraction": 0.25,
+    "diversityWindow": 3,
+    "maxPerArtist": 1,
+    "obviousKeepThreshold": 0.1
+  },
+  "timingDefinitions": {
+    "fitSeconds": "C1 PreferenceModel constructor refit from all historical labels",
+    "predictSeconds": "C1 predictions including explanations for every candidate",
+    "contextSeconds": "C2 candidate contexts from pinned C1 transform and predictions",
+    "policyRebuildSeconds": "Current-version C1 observed predictions + observed contexts + ridge fit",
+    "selectionSeconds": "Pure C2 selection with uncertainty scores, caps, history, artist rules and diagnostic result",
+    "fullSelectionSeconds": "Sum of predict, context, rebuild and select; excludes C1 refit, HTTP, storage and serialization"
+  },
+  "runs": [
+    {
+      "fitSeconds": 0.07019870798103511,
+      "predictSeconds": 1.1573944999836385,
+      "contextSeconds": 0.3250366251450032,
+      "policyRebuildSeconds": 0.04630445805378258,
+      "selectionSeconds": 0.12242458295077085,
+      "fullSelectionSeconds": 1.6511601661331952
+    },
+    {
+      "fitSeconds": 0.0571085000410676,
+      "predictSeconds": 0.9700566669926047,
+      "contextSeconds": 0.257802041945979,
+      "policyRebuildSeconds": 0.038701165933161974,
+      "selectionSeconds": 0.060064209159463644,
+      "fullSelectionSeconds": 1.3266240840312093
+    },
+    {
+      "fitSeconds": 0.021752458065748215,
+      "predictSeconds": 0.5027949998620898,
+      "contextSeconds": 0.1649590830784291,
+      "policyRebuildSeconds": 0.04678091709502041,
+      "selectionSeconds": 0.09386783302761614,
+      "fullSelectionSeconds": 0.8084028330631554
+    },
+    {
+      "fitSeconds": 0.01986775011755526,
+      "predictSeconds": 0.5613212920725346,
+      "contextSeconds": 0.22266933298669755,
+      "policyRebuildSeconds": 0.029231166001409292,
+      "selectionSeconds": 0.04587429203093052,
+      "fullSelectionSeconds": 0.8590960830915719
+    },
+    {
+      "fitSeconds": 0.016232374822720885,
+      "predictSeconds": 0.4031889589969069,
+      "contextSeconds": 0.15982529195025563,
+      "policyRebuildSeconds": 0.026388959027826786,
+      "selectionSeconds": 0.041736249811947346,
+      "fullSelectionSeconds": 0.6311394597869366
+    }
+  ],
+  "medians": {
+    "fitSeconds": 0.021752458065748215,
+    "predictSeconds": 0.5613212920725346,
+    "contextSeconds": 0.22266933298669755,
+    "policyRebuildSeconds": 0.038701165933161974,
+    "selectionSeconds": 0.060064209159463644,
+    "fullSelectionSeconds": 0.8590960830915719
+  },
+  "service": {
+    "notice": "Authenticated in-process ASGI /policy/select with real temporary POSIX artifacts, one warm-up excluded. Includes request/response JSON, validation, authentication, checksums and persistence; excludes a network socket, TLS and deployed concurrency.",
+    "candidateCount": 2700,
+    "trainingExamples": 100,
+    "trainedRewards": 1,
+    "policyVersion": "c2-linucb-v2",
+    "reservationTtlSeconds": 300,
+    "selectionReplayExact": true,
+    "authenticatedAsgiSelectionSeconds": [
+      1.0954878751654178,
+      0.9745819170493633,
+      1.5955046659801155,
+      1.3940362080466002,
+      1.1987695000134408
+    ],
+    "medianAuthenticatedAsgiSelectionSeconds": 1.1987695000134408
+  }
+}

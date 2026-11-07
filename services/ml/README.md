@@ -1,6 +1,10 @@
-# sort.fm personalized preference engine (C1)
+# sort.fm preference engine and contextual bandit (C1 + C2)
 
-Python 3.11+, FastAPI, NumPy and scikit-learn. This service estimates a listener's **removal preference** and supplies scores for review. It has no Spotify client, credentials, mutation code, frontend or contextual bandit. The user makes every removal decision.
+Python 3.11+, FastAPI, NumPy and scikit-learn. C1 estimates a listener's **removal preference**. C2 separately selects useful review candidates with constrained shared-linear LinUCB. The user makes every removal decision; the service has no Spotify client, credentials, mutation code or frontend.
+
+C2 package `0.3.1` preserves all existing C1 contracts and immutable model formats. The approved service-local lifecycle adds bounded leases, idempotent release and reservation/eligibility inspection; **production C2 activation remains disabled**. Read the [C2 handoff](docs/C2-handoff.md), [local policy API and integration gates](docs/C2-api.md), [implemented lifecycle design](docs/C2-reservation-proposal.md), [evaluation method](docs/C2-evaluation.md), and [actual synthetic results](experiments/c2-simulation-seeds11-29-47.md). LinUCB did not beat C1 or epsilon-greedy in the recorded simulator; no real-listener or unbiased off-policy improvement is claimed. Shared-contract/public UI/Tiger Data adoption remains with integration.
+
+From this directory, run `uv run python scripts/smoke_policy.py` for the real C2 HTTP smoke; `uv run python -m sortfm_ml.simulate --seeds 11 29 47 --size 400 --budget 80 --holdout-size 150 --output experiments/c2-simulation-seeds11-29-47.json` reproduces the simulation. `uv run python scripts/benchmark_bandit.py --output experiments/c2-benchmark-cpu.json` measures the declared local CPU and authenticated ASGI workloads. Existing C1 commands below remain valid.
 
 ## Install, train, evaluate, serve
 
@@ -53,6 +57,14 @@ uv run uvicorn sortfm_ml.app:app --host 127.0.0.1 --port 8000
 For Railway/private hosting bind `0.0.0.0` and the configured port, mount persistent storage, and set `ML_ARTIFACT_DIR` to that mount. Use one replica with a local POSIX filesystem. Multiple Uvicorn workers on that same filesystem are coordinated by per-user file locks. Separate replicas or remote object stores require an integration-owned persistence adapter. Liveness is not a storage-readiness probe.
 
 `uv run python scripts/smoke_ml.py` launches an isolated loopback server, exercises real HTTP auth/fit/score/observe/explain, restarts it and checks exact replay. It uses only temporary synthetic data and deletes its state. From the repository root, `bun run smoke:ml` additionally validates actual Python responses with the shared TypeScript Zod contracts, including cold start, computed metrics, Undo, immutable exposure retry, conflicts and user isolation.
+
+## C2 lifecycle and activation gates
+
+New selections use scheduler `c2-linucb-v2`. `ML_POLICY_RESERVATION_TTL_SECONDS` sets the startup TTL to an integer from 30–900 seconds, default 300. Each exposure freezes its server UTC deadline; later configuration changes and identical retries cannot renew it. Authenticated `POST /policy/release` closes one exposure using an immutable user/request-scoped receipt. `GET /policy/exposure` adds current reservation status and the frozen selection-time eligibility snapshot. Release/expiry does not delete feedback, change rewards, cancel provider work or revoke C1 labels. C2 design uncertainty remains separate from C1 predictive uncertainty.
+
+Storage format 2 migrates verified v1 decisions with `expiresAt = original createdAt + 300 seconds`, independently of configured TTL, and reconciles current committed Undo. Original decision fingerprints, predictions and version tags are preserved. Take a complete verified artifact backup before first use: migration creates no automatic backup, and downgrading to the old reader requires restoring the pre-migration state. See the local API for strict schemas and deterministic clock injection.
+
+The existing A2 `FeedbackWorker` sends `/fit` snapshots, never `/policy/feedback` events. C2 cannot infer committed policy reward/history from that transport. Root/A/C2 must design one coherent adapter before activation; do not bolt `/observe` beside `/fit` at the same revision. Backend candidates must exclude pending review/Undo tracks **and settled reviews awaiting ML synchronization**. Lease expiry does not establish database eligibility. An expired/released select retry returns its historical decision without a new lease; backend lifecycle inspection and database eligibility checks are required before serving it. These backend/public integration changes remain outside C2's service-local implementation.
 
 ## Statistical behavior
 

@@ -30,6 +30,7 @@ export function liveFixture() {
 			...item.track,
 			trackId: `${i}`.repeat(22),
 			source: "spotify" as const,
+			isPlayable: true,
 			spotifyUri:
 				`spotify:track:${`${i}`.repeat(22)}` as `spotify:track:${string}`,
 		},
@@ -77,7 +78,11 @@ export function liveFixture() {
 		if (url.endsWith("/api/ml/insights"))
 			return json({
 				prediction: null,
-				metrics: demoBootstrap.metrics,
+				metrics: {
+					...demoBootstrap.metrics,
+					dataset: "user_feedback",
+					reason: "Controlled HTTP fixture; no live training.",
+				},
 				audioFeatures: {
 					provider: "soundnet",
 					status: "disabled",
@@ -145,7 +150,9 @@ export function liveFixture() {
 			}
 			Object.assign(original, {
 				status: "UNDONE",
-				mutationStep: "RESTORED",
+				mutationStep: ["ARCHIVE", "UNLIKE"].includes(original.action)
+					? "RESTORED"
+					: "NONE",
 				liked: true,
 				label: null,
 				labelState: "revoked",

@@ -27,6 +27,11 @@ export function History({
 					Your decisions, all in one place. Restore a song whenever you like.
 				</p>
 			</header>
+			{state.retraining && (
+				<output className="fine-print">
+					Training is in progress. Undo will be available when it finishes.
+				</output>
+			)}
 			<div className="history-toolbar">
 				<fieldset className="filter-tabs" aria-label="Filter history">
 					{[
@@ -105,6 +110,7 @@ export function History({
 								disabled={
 									!result.canUndo ||
 									state.busy ||
+									state.retraining ||
 									!!state.retry ||
 									state.refreshing ||
 									!!state.refreshError

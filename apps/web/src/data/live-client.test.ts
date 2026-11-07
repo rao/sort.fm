@@ -332,3 +332,38 @@ test("a stub response during recovery cannot erase an earlier ambiguous command"
 	expect(store.getSnapshot().unavailable).toBe(false);
 	expect(store.getSnapshot().retry).not.toBeNull();
 });
+
+test.each(["KEEP", "SKIP"] as const)(
+	"HTTP fixture supports %s Undo with a contract-valid non-provider mutation step",
+	async (action) => {
+		const f = liveFixture();
+		const store = new ReviewStore(f.client);
+		await store.load();
+		await store.decide(action);
+		await store.undo(f.history[0]!.decisionId);
+		expect(store.getSnapshot().error).toBeNull();
+		expect(store.getSnapshot().history[0]?.result.mutationStep).toBe("NONE");
+		expect(store.getSnapshot().remaining).toBe(2);
+	},
+);
+
+test("synthetic model metrics in a live response are isolated instead of labeled personal feedback", async () => {
+	const { createLiveApi, createLiveClient } = await import("./live-client");
+	const f = liveFixture();
+	const api = createLiveApi({
+		fetch: (async (input, init) => {
+			const response = await f.transport(input, init);
+			if (String(input).endsWith("/insights")) {
+				const data = await response.json();
+				data.metrics.dataset = "synthetic";
+				return Response.json(data);
+			}
+			return response;
+		}) as typeof fetch,
+	});
+	const store = new ReviewStore(createLiveClient(api, f.session, f.journal));
+	await store.load();
+	expect(store.getSnapshot().bootstrap?.metrics).toBeNull();
+	expect(store.getSnapshot().warnings.join(" ")).toContain("synthetic");
+	expect(store.getSnapshot().queue).toHaveLength(2);
+});

@@ -1,9 +1,59 @@
 import type { ReviewState } from "../state/review";
 import { EvaluationEmpty, PredictionDisplay } from "./ModelPanel";
 import { Icon, Progress } from "./ui";
-export function Insights({ state }: { state: ReviewState }) {
+export function Insights({
+	state,
+	onRetrain,
+	onRefresh,
+}: {
+	state: ReviewState;
+	onRetrain?: () => void;
+	onRefresh?: () => void;
+}) {
 	const metrics = state.bootstrap!.metrics;
 	const live = state.bootstrap!.session.mode === "spotify";
+	const locked =
+		state.busy ||
+		state.retraining ||
+		state.refreshing ||
+		!!state.retry ||
+		!!state.refreshError;
+	const controls = live && (
+		<div className="model-controls">
+			<div className="playback-actions">
+				<button
+					type="button"
+					className="button secondary small"
+					disabled={locked}
+					onClick={onRetrain}
+				>
+					{state.retraining ? "Training model…" : "Retrain model"}
+				</button>
+				<button
+					type="button"
+					className="text-button"
+					disabled={
+						state.busy || state.retraining || state.refreshing || !!state.retry
+					}
+					onClick={onRefresh}
+				>
+					Refresh model data
+				</button>
+			</div>
+			<p className="fine-print">
+				Fits your persisted feedback. Existing song estimates keep the model
+				version used when they were served.
+			</p>
+			{state.retrainError && (
+				<p role="alert" className="inline-error">
+					{state.retrainError}
+				</p>
+			)}
+			{state.retrainNotice && (
+				<output className="fine-print">{state.retrainNotice}</output>
+			)}
+		</div>
+	);
 	if (!metrics)
 		return (
 			<div className="page">
@@ -14,6 +64,7 @@ export function Insights({ state }: { state: ReviewState }) {
 						server supplies them.
 					</p>
 				</header>
+				{controls}
 			</div>
 		);
 	const labeled = live
@@ -28,6 +79,7 @@ export function Insights({ state }: { state: ReviewState }) {
 				<h1>No black boxes. Just your taste.</h1>
 				<p>A clear view of what the model knows, and what it doesn't.</p>
 			</header>
+			{controls}
 			<div className="insights-summary">
 				<div>
 					<span className="accent-icon">
@@ -93,20 +145,28 @@ export function Insights({ state }: { state: ReviewState }) {
 					{metrics.status === "available" ? (
 						<>
 							<div className="metric-values">
-								<div>
-									<strong>
-										{((metrics.balancedAccuracy ?? 0) * 100).toFixed(1)}%
-									</strong>
-									<span>Balanced accuracy</span>
-								</div>
-								<div>
-									<strong>{metrics.rocAuc?.toFixed(3)}</strong>
-									<span>ROC-AUC</span>
-								</div>
-								<div>
-									<strong>{metrics.brierScore?.toFixed(3)}</strong>
-									<span>Brier score</span>
-								</div>
+								{(
+									[
+										["Balanced accuracy", metrics.balancedAccuracy, true],
+										["ROC-AUC", metrics.rocAuc, false],
+										["PR-AUC", metrics.prAuc, false],
+										["Log loss", metrics.logLoss, false],
+										["Brier score", metrics.brierScore, false],
+										["Precision at k", metrics.precisionAtK, false],
+										["Removal base rate", metrics.baseRate, true],
+									] as const
+								).map(([label, value, percentage]) => (
+									<div key={label}>
+										<strong>
+											{value == null
+												? "Not supplied"
+												: percentage
+													? `${(value * 100).toFixed(1)}%`
+													: value.toFixed(3)}
+										</strong>
+										<span>{label}</span>
+									</div>
+								))}
 							</div>
 							<p>
 								{metrics.evaluationMethod} • {metrics.heldOutExamples} held-out
@@ -114,16 +174,53 @@ export function Insights({ state }: { state: ReviewState }) {
 							</p>
 						</>
 					) : (
-						<EvaluationEmpty />
+						<EvaluationEmpty unavailable={metrics.status === "unavailable"} />
 					)}
 					<p className="fine-print">{metrics.reason}</p>
+					{metrics.evaluatedAt && (
+						<p className="fine-print">
+							Evaluated{" "}
+							<time dateTime={metrics.evaluatedAt}>
+								{new Date(metrics.evaluatedAt).toLocaleString()}
+							</time>
+						</p>
+					)}
 				</section>
 				<section className="surface">
 					<h2>The current song</h2>
+					<p className="fine-print">
+						Saved exposure estimate. It may use an earlier model than the latest
+						training run.
+					</p>
 					<PredictionDisplay prediction={state.queue[0]?.prediction ?? null} />
+					{state.queue[0]?.prediction.explanations.map((item) => (
+						<div className="feature-explanation" key={item.feature}>
+							<strong>{item.feature}</strong>
+							<p>{item.description}</p>
+							<span className="fine-print">
+								Value: {item.value == null ? "Missing" : item.value.toFixed(3)}{" "}
+								· Contribution:{" "}
+								{item.contribution == null
+									? "Not supplied"
+									: item.contribution.toFixed(3)}
+							</span>
+						</div>
+					))}
 				</section>
 				<section className="surface model-details">
 					<h2>Under the hood</h2>
+					<div className="data-row">
+						<span>Current model kind</span>
+						<strong>
+							{state.insights?.prediction?.modelVersion === metrics.modelVersion
+								? state.insights.prediction.modelKind
+								: "Not supplied"}
+						</strong>
+					</div>
+					<div className="data-row">
+						<span>Training class mix</span>
+						<strong>Not supplied by the API</strong>
+					</div>
 					<div className="data-row">
 						<span>Model version</span>
 						<code>{metrics.modelVersion}</code>
@@ -145,7 +242,7 @@ export function Insights({ state }: { state: ReviewState }) {
 						</strong>
 					</div>
 					<div className="data-row">
-						<span>Feature comparison</span>
+						<span>Feature ablation comparison</span>
 						<strong>No comparison supplied</strong>
 					</div>
 					{state.insights && (
@@ -157,6 +254,27 @@ export function Insights({ state }: { state: ReviewState }) {
 									{state.insights.audioFeatures.featuresTotal}
 								</strong>
 							</div>
+							<div className="data-row">
+								<span>Failed enrichment</span>
+								<strong>{state.insights.audioFeatures.failed}</strong>
+							</div>
+							{Object.entries(state.insights.audioFeatures.missingness).map(
+								([feature, missing]) => (
+									<div className="feature-completeness" key={feature}>
+										<div className="data-row">
+											<span>{feature}</span>
+											<strong>
+												{Math.round((1 - missing) * 100)}% present
+											</strong>
+										</div>
+										<Progress
+											label={`${feature} completeness`}
+											value={1 - missing}
+											max={1}
+										/>
+									</div>
+								),
+							)}
 							<p className="fine-print">
 								{state.insights.audioFeatures.reason}
 							</p>

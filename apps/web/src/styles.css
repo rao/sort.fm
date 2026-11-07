@@ -3188,3 +3188,29 @@ input::placeholder {
 .player-status[href]:hover {
 	color: #c4f587;
 }
+
+/* Connected controls use the existing footer, surfaces and typography. */
+.playback-controls { display: flex; flex-direction: column; gap: 6px; max-width: 440px; min-width: 0; }
+.playback-controls .fine-print { margin: 0; font-size: 11px; line-height: 1.4; }
+.playback-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.model-controls { margin: 0 0 24px; }
+.model-controls output { display: block; }
+.feature-completeness { margin-bottom: 14px; }
+.feature-explanation { padding: 14px 0; border-top: 1px solid var(--line); }
+.feature-explanation p { color: var(--muted); font-size: 13px; }
+.metric-values { flex-wrap: wrap; row-gap: 20px; }
+.metric-values > div { min-width: 100px; }
+@media (max-width: 700px) {
+ .player-bar:has(.playback-controls) { height: auto; min-height: 100px; flex-wrap: wrap; gap: 12px; padding: 12px 20px; }
+ .playback-controls { max-width: 100%; }
+ .app-shell:has(.playback-controls) { padding-bottom: 200px; }
+}
+
+@media (max-width: 700px) {
+ .player-bar:has(.playback-controls) .player-end { display: flex; }
+ .player-bar:has(.playback-controls) .player-end .icon-button { display: none; }
+ .player-bar:has(.playback-controls) .playback-controls { order: 3; flex-basis: 100%; }
+}
+
+.app-shell:has(.playback-controls) { padding-bottom: calc(var(--player-height, 140px) + 48px); }
+.app-shell:has(.playback-controls) :is(.undo-toast, .error-toast) { bottom: calc(var(--player-height, 140px) + 18px); }

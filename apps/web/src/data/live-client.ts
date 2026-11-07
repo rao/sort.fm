@@ -2,6 +2,7 @@ import {
 	PUBLIC_ROUTES,
 	ErrorEnvelopeSchema,
 	ReviewRequestSchema,
+	PlayRequestSchema,
 	UndoRequestSchema,
 	UuidSchema,
 	type AccountSession,
@@ -145,15 +146,22 @@ export function createLiveApi(
 		inFlight.set(key, request);
 		return request;
 	}
-	async function extra<T>(route: {
-		path: string;
-		method: string;
-		response: { parse(value: unknown): T };
-	}): Promise<T> {
+	async function extra<T>(
+		route: {
+			path: string;
+			method: string;
+			response: { parse(value: unknown): T };
+		},
+		body?: unknown,
+	): Promise<T> {
 		const response = await boundedFetch(`${base}${route.path}`, {
 			method: route.method,
 			credentials: "include",
-			headers: { Accept: "application/json" },
+			headers: {
+				Accept: "application/json",
+				...(body === undefined ? {} : { "Content-Type": "application/json" }),
+			},
+			...(body === undefined ? {} : { body: JSON.stringify(body) }),
 		});
 		const payload = await response.json().catch(() => null);
 		if (!response.ok) {
@@ -187,6 +195,10 @@ export function createLiveApi(
 		importStatus: () => read("import", () => extra(PUBLIC_ROUTES.syncStatus)),
 		startImport: () => extra(PUBLIC_ROUTES.sync),
 		logout: () => extra(PUBLIC_ROUTES.logout),
+		playerStatus: () => read("player", () => extra(PUBLIC_ROUTES.playerStatus)),
+		play: async (trackUri: string) =>
+			extra(PUBLIC_ROUTES.play, PlayRequestSchema.parse({ trackUri })),
+		retrain: () => extra(PUBLIC_ROUTES.retrain),
 		insights: () => read("insights", shared.insights),
 		history: () => read("history", shared.history),
 	};
@@ -245,6 +257,12 @@ export function createLiveClient(
 			throw new Error("A live queue returned demo data. Review is paused.");
 		for (const result of [history, insights])
 			if (isUnauthorized(result.error)) throw result.error;
+		if (insights.data?.metrics.dataset === "synthetic") {
+			insights.data = null;
+			insights.error = new Error(
+				"Live insights returned synthetic model metrics. Personal model data is unavailable.",
+			);
+		}
 		if (history.data?.items.some((item) => item.mode !== "spotify"))
 			throw new Error("Live history returned demo decisions.");
 		return {

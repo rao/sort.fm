@@ -33,6 +33,19 @@ export function PredictionDisplay({
 				<span>{probability != null ? "Keep" : "Prediction unavailable"}</span>
 				<span>{probability != null ? "Remove" : "Early learning"}</span>
 			</div>
+			{prediction?.heuristicScore != null && probability == null && (
+				<p className="fine-print">
+					Heuristic rank score: {prediction.heuristicScore.toFixed(3)}. This is
+					a discovery score, not a removal probability.
+				</p>
+			)}
+			{prediction && (
+				<p className="fine-print">
+					Exposure model: <code>{prediction.modelVersion}</code> ·{" "}
+					{prediction.modelKind} · {prediction.trainedExamples} training
+					examples
+				</p>
+			)}
 			{prediction?.uncertainty != null && (
 				<p className="fine-print">
 					Uncertainty: {prediction.uncertainty.toFixed(2)} (
@@ -117,16 +130,23 @@ export function ModelPanel({
 		</aside>
 	);
 }
-export function EvaluationEmpty() {
+export function EvaluationEmpty({
+	unavailable = false,
+}: {
+	unavailable?: boolean;
+}) {
 	return (
 		<div className="chart-empty">
 			<div className="chart-grid" aria-hidden="true" />
 			<div>
 				<Icon name="chart" size={24} />
-				<h3>Not enough data. Yet.</h3>
+				<h3>
+					{unavailable ? "Evaluation unavailable" : "Not enough data. Yet."}
+				</h3>
 				<p>
-					Real held-out evaluation will appear here when a connected model has
-					enough feedback.
+					{unavailable
+						? "The service has not supplied an evaluation result. Refresh to check again."
+						: "Real held-out evaluation will appear here when a connected model has enough feedback."}
 				</p>
 				<span>No simulated accuracy or learning curve</span>
 			</div>

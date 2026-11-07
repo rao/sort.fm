@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PUBLIC_ROUTES, type ReviewAction } from "@sortfm/contracts";
 import type { ReviewClient } from "./data/demo-client";
 import { ReviewStore, actionFromKey } from "./state/review";
@@ -14,6 +14,7 @@ import { Landing } from "./components/Landing";
 import { Library } from "./components/Library";
 import { ConnectedLibrary } from "./components/Connected";
 import { History } from "./components/History";
+import { PlaybackControls } from "./components/PlaybackControls";
 import { Insights } from "./components/Insights";
 import { Dashboard } from "./components/Dashboard";
 import { ModelPanel } from "./components/ModelPanel";
@@ -44,6 +45,8 @@ export default function App({
 	onLogout?: () => void;
 }) {
 	const live = !!client.live;
+	const shellRef = useRef<HTMLDivElement>(null);
+	const footerRef = useRef<HTMLElement>(null);
 	const [store] = useState(() => new ReviewStore(client, 240));
 	const state = useSyncExternalStore(
 		store.subscribe,
@@ -133,6 +136,18 @@ export default function App({
 		window.addEventListener("keydown", keydown);
 		return () => window.removeEventListener("keydown", keydown);
 	}, [isReview, modal, store, latest, canRemove]);
+	// Route changes can mount the shell after the landing page; height also changes on mobile and errors.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: route mounts/unmounts these refs.
+	useEffect(() => {
+		const shell = shellRef.current;
+		const footer = footerRef.current;
+		if (!shell || !footer || typeof ResizeObserver === "undefined") return;
+		const updateHeight = () => shell.style.setProperty("--player-height", `${footer.getBoundingClientRect().height}px`);
+		updateHeight();
+		const observer = new ResizeObserver(updateHeight);
+		observer.observe(footer);
+		return () => observer.disconnect();
+	}, [route]);
 	const decide = (action: ReviewAction) => {
 		if (!canRemove && (action === "ARCHIVE" || action === "UNLIKE"))
 			setModal("connect");
@@ -234,12 +249,12 @@ export default function App({
 				<>
 					<p>
 						{live
-							? "Use Open in Spotify to listen to this song. In-browser playback is not connected yet."
+							? "A playable Spotify track is not available for this card."
 							: "These artists and songs are fictional, so there is no recording to play. You can still explore every sorting interaction."}
 					</p>
 					<p>
-						Connected tracks will offer an Open in Spotify link. In-browser
-						playback belongs to the upcoming playback integration.
+						Connected tracks always offer an Open in Spotify link. Playback
+						controls appear when the server enables them.
 					</p>
 					<button
 						type="button"
@@ -260,7 +275,7 @@ export default function App({
 			</>
 		);
 	return (
-		<div className="app-shell">
+		<div className="app-shell" ref={shellRef}>
 			<button
 				type="button"
 				className="skip-link"
@@ -364,7 +379,11 @@ export default function App({
 				) : route === "history" ? (
 					<History state={state} onUndo={(id) => void store.undo(id)} />
 				) : route === "insights" ? (
-					<Insights state={state} />
+					<Insights
+						state={state}
+						onRetrain={() => void store.retrain()}
+						onRefresh={() => void store.refresh()}
+					/>
 				) : route === "dashboard" ? (
 					<Dashboard state={state} />
 				) : !current ? (
@@ -472,6 +491,7 @@ export default function App({
 									next={state.queue[1]}
 									busy={
 										state.busy ||
+										state.retraining ||
 										!!state.retry ||
 										state.refreshing ||
 										!!state.refreshError
@@ -483,6 +503,7 @@ export default function App({
 									canRemove={canRemove}
 									disabled={
 										state.busy ||
+										state.retraining ||
 										!!state.retry ||
 										state.refreshing ||
 										!!state.refreshError
@@ -548,7 +569,12 @@ export default function App({
 					<button
 						type="button"
 						className="text-button"
-						disabled={state.busy || state.refreshing || !!state.retry}
+						disabled={
+							state.busy ||
+							state.retraining ||
+							state.refreshing ||
+							!!state.retry
+						}
 						onClick={() => void store.refresh()}
 					>
 						Refresh server data
@@ -578,7 +604,7 @@ export default function App({
 						<button
 							type="button"
 							className="button secondary small"
-							disabled={state.busy || state.refreshing}
+							disabled={state.busy || state.retraining || state.refreshing}
 							onClick={() => void store.recover()}
 						>
 							Check saved outcome
@@ -614,7 +640,7 @@ export default function App({
 						<button
 							type="button"
 							className="button secondary small"
-							disabled={state.busy || state.refreshing}
+							disabled={state.busy || state.retraining || state.refreshing}
 							onClick={() => void store.retry()}
 						>
 							Retry
@@ -634,7 +660,7 @@ export default function App({
 							<button
 								type="button"
 								className="text-button"
-								disabled={state.busy || state.refreshing}
+								disabled={state.busy || state.retraining || state.refreshing}
 								onClick={() => void store.undo(state.noticeUndoId!)}
 							>
 								<Icon name="undo" size={15} /> Undo
@@ -650,7 +676,7 @@ export default function App({
 						</button>
 					</output>
 				)}
-			<footer className="player-bar">
+			<footer className="player-bar" ref={footerRef}>
 				<div className="player-track">
 					{current && <Cover track={current.track} />}
 					<div>
@@ -661,17 +687,12 @@ export default function App({
 						</span>
 					</div>
 				</div>
-				{current?.track.spotifyUri ? (
-					<a
-						className="player-status"
-						href={`https://open.spotify.com/track/${current.track.trackId}`}
-						target="_blank"
-						rel="noreferrer"
-					>
-						<Icon name="headphones" size={18} />
-						<span>Open in Spotify</span>
-						<Icon name="external" size={14} />
-					</a>
+				{current?.track.spotifyUri && client.live ? (
+					<PlaybackControls
+						gateway={client.live}
+						trackUri={current.track.spotifyUri}
+						playable={current.track.isPlayable}
+					/>
 				) : (
 					<button
 						type="button"

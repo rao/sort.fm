@@ -63,7 +63,7 @@ export async function buildRuntime(options: {
  const reviews=spotify&&repository?createReviewQueueModule({
   queue:new QueueService(repository,{
    assemble:(rows,context)=>assembleLibraryCandidates(rows,{...context,now:new Date(context.now).toISOString(),metadataTraining}),
-   ...(ml?{score:(userId,candidates)=>ml!.score(userId,candidates)}:{}),
+   ...(ml?{score:(userId,candidates,modelVersion)=>ml!.score(userId,candidates,modelVersion)}:{}),
   }),auth:spotify.auth,
   config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
   ...(config.demoEnabled?{demoQueue:(query:Parameters<QueueService['get']>[1])=>createDemoQueue({...query,servedAt:new Date().toISOString(),exposureId:()=>crypto.randomUUID()})}:{}),

@@ -12,6 +12,12 @@ import {
 } from "./components/ui";
 import { Landing } from "./components/Landing";
 import { Library } from "./components/Library";
+import { CalibrationWorkspace } from "./components/Calibration";
+import { CalibrationStore } from "./state/calibration";
+import {
+	calibrationJournal,
+	createCalibrationClient,
+} from "./data/calibration-client";
 import { ConnectedLibrary } from "./components/Connected";
 import { History } from "./components/History";
 import { PlaybackControls } from "./components/PlaybackControls";
@@ -48,6 +54,25 @@ export default function App({
 	const shellRef = useRef<HTMLDivElement>(null);
 	const footerRef = useRef<HTMLElement>(null);
 	const [store] = useState(() => new ReviewStore(client, 240));
+	const [calibration] = useState(() =>
+		client.live
+			? new CalibrationStore(
+					createCalibrationClient(
+						client.live.api,
+						client.live.session,
+						calibrationJournal(
+							{
+								getItem: (key) => window.sessionStorage.getItem(key),
+								setItem: (key, value) =>
+									window.sessionStorage.setItem(key, value),
+								removeItem: (key) => window.sessionStorage.removeItem(key),
+							},
+							client.live.session.user!.id,
+						),
+					),
+				)
+			: null,
+	);
 	const state = useSyncExternalStore(
 		store.subscribe,
 		store.getSnapshot,
@@ -61,7 +86,7 @@ export default function App({
 	>(null);
 	const [toastDismissed, setToastDismissed] = useState(-1);
 	const canRemove = !live || !!client.live?.session.capabilities.spotifyWrite;
-	const isReview = route === "review" || route === "calibrate";
+	const isReview = route === "review";
 	const current = state.queue[0];
 	const completed = state.history.filter(
 		({ result }) => result.status === "COMPLETE",
@@ -82,19 +107,21 @@ export default function App({
 		return () => window.removeEventListener("hashchange", navigate);
 	}, []);
 	useEffect(() => {
-		if (route !== "landing" && !(live && route === "library"))
+		if (
+			route !== "landing" &&
+			route !== "calibrate" &&
+			!(live && route === "library")
+		)
 			void store.load();
 	}, [route, store, live]);
 	useEffect(() => {
 		if (
 			!live ||
-			!["insights", "dashboard", "history", "review", "calibrate"].includes(
-				route,
-			)
+			!["insights", "dashboard", "history", "review"].includes(route)
 		)
 			return;
 		void store.refresh();
-		if (route === "review" || route === "calibrate") return;
+		if (route === "review") return;
 		const timer = setInterval(() => {
 			if (!document.hidden) void store.refresh();
 		}, 15000);
@@ -142,7 +169,11 @@ export default function App({
 		const shell = shellRef.current;
 		const footer = footerRef.current;
 		if (!shell || !footer || typeof ResizeObserver === "undefined") return;
-		const updateHeight = () => shell.style.setProperty("--player-height", `${footer.getBoundingClientRect().height}px`);
+		const updateHeight = () =>
+			shell.style.setProperty(
+				"--player-height",
+				`${footer.getBoundingClientRect().height}px`,
+			);
 		updateHeight();
 		const observer = new ResizeObserver(updateHeight);
 		observer.observe(footer);
@@ -288,22 +319,15 @@ export default function App({
 				<nav aria-label="Workspace navigation">
 					{[
 						["review", "Sort music", "music"],
+						["calibrate", "Teach your taste", "spark"],
 						["dashboard", "Your library", "library"],
 						["history", "History", "clock"],
 					].map(([path, label, icon]) => (
 						<a
 							key={path}
 							href={`#/${path}`}
-							className={
-								route === path || (path === "review" && route === "calibrate")
-									? "active"
-									: ""
-							}
-							aria-current={
-								route === path || (path === "review" && route === "calibrate")
-									? "page"
-									: undefined
-							}
+							className={route === path ? "active" : ""}
+							aria-current={route === path ? "page" : undefined}
 						>
 							<Icon name={icon as "music"} size={17} />
 							{label}
@@ -325,7 +349,12 @@ export default function App({
 				</div>
 			</header>
 			<div className="demo-strip">
-				{live ? (
+				{route === "calibrate" ? (
+					<>
+						<span>Calibration only.</span> Labels train your model. Spotify
+						stays unchanged.
+					</>
+				) : live ? (
 					<>
 						<span>Your library. Your decisions.</span> Archive and Unlike change
 						Spotify after confirmation.
@@ -341,7 +370,9 @@ export default function App({
 				</a>
 			</div>
 			<main id="main" tabIndex={-1}>
-				{live && route === "library" ? (
+				{route === "calibrate" ? (
+					<CalibrationWorkspace store={calibration} />
+				) : live && route === "library" ? (
 					<ConnectedLibrary
 						api={client.live!.api}
 						onConnect={onConnect ?? (() => {})}
@@ -420,20 +451,10 @@ export default function App({
 						<div className="workspace-heading">
 							<div>
 								<span className="eyebrow">
-									{route === "calibrate"
-										? "LET'S GET TO KNOW YOUR TASTE"
-										: "A LITTLE SPACE FOR THE MUSIC YOU LOVE"}
+									A LITTLE SPACE FOR THE MUSIC YOU LOVE
 								</span>
-								<h1>
-									{route === "calibrate"
-										? "Start with a feeling."
-										: "Still your kind of music?"}
-								</h1>
-								<p>
-									{route === "calibrate"
-										? "A few songs. An honest instinct. There's no wrong answer."
-										: "Keep what moves you. Make room for what’s next."}
-								</p>
+								<h1>Still your kind of music?</h1>
+								<p>Keep what moves you. Make room for what’s next.</p>
 							</div>
 							<div className="session-counter">
 								<strong>
@@ -443,11 +464,7 @@ export default function App({
 									{!live && <span> / {String(total).padStart(2, "0")}</span>}
 								</strong>
 								<span>
-									{route === "calibrate"
-										? `${labeled ?? "—"} labeled · taste calibration`
-										: live
-											? "songs left to review"
-											: "songs reconsidered"}
+									{live ? "songs left to review" : "songs reconsidered"}
 								</span>
 								{!live && (
 									<Progress
@@ -458,26 +475,13 @@ export default function App({
 								)}
 							</div>
 						</div>
-						{route === "calibrate" && (
-							<div className="calibration-banner">
-								<span>
-									<Icon name="spark" size={17} />
-									<strong>A little variety goes a long way.</strong> Aim for
-									10–30 honest decisions when your library allows.
-								</span>
-								<a href="#/review">
-									Pause calibration <Icon name="arrow" size={15} />
-								</a>
-							</div>
-						)}
+
 						<div className="workspace-grid">
 							<section className="review-column" aria-label="Review songs">
 								<div className="queue-overline">
 									<span>
 										<i className="status-dot" />
-										{route === "calibrate"
-											? "TASTE CALIBRATION"
-											: "YOUR DAILY REDISCOVERY"}
+										YOUR DAILY REDISCOVERY
 									</span>
 									<span>
 										{live
@@ -563,25 +567,26 @@ export default function App({
 					</div>
 				)}
 			</main>
-			{(state.warnings.length > 0 || state.refreshError) && (
-				<output className="live-status-panel">
-					<p>{state.refreshError ?? state.warnings.join(" · ")}</p>
-					<button
-						type="button"
-						className="text-button"
-						disabled={
-							state.busy ||
-							state.retraining ||
-							state.refreshing ||
-							!!state.retry
-						}
-						onClick={() => void store.refresh()}
-					>
-						Refresh server data
-					</button>
-				</output>
-			)}
-			{state.error && state.bootstrap && (
+			{route !== "calibrate" &&
+				(state.warnings.length > 0 || state.refreshError) && (
+					<output className="live-status-panel">
+						<p>{state.refreshError ?? state.warnings.join(" · ")}</p>
+						<button
+							type="button"
+							className="text-button"
+							disabled={
+								state.busy ||
+								state.retraining ||
+								state.refreshing ||
+								!!state.retry
+							}
+							onClick={() => void store.refresh()}
+						>
+							Refresh server data
+						</button>
+					</output>
+				)}
+			{route !== "calibrate" && state.error && state.bootstrap && (
 				<div className="error-toast" role="alert">
 					<Icon name="info" />
 					<div>
@@ -648,7 +653,8 @@ export default function App({
 					)}
 				</div>
 			)}
-			{state.notice &&
+			{route !== "calibrate" &&
+				state.notice &&
 				state.noticeRevision !== toastDismissed &&
 				!state.error && (
 					<output className="undo-toast">
@@ -676,62 +682,65 @@ export default function App({
 						</button>
 					</output>
 				)}
-			<footer className="player-bar" ref={footerRef}>
-				<div className="player-track">
-					{current && <Cover track={current.track} />}
-					<div>
-						<strong>{current?.track.title ?? "A little more room."}</strong>
-						<span>
-							{current?.track.artists[0]?.name ??
-								"Your next favorite is out there."}
-						</span>
-					</div>
-				</div>
-				{current?.track.spotifyUri && client.live ? (
-					<PlaybackControls
-						gateway={client.live}
-						trackUri={current.track.spotifyUri}
-						playable={current.track.isPlayable}
-					/>
-				) : (
-					<button
-						type="button"
-						className="player-status"
-						onClick={() => setModal("playback")}
-					>
-						<Icon name="headphones" size={18} />
-						<span>
-							Preview unavailable{" "}
+			{route !== "calibrate" && (
+				<footer className="player-bar" ref={footerRef}>
+					<div className="player-track">
+						{current && <Cover track={current.track} />}
+						<div>
+							<strong>{current?.track.title ?? "A little more room."}</strong>
 							<span>
-								• {live ? "Open this song in Spotify" : "Fictional demo track"}
+								{current?.track.artists[0]?.name ??
+									"Your next favorite is out there."}
 							</span>
-						</span>
-						<Icon name="info" size={14} />
-					</button>
-				)}
-				<div className="player-end">
-					{current?.track.spotifyUri ? (
-						<a
-							className="text-link"
-							href={`https://open.spotify.com/track/${current.track.trackId}`}
-							target="_blank"
-							rel="noreferrer"
-						>
-							Open in Spotify <Icon name="external" size={14} />
-						</a>
+						</div>
+					</div>
+					{current?.track.spotifyUri && client.live ? (
+						<PlaybackControls
+							gateway={client.live}
+							trackUri={current.track.spotifyUri}
+							playable={current.track.isPlayable}
+						/>
 					) : (
-						<span>Made for the love of music.</span>
+						<button
+							type="button"
+							className="player-status"
+							onClick={() => setModal("playback")}
+						>
+							<Icon name="headphones" size={18} />
+							<span>
+								Preview unavailable{" "}
+								<span>
+									•{" "}
+									{live ? "Open this song in Spotify" : "Fictional demo track"}
+								</span>
+							</span>
+							<Icon name="info" size={14} />
+						</button>
 					)}
-					<button
-						type="button"
-						className="icon-button"
-						onClick={() => setModal("shortcuts")}
-						aria-label="Keyboard shortcuts"
-					>
-						<span className="keyboard-symbol">⌘</span>
-					</button>
-				</div>
-			</footer>
+					<div className="player-end">
+						{current?.track.spotifyUri ? (
+							<a
+								className="text-link"
+								href={`https://open.spotify.com/track/${current.track.trackId}`}
+								target="_blank"
+								rel="noreferrer"
+							>
+								Open in Spotify <Icon name="external" size={14} />
+							</a>
+						) : (
+							<span>Made for the love of music.</span>
+						)}
+						<button
+							type="button"
+							className="icon-button"
+							onClick={() => setModal("shortcuts")}
+							aria-label="Keyboard shortcuts"
+						>
+							<span className="keyboard-symbol">⌘</span>
+						</button>
+					</div>
+				</footer>
+			)}
 			{dialog}
 		</div>
 	);

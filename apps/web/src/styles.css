@@ -3240,3 +3240,19 @@ input::placeholder {
 
 .app-shell:has(.playback-controls) { padding-bottom: calc(var(--player-height, 140px) + 48px); }
 .app-shell:has(.playback-controls) :is(.undo-toast, .error-toast) { bottom: calc(var(--player-height, 140px) + 18px); }
+
+/* Calibration keeps B1 surfaces and card styling, with separate preference controls. */
+.calibration-actions { grid-template-columns: repeat(3, 1fr); }
+.calibration-workspace .calibration-recovery { margin-bottom: 22px; }
+.calibration-notice { display: block; padding: 14px 0; color: var(--accent); }
+.calibration-history { margin-top: 48px; }
+.calibration-history .history-row { grid-template-columns: 48px minmax(0, 1fr) auto auto; }
+.calibration-workspace .model-panel .data-row { gap: 12px; }
+.calibration-workspace .model-panel .data-row strong { text-align: right; }
+.calibration-workspace .model-panel code { overflow-wrap: anywhere; }
+.calibration-card { transition: transform 120ms ease-out; }
+@media (max-width: 650px) {
+ .calibration-history .history-row { grid-template-columns: 40px minmax(0, 1fr); }
+ .calibration-history .decision-tag, .calibration-history .button { grid-column: 2; justify-self: start; }
+}
+@media (prefers-reduced-motion: reduce) { .calibration-card { transition: none; } }

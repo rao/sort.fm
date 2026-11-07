@@ -44,4 +44,4 @@ Both smoke scripts start temporary loopback services and shut them down. They do
 
 Use `@sortfm/contracts` for Zod schemas/types, `@sortfm/contracts/client` for the typed browser client, and `@sortfm/contracts/fixtures` only for synthetic demo data. JSON Schema for Python is generated at `packages/contracts/generated/contracts.schema.json`. Do not independently recreate TypeScript DTOs in feature modules.
 
-The initial branch is `foundation`; no remote is configured. Original handoff files remain untouched outside this repository.
+The initial branch is `foundation`; `origin` is [rao/sort.fm](https://github.com/rao/sort.fm). Original handoff files remain untouched outside this repository. The user authorized ongoing commits and normal pushes of verified work.

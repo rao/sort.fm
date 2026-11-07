@@ -86,6 +86,6 @@ Regression tests caught then verified fixes for pending Undo, unconfirmed restor
 
 ## Integration instructions
 
-Use the foundation commit as the common starting point for short-lived worktrees/branches. No remote push or deployment has been performed. Keep root config, shared contracts and root scripts under the integration lead. A owns API module wiring after handoff; B owns web; C owns Python; D owns DB and `apps/api/src/jobs/soundnet`. Avoid concurrent edits to the same directory by advancing follow-on briefs within each session sequentially.
+Use the foundation commit as the common starting point for short-lived worktrees/branches. The user configured `origin` as `git@github.com:rao/sort.fm.git` and authorized ongoing commits and normal pushes of verified work. No deployment has been performed. Keep root config, shared contracts and root scripts under the integration lead. A owns API module wiring after handoff; B owns web; C owns Python; D owns DB and `apps/api/src/jobs/soundnet`. Avoid concurrent edits to the same directory by advancing follow-on briefs within each session sequentially.
 
 Run `bun install --frozen-lockfile`, `bun run typecheck`, `bun run test`, and the relevant smoke checks after integration. `bun run dev` starts local web/API, and `bun run dev:ml` starts the separate ML service. See README for setup and environment details.

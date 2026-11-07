@@ -8,6 +8,8 @@ import {SpotifyHttp} from '../spotify/http';
 import {SpotifyClient} from '../spotify/client';
 import {authenticationRequired, safeError, SpotifyError} from '../spotify/errors';
 import {LibraryImporter} from '../library/importer';
+import type {PlaybackReturnTo} from '@sortfm/contracts';
+import {playbackCookie,playbackCookieName} from '../playback/cookies';
 
 function cookieValue(request: FastifyRequest, name: string) {
   const cookies = (request.headers.cookie ?? '').split(';').map(part => part.trim());
@@ -17,7 +19,7 @@ function cookieValue(request: FastifyRequest, name: string) {
 }
 
 /** Instantiate once per API process. D supplies the production store. No memory fallback. */
-export function createSpotifyModule(options: {config: SpotifyConfig; store: A1Store; http?: SpotifyHttp}) {
+export function createSpotifyModule(options: {config: SpotifyConfig; store: A1Store; http?: SpotifyHttp; playbackCallback?:(query:{state?:string;code?:string;error?:string},browserToken?:string,sessionToken?:string)=>Promise<PlaybackReturnTo>}) {
   const {config, store} = options;
   const http = options.http ?? new SpotifyHttp({timeoutMs:config.requestTimeoutMs});
   const auth = new AuthService(config, store, http);
@@ -56,10 +58,20 @@ export function createSpotifyModule(options: {config: SpotifyConfig; store: A1St
       return reply.redirect(start.url);
     }));
     app.get(PUBLIC_ROUTES.authCallback.path, safe(async (req, reply) => {
-      reply.header('Set-Cookie', cookie(oauthName, '', 0));
       // OAuth 2.0 section 4.1.2 requires ignoring unknown response parameters.
       // Strip provider metadata (e.g. Spotify's ubi); validate auth fields normally.
       const query = z.object({state:z.string().max(128).optional(), code:z.string().max(4096).optional(), error:z.string().max(256).optional()}).parse(req.query);
+      // Dispatch every playback prefix before touching primary OAuth cookies/state.
+      // Malformed and replayed playback states must never become library logins.
+      if (query.state?.startsWith('playback-')) {
+        const purpose = query.state.startsWith('playback-sdk.') ? 'sdk' : query.state.startsWith('playback-control.') ? 'control' : null;
+        if (purpose) reply.header('Set-Cookie', playbackCookie(config.secureCookies, purpose, '', 0));
+        if (!options.playbackCallback) throw new SpotifyError('PLAYBACK_UNAVAILABLE', 'Playback is temporarily unavailable.', 503);
+        const returnTo = await options.playbackCallback(query, purpose ? cookieValue(req, playbackCookieName(config.secureCookies, purpose)) : undefined, sessionToken(req));
+        if (!['review', 'calibration'].includes(returnTo)) throw new SpotifyError('PLAYBACK_UNAVAILABLE', 'Playback is temporarily unavailable.', 503);
+        return reply.redirect(`${config.webOrigin}/#/${returnTo === 'calibration' ? 'calibrate' : 'review'}`);
+      }
+      reply.header('Set-Cookie', cookie(oauthName, '', 0));
       const result = await auth.callback(query, cookieValue(req, oauthName));
       reply.header('Set-Cookie', [cookie(oauthName, '', 0), cookie(sessionName, result.sessionToken, config.sessionTtlMs / 1000)]);
       return reply.redirect(config.webOrigin);

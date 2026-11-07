@@ -15,3 +15,5 @@ Read `docs/contracts.md` before implementation. Do not independently rename shar
 Use Bun and the root `bun.lock` for JS; uv in `services/ml` for Python. Run root typecheck, tests, and relevant smoke checks. Keep all credentials server-side. P0 precedes P1. Unimplemented capabilities must return explicit errors; never fabricate metrics or successful Spotify mutations. Never use pre-2026 Spotify mutation endpoints.
 
 The user authorized ongoing commits and normal pushes to the configured `origin`. Commit verified work within your assigned scope; preserve other sessions' changes and never force-push shared branches.
+
+The integration lead owns merges to canonical `foundation` and ongoing architecture coordination. Feature agents publish focused branches and verification handoffs. See `docs/integration/status.md` for active workspaces, interface decisions, and current integration gates.

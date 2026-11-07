@@ -1,5 +1,5 @@
 // Server-only persistence types: never serialize credential records to the browser.
-// Frozen from A1 d4be70c; runtime request/response schemas remain unchanged.
+// Based on A1 d4be70c plus agreed current-membership publication; wire schemas are unchanged.
 import type {AccountSession, LibraryImportStatus, ErrorEnvelope} from './schemas';
 import type {SavedTrackInput} from './db';
 
@@ -22,6 +22,13 @@ export type ImportObservation = {
   userId: string; jobId: string; pass: number; offset: number; raw: unknown;
   reason: 'null_track' | 'local_track' | 'invalid_track' | 'invalid_timestamp' | null;
   trackId: string | null; observedAt: string;
+};
+export type ImportMembership = {
+  userId: string; jobId: string; pass: number;
+  /** Unique successfully normalized members; raw rejected entries remain in observations. */
+  trackIds: string[];
+  /** Provider-reported total, including entries that could not be normalized. */
+  sourceTotal: number; observedAt: string;
 };
 export type TasteContext = {
   userId: string; fetchedAt: string; source: 'spotify-recently-played';
@@ -52,6 +59,11 @@ export interface A1Transaction {
   upsertSavedTracks(rows: SavedTrackInput[]): Promise<void>;
   /** Idempotent key (userId, jobId, pass, offset); retain raw invalid/local/null entries too. */
   putObservations(rows: ImportObservation[]): Promise<void>;
+  /** Replace membership only inside the fenced successful job-completion transaction.
+   * Empty completion clears membership; failed/partial scans preserve the prior set.
+   * Retain original save dates, review state and all history independently.
+   */
+  completeImportMembership(input: ImportMembership): Promise<void>;
   getSummary(userId: string): Promise<LibrarySummary>;
   putTasteContext(context: TasteContext): Promise<void>;
 }

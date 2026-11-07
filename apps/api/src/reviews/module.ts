@@ -1,8 +1,9 @@
-import {ZodError} from 'zod';
+import {z,ZodError} from 'zod';
 import type {FastifyInstance, FastifyReply, FastifyRequest} from 'fastify';
-import {QueueQuerySchema, QueueResultSchema, type QueueResult} from '@sortfm/contracts';
+import {DecisionHistorySchema,ReviewRequestSchema,ReviewResultSchema,UndoRequestSchema,UuidSchema,QueueQuerySchema, QueueResultSchema, type QueueResult} from '@sortfm/contracts';
 import {authenticationRequired, safeError, SpotifyError} from '../spotify/errors';
 import type {QueueService} from './queue';
+import type {ReviewService} from './service';
 
 export interface ReviewRouteOptions {
   config:{secureCookies:boolean;webOrigin:string;apiOrigin:string};
@@ -26,7 +27,10 @@ export function reviewRouteSecurity({config,auth}:ReviewRouteOptions) {
         if(req.headers.origin && ![config.webOrigin,config.apiOrigin].includes(req.headers.origin)) throw new SpotifyError('ORIGIN_NOT_ALLOWED','Origin is not allowed.',403);
         return await handler(req,reply);
       } catch(error) {
-        const safe=error instanceof ZodError?new SpotifyError('VALIDATION_ERROR','Request does not match the shared contract.',400):safeError(error);
+        const conflicts=['IDEMPOTENCY_CONFLICT','MUTATION_PENDING','STATE_CONFLICT','STALE_DECISION','STALE_EXPOSURE','EXPOSURE_ALREADY_CONSUMED','EXPOSURE_TRACK_MISMATCH','EXPOSURE_NOT_FOUND','REVIEW_LEASE_REQUIRED','REVIEW_LEASE_LOST','TRACK_NOT_OWNED','TRACK_NOT_IN_LIBRARY'];
+        const code=error && typeof error==='object' && 'code' in error ? String(error.code) : '';
+        const safe=error instanceof ZodError?new SpotifyError('VALIDATION_ERROR','Request does not match the shared contract.',400):conflicts.includes(code)?new SpotifyError(code,'The action conflicts with current review state. Refresh the queue.',409):safeError(error);
+        if(safe.retryAt)reply.header('Retry-After',String(Math.max(1,Math.ceil((safe.retryAt-Date.now())/1000))));
         if(!(error instanceof ZodError) && !(error instanceof SpotifyError)) req.log.error({code:safe.code},'Review operation failed');
         return reply.code(safe.statusCode).send(safe.envelope());
       }
@@ -45,6 +49,29 @@ export function createReviewQueueModule(options:ReviewRouteOptions & {queue:Queu
       }
       return options.queue.get(await security.owner(req),query);
     }));
+  };
+  return {registerRoutes};
+}
+
+
+/** Install only with D recovery persistence and a live worker; scopes are opt-in here. */
+export function createReviewMutationModule(options:ReviewRouteOptions & {service:ReviewService;worker:{start():void;close():Promise<void>};enableWrites:()=>void}) {
+  const security=reviewRouteSecurity(options),empty=z.strictObject({});
+  const registerRoutes=async(app:FastifyInstance)=>{
+    app.post('/api/decisions',security.safe(async(req,reply)=>{
+      security.csrf(req);empty.parse(req.query);const userId=await security.owner(req);
+      const result=ReviewResultSchema.parse(await options.service.decide(userId,ReviewRequestSchema.parse(req.body)));
+      return reply.code(['PENDING','FAILED_RETRYABLE'].includes(result.status)?202:200).send(result);
+    }));
+    app.post('/api/decisions/:id/undo',security.safe(async(req)=>{
+      security.csrf(req);empty.parse(req.query);const userId=await security.owner(req);
+      const {id}=z.strictObject({id:UuidSchema}).parse(req.params);
+      return ReviewResultSchema.parse(await options.service.undo(userId,id,UndoRequestSchema.parse(req.body)));
+    }));
+    app.get('/api/decisions/history',security.safe(async(req)=>{empty.parse(req.query);return DecisionHistorySchema.parse(await options.service.history(await security.owner(req)));}));
+    options.enableWrites();
+    app.addHook('onReady',async()=>{options.worker.start();});
+    app.addHook('onClose',async()=>{await options.worker.close();});
   };
   return {registerRoutes};
 }

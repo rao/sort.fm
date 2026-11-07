@@ -4,6 +4,7 @@ import type {SpotifyConfig} from './config';
 import type {A1Store, Account} from './store';
 import {TokenCipher, digest, equalSecret, newSecret, pkceChallenge, sessionHash} from './crypto';
 import {SpotifyHttp} from '../spotify/http';
+import {WRITE_SCOPES} from '../spotify/scopes';
 import {authenticationRequired, SpotifyError} from '../spotify/errors';
 
 const tokenSchema = z.object({access_token:z.string().min(1), token_type:z.string().refine(x => x.toLowerCase() === 'bearer'), expires_in:z.number().int().positive(), refresh_token:z.string().min(1).optional(), scope:z.string().optional()});
@@ -12,6 +13,8 @@ export type AccessCredential = {token: string; version: string};
 
 export class AuthService {
   private readonly cipher: TokenCipher;
+  private reviewWritesEnabled = false;
+  enableReviewWrites() {this.reviewWritesEnabled = true;}
   constructor(readonly config: SpotifyConfig, readonly store: A1Store, readonly http: SpotifyHttp) {this.cipher = new TokenCipher(config.encryptionKey);}
   assertOwner(account: Account) {
     if (!account.user.spotifyId || !this.config.allowedUserIds.has(account.user.spotifyId) || account.user.id !== `spotify:${account.user.spotifyId}`) throw new SpotifyError('ACCOUNT_NOT_ALLOWED', 'This Spotify account is not authorized for sort.fm.', 403);
@@ -21,7 +24,7 @@ export class AuthService {
     const state = newSecret(), browserToken = newSecret(), verifier = newSecret(), stateHash = digest(state);
     await this.store.transaction(tx => tx.putOAuth({stateHash, browserHash:digest(browserToken), verifier:this.cipher.seal(verifier, `oauth:${stateHash}`), expiresAt:this.http.now() + this.config.oauthTtlMs}));
     const url = new URL('https://accounts.spotify.com/authorize');
-    url.search = new URLSearchParams({response_type:'code', client_id:this.config.clientId, redirect_uri:this.config.redirectUri, scope:this.config.scopes.join(' '), state, code_challenge_method:'S256', code_challenge:pkceChallenge(verifier)}).toString();
+    url.search = new URLSearchParams({response_type:'code', client_id:this.config.clientId, redirect_uri:this.config.redirectUri, scope:[...new Set([...this.config.scopes,...(this.reviewWritesEnabled ? WRITE_SCOPES : [])])].join(' '), state, code_challenge_method:'S256', code_challenge:pkceChallenge(verifier)}).toString();
     return {url:url.toString(), browserToken};
   }
   async callback(query: {state?: string; code?: string; error?: string}, browserToken?: string) {
@@ -68,9 +71,17 @@ export class AuthService {
       return account;
     });
   }
+  async requireScopes(userId: string, scopes: readonly string[]): Promise<void> {
+    await this.store.transaction(async tx => {
+      const account = await tx.getAccount(userId);
+      if (!account) throw authenticationRequired();
+      this.assertOwner(account);
+      if (scopes.some(scope => !account.scopes.includes(scope))) throw new SpotifyError('SPOTIFY_SCOPE_REQUIRED', 'Reconnect Spotify to grant the permissions needed for this action.', 403);
+    });
+  }
   async logout(token?: string) {if (token) await this.store.transaction(tx => tx.deleteSession(sessionHash(token, this.config.sessionSecret)));}
   publicSession(account: Account | null): AccountSession {
-    return {mode:account ? 'spotify' : 'anonymous', user:account?.user ?? null, capabilities:{spotifyRead:!!account && account.scopes.includes('user-library-read'), spotifyWrite:false, playback:false}};
+    return {mode:account ? 'spotify' : 'anonymous', user:account?.user ?? null, capabilities:{spotifyRead:!!account && account.scopes.includes('user-library-read'), spotifyWrite:this.reviewWritesEnabled && !!account && WRITE_SCOPES.every(scope => account.scopes.includes(scope)), playback:false}};
   }
   async revoke(userId: string, version: string, refreshLeaseId?: string) {
     return this.store.transaction(async tx => {

@@ -41,3 +41,34 @@ Decision/history/Undo routes and Spotify mutation reconciliation are the next sl
 Validated with an isolated live Tiger schema plus a real FastAPI process: Keep settlement → reconstruct worker → fit/ack revision1, then Undo → reconstruct worker → fit/ack revision2 with zero active labels. Ten assertions passed. Four transport unit tests verify newer-snapshot acknowledgement, rejected stale/cross-user results, timeout, retry, and shutdown. No real Spotify state was touched.
 
 Queue feature assembly now uses the full distinct current Spotify library before page selection, preserving artist counts across kept/deferred/unplayable tracks. Ten queue tests / 42 assertions pass.
+
+## Mutation workflow (enable only after import/review membership fence)
+
+```ts
+const spotifyWrites = new SpotifyMutations(spotify.auth, spotify.auth.http);
+const reviewWorker = new ReviewWorker(repository, spotifyWrites, {
+  auth: spotify.auth,
+  feedback: feedbackWorker,
+});
+const reviewService = new ReviewService(repository, {
+  auth: spotify.auth,
+  worker: reviewWorker,
+});
+const mutationRoutes = createReviewMutationModule({
+  auth: spotify.auth, config, service: reviewService, worker: reviewWorker,
+  enableWrites: () => spotify.auth.enableReviewWrites(),
+});
+await mutationRoutes.registerRoutes(app);
+```
+
+Requires D recovery `641b7ad` and exposure guards `bd39926` (migrations008–009), plus the forthcoming membership revision fence. Root owns fallback ordering and health capabilities. Registrar owns decision/history/Undo routes and worker lifecycle. It enables write consent only when installed; existing read-only sessions stay `spotifyWrite:false` until reconnect. Required new scopes are user-library-modify, playlist-modify-private, playlist-read-private.
+
+Decision POST returns persisted PENDING with202, never optimistic completion. The per-user durable lease serializes initial/recovery execution. Keep emits0; Skip emits no strong label; confirmed Archive/Unlike emit1. Archive creates/reuses a private owner playlist, confirms insertion before unlike, and journals non-idempotent POST intents. Timeout/5xx remains uncertain; recovery reads state and never blindly repeats the POST. A definitive429 permits retry after its deadline. Ambiguous absent playlist effects remain pending reconciliation, possibly requiring operator resolution; duplicate writes are not traded for liveness.
+
+Undo persists a command and returns409 `UNDO_PENDING` with retryable:true until confirmed; repeat the SAME idempotency key. Original COMPLETE/label remains authoritative until UNDONE. Destructive Undo re-saves and confirms saved state, revokes the label, and retains the archive copy. Spotify cannot guarantee restoration of the original saved timestamp; DB retains the original snapshot.
+
+Authorization loss after possible remote effects remains FAILED_RETRYABLE so reconnect can reconcile and regain Undo. No tokens, credentials or provider response bodies are exposed.
+
+Current Spotify references verified Nov7,2026: [library save](https://developer.spotify.com/documentation/web-api/reference/save-library-items), [library remove](https://developer.spotify.com/documentation/web-api/reference/remove-library-items), [contains](https://developer.spotify.com/documentation/web-api/reference/check-library-contains), [playlist creation](https://developer.spotify.com/documentation/web-api/reference/create-playlist), [playlist items](https://developer.spotify.com/documentation/web-api/reference/add-items-to-playlist).
+
+Validation: live Tiger HTTP workflow49assertions covers Keep/Skip, archive-success/unlike-failure/restart without duplicate insert, unlike, same-key repeated decisions/Undo, labels and events. Three live integration tests together passed66assertions (queue,feedback,workflow). Provider is controlled synthetic HTTP; no real Spotify mutation or real-user smoke is claimed. Independent review found and verified malformed reconciliation and authorization-recovery fixes. One integration race remains before enablement: stale A1 import publication must be fenced against concurrent review/Undo; root/D/A1 are coordinating that patch.

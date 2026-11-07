@@ -46,12 +46,22 @@ function parse<S extends z.ZodType>(schema: S, input: unknown, request = false):
   return result.data;
 }
 
-function serviceBaseUrl(value: string): URL {
+function railwayPrivateOrigin(value: string, url: URL): boolean {
+  // Check raw origin syntax too: URL normalizes encoded hosts, dot paths and backslashes.
+  if (!/^http:\/\/[a-z0-9.-]+(?::[0-9]+)?\/?$/i.test(value)
+    || url.hostname.length > 253 || url.port === "0") return false;
+  const labels = url.hostname.split(".");
+  return labels.length >= 3 && labels.at(-2) === "railway" && labels.at(-1) === "internal"
+    && labels.every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
+}
+
+function serviceBaseUrl(value: string, allowRailwayPrivateHttp: boolean): URL {
   try {
     if (typeof value !== "string" || /[\s\u0000-\u001f\u007f]/u.test(value)) throw new Error();
     const url = new URL(value);
     const loopback = url.hostname === "localhost" || url.hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(url.hostname);
-    if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+    const railwayPrivate = allowRailwayPrivateHttp && railwayPrivateOrigin(value, url);
+    if ((url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || railwayPrivate)))
       || url.username || url.password || value.includes("?") || value.includes("#")) throw new Error();
     url.pathname = url.pathname.replace(/\/+$/, "");
     return url;
@@ -104,9 +114,15 @@ function checkScore(request: ScoreRequest, response: ScoreResponse): boolean {
   return true;
 }
 
-/** HTTPS is required except for localhost, IPv4 127/8, or IPv6 ::1. Base paths are preserved. */
-export function createMlClient(options: { serviceUrl: string; sharedSecret: string; fetch?: MlFetch; timeoutMs?: number }): MlClient {
-  const base = serviceBaseUrl(options.serviceUrl);
+/** HTTPS/loopback preserve base paths. Railway private HTTP requires an explicit origin-only opt-in. */
+export function createMlClient(options: {
+  serviceUrl: string; sharedSecret: string; fetch?: MlFetch; timeoutMs?: number;
+  /** Enable only for Railway's encrypted, isolated private network. Defaults to false. */
+  allowRailwayPrivateHttp?: boolean;
+}): MlClient {
+  const { allowRailwayPrivateHttp = false } = options;
+  if (typeof allowRailwayPrivateHttp !== "boolean") throw new MlClientError("ML_INVALID_CONFIG", 500, false);
+  const base = serviceBaseUrl(options.serviceUrl, allowRailwayPrivateHttp);
   const { sharedSecret } = options;
   const timeoutMs = options.timeoutMs ?? 10_000;
   // Visible ASCII tokens avoid whitespace/header injection and invalid header encodings.

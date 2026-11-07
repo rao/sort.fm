@@ -8,7 +8,11 @@ The separate [explicit retrain registrar](RETRAIN.md) implements the existing PO
 
 ## Runtime wiring
 
-Import from `./ml` inside the API only. Inject configuration from the server's composition root; this module reads no environment variables and contains no credentials. `createMlClient` requires HTTPS except for HTTP loopback (`localhost`, `127/8`, `::1`). Redirects are refused so bearer credentials cannot follow a redirect. A URL base path is supported. Remote private HTTP is intentionally not accepted by this client; configure HTTPS or co-located loopback.
+Import from `./ml` inside the API only. Inject configuration from the server's composition root; this module reads no environment variables and contains no credentials. By default, `createMlClient` requires HTTPS except for HTTP loopback (`localhost`, `127/8`, `::1`). Redirects are refused so bearer credentials cannot follow a redirect. Existing HTTPS and loopback URL base paths remain supported.
+
+For deployment within Railway's private network, the server may explicitly pass `allowRailwayPrivateHttp: true` with an origin such as `http://ml.railway.internal:8000`. The option defaults to false and accepts only a boolean. The new HTTP exception requires a valid ASCII DNS subdomain of `.railway.internal`, an optional port from 1–65535, and no path other than an optional trailing slash. It rejects credentials, query/fragment syntax, encoded hostnames, normalized dot paths, backslashes, malformed labels, suffix spoofs, public hosts and remote IP addresses. It does not enable generic remote HTTP or change HTTPS/loopback behavior.
+
+[Railway documents](https://docs.railway.com/networking/private-networking) internal service DNS, encrypted Wireguard transport and environment isolation. This opt-in relies on that deployment environment; it does not establish network isolation by inspecting a hostname. Root owns the server-only environment flag and must explicitly pass the parsed boolean to `createMlClient`. The client itself reads no environment flag. Bearer authentication, redirect refusal, request/response validation, deadlines and single-attempt behavior remain active. Tests inject a fetch implementation to inspect the exact internal request; they do not contact Railway or verify a deployment.
 
 ```ts
 import {assembleLibraryCandidates, createMlClient, createRepositoryMl, feedbackSplit} from './ml';

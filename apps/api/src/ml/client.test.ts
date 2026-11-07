@@ -245,3 +245,162 @@ describe("ML client error contract", () => {
     await failure(clientFor({ code: "STALE_REVISION", message: secret, retryable: "yes" }, 503).score(scoreRequest), { code: "ML_HTTP_ERROR", status: 503, retryable: true });
   });
 });
+
+describe("ML client Railway private HTTP opt-in", () => {
+  test("explicit opt-in permits a plain Railway private origin without contacting DNS", async () => {
+    let requestedUrl: string | undefined;
+    const options = {
+      serviceUrl: "http://ml.railway.internal:8000/", sharedSecret: secret, allowRailwayPrivateHttp: true,
+      fetch: async (input: Parameters<typeof fetch>[0]) => { requestedUrl = String(input); return Response.json(scoreResponse); },
+    };
+    expect(await createMlClient(options).score(scoreRequest)).toEqual(scoreResponse);
+    expect(requestedUrl).toBe("http://ml.railway.internal:8000/score");
+  });
+
+  test.each(["http://ml.railway.internal:0", "http://ml.railway.internal:00000"])("rejects private HTTP service port zero %s", serviceUrl => {
+    const options = { serviceUrl, sharedSecret: secret, allowRailwayPrivateHttp: true };
+    expect(() => createMlClient(options)).toThrow(MlClientError);
+  });
+
+  test.each([undefined, false])("private HTTP remains disabled when opt-in is %j", allowRailwayPrivateHttp => {
+    let called = false;
+    const options = { serviceUrl: "http://ml.railway.internal:8000", sharedSecret: secret,
+      ...(allowRailwayPrivateHttp === undefined ? {} : { allowRailwayPrivateHttp }),
+      fetch: async () => { called = true; return Response.json(scoreResponse); },
+    };
+    expect(() => createMlClient(options)).toThrow(MlClientError);
+    expect(called).toBe(false);
+  });
+
+  test.each([
+    "http://ml.railway.internal", "http://ml.railway.internal/", "http://my-ml-2.railway.internal:8000",
+    "http://a.b.railway.internal:1/", "http://ML.Service.RAILWAY.INTERNAL:65535",
+    `http://${"a".repeat(63)}.railway.internal`,
+    `http://${["a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(44)].join(".")}.railway.internal`,
+  ])("permits a validated private service origin %s", serviceUrl => {
+    const options = { serviceUrl, sharedSecret: secret, allowRailwayPrivateHttp: true,
+      fetch: async () => { throw new Error("Constructor must not send a request"); },
+    };
+    expect(() => createMlClient(options)).not.toThrow();
+  });
+
+  test.each([
+    ["arbitrary public HTTP", "http://ml.example.test"],
+    ["Railway public domain", "http://project.up.railway.app"],
+    ["private IPv4", "http://10.0.0.2:8000"],
+    ["private LAN IPv4", "http://192.168.1.5:8000"],
+    ["private range IPv4", "http://172.16.0.1:8000"],
+    ["link-local IPv4", "http://169.254.169.254"],
+    ["private IPv6", "http://[fd00::1]:8000"],
+    ["bare suffix", "http://railway.internal"],
+    ["suffix with trailing public domain", "http://ml.railway.internal.attacker.test"],
+    ["suffix lookalike", "http://ml.notrailway.internal"],
+    ["leading empty DNS label", "http://.railway.internal"],
+    ["middle empty DNS label", "http://ml..railway.internal"],
+    ["trailing dot", "http://ml.railway.internal."],
+    ["leading hyphen", "http://-ml.railway.internal"],
+    ["trailing hyphen", "http://ml-.railway.internal"],
+    ["underscore", "http://my_ml.railway.internal"],
+    ["overlong DNS label", `http://${"a".repeat(64)}.railway.internal`],
+    ["overlong whole hostname", `http://${["a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(45)].join(".")}.railway.internal`],
+    ["encoded hostname character", "http://%6dl.railway.internal"],
+    ["encoded hostname separator", "http://ml%2erailway.internal"],
+    ["Unicode hostname label", "http://mℓ.railway.internal"],
+    ["Unicode hostname separator", "http://ml。railway.internal"],
+    ["username", "http://user@ml.railway.internal"],
+    ["username and password", `http://user:${secret}@ml.railway.internal`],
+    ["empty userinfo", "http://@ml.railway.internal"],
+    ["query", "http://ml.railway.internal?x=1"],
+    ["empty query", "http://ml.railway.internal?"],
+    ["fragment", "http://ml.railway.internal#x"],
+    ["empty fragment", "http://ml.railway.internal#"],
+    ["base path", "http://ml.railway.internal/service"],
+    ["multiple trailing slashes", "http://ml.railway.internal//"],
+    ["normalized dot path", "http://ml.railway.internal/."],
+    ["normalized parent path", "http://ml.railway.internal/service/.."],
+    ["encoded normalized dot path", "http://ml.railway.internal/%2e"],
+    ["encoded normalized parent path", "http://ml.railway.internal/%2e%2e"],
+    ["encoded path separator", "http://ml.railway.internal/%2F"],
+    ["trailing backslash", "http://ml.railway.internal\\"],
+    ["backslash scheme separators", "http:\\\\ml.railway.internal"],
+    ["empty port", "http://ml.railway.internal:"],
+    ["out-of-range port", "http://ml.railway.internal:65536"],
+    ["negative port", "http://ml.railway.internal:-1"],
+    ["nonnumeric port", "http://ml.railway.internal:abc"],
+  ])("rejects %s before fetch even with explicit opt-in", (_name, serviceUrl) => {
+    let called = false;
+    const options = { serviceUrl: serviceUrl!, sharedSecret: secret, allowRailwayPrivateHttp: true,
+      fetch: async () => { called = true; return Response.json(scoreResponse); },
+    };
+    let caught: unknown;
+    try { createMlClient(options); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(MlClientError);
+    expect(caught).toMatchObject({ code: "ML_INVALID_CONFIG", status: 500, retryable: false });
+    expect(String(caught)).not.toContain(secret);
+    expect(JSON.stringify(caught)).not.toContain(secret);
+    expect(called).toBe(false);
+  });
+
+  test.each([null, "true", "false", 1, 0, {}, [], new Boolean(true)].map(value => ({ value })))("rejects nonboolean opt-in %j even for otherwise valid URLs", ({ value: allowRailwayPrivateHttp }) => {
+    for (const serviceUrl of ["https://ml.example.test", "http://127.0.0.1:8000", "http://ml.railway.internal:8000"]) {
+      let called = false;
+      const options = { serviceUrl, sharedSecret: secret, allowRailwayPrivateHttp,
+        fetch: async () => { called = true; return Response.json(scoreResponse); },
+      };
+      expect(() => createMlClient(options as unknown as Parameters<typeof createMlClient>[0])).toThrow(MlClientError);
+      expect(called).toBe(false);
+    }
+  });
+
+  test.each([
+    ["https://ml.example.test/internal///", "https://ml.example.test/internal/score"],
+    ["https://ml.railway.internal/service/", "https://ml.railway.internal/service/score"],
+    ["http://127.0.0.1:8000/internal/", "http://127.0.0.1:8000/internal/score"],
+    ["http://localhost:0/internal/", "http://localhost:0/internal/score"],
+    ["http://[::1]:8000/internal/", "http://[::1]:8000/internal/score"],
+  ])("preserves existing HTTPS and loopback base-path behavior for %s", async (serviceUrl, expectedUrl) => {
+    for (const allowRailwayPrivateHttp of [false, true]) {
+      let requestedUrl: string | undefined;
+      const options = { serviceUrl: serviceUrl!, sharedSecret: secret, allowRailwayPrivateHttp,
+        fetch: async (input: Parameters<typeof fetch>[0]) => { requestedUrl = String(input); return Response.json(scoreResponse); },
+      };
+      expect(await createMlClient(options).score(scoreRequest)).toEqual(scoreResponse);
+      expect(requestedUrl).toBe(expectedUrl);
+    }
+  });
+
+  test("private-origin requests preserve all five authenticated contracts and refuse redirects", async () => {
+    const requests: { url: URL; method: string | undefined; headers: Headers; body: BodyInit | null | undefined; redirect: RequestRedirect | undefined }[] = [];
+    const options = { serviceUrl: "http://ml.railway.internal:8000", sharedSecret: secret, allowRailwayPrivateHttp: true,
+      fetch: async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = new URL(String(input));
+        requests.push({ url, method: init?.method, headers: new Headers(init?.headers), body: init?.body, redirect: init?.redirect });
+        switch (url.pathname) {
+          case "/fit": return Response.json(fitResponse);
+          case "/score": return Response.json(scoreResponse);
+          case "/observe": return Response.json(observeResponse);
+          case "/evaluation": return Response.json(metrics);
+          case "/explain": return Response.json({ exposureId, prediction });
+          default: throw new Error("Unexpected route");
+        }
+      },
+    };
+    const client = createMlClient(options);
+    expect(await client.fit(fitRequest)).toEqual(fitResponse);
+    expect(await client.score(scoreRequest)).toEqual(scoreResponse);
+    expect(await client.observe(observeRequest)).toEqual(observeResponse);
+    expect(await client.evaluation({ userId: "demo:user", modelVersion: version })).toEqual(metrics);
+    expect(await client.explain({ userId: "demo:user", exposureId })).toEqual({ exposureId, prediction });
+    expect(requests.map(request => [request.method, request.url.pathname])).toEqual([
+      ["POST", "/fit"], ["POST", "/score"], ["POST", "/observe"], ["GET", "/evaluation"], ["GET", "/explain"],
+    ]);
+    expect(requests.every(request => request.url.origin === "http://ml.railway.internal:8000" && request.redirect === "error")).toBe(true);
+    expect(requests.every(request => request.headers.get("authorization") === `Bearer ${secret}` && request.headers.get("accept") === "application/json")).toBe(true);
+    expect(requests.slice(0, 3).map(request => JSON.parse(String(request.body)))).toEqual([fitRequest, scoreRequest, observeRequest]);
+    expect(requests.slice(0, 3).every(request => request.headers.get("content-type") === "application/json")).toBe(true);
+    expect(requests.slice(3).every(request => request.body === undefined)).toBe(true);
+    expect(Object.fromEntries(requests[3]!.url.searchParams)).toEqual({ userId: "demo:user", modelVersion: version });
+    expect(Object.fromEntries(requests[4]!.url.searchParams)).toEqual({ userId: "demo:user", exposureId });
+    expect(requests.every(request => !request.url.href.includes(secret))).toBe(true);
+  });
+});

@@ -1,6 +1,10 @@
-# sort.fm personalized preference engine (C1)
+# sort.fm preference engine and contextual bandit (C1 + C2)
 
-Python 3.11+, FastAPI, NumPy and scikit-learn. This service estimates a listener's **removal preference** and supplies scores for review. It has no Spotify client, credentials, mutation code, frontend or contextual bandit. The user makes every removal decision.
+Python 3.11+, FastAPI, NumPy and scikit-learn. C1 estimates a listener's **removal preference**. C2 separately selects useful review candidates with constrained shared-linear LinUCB. The user makes every removal decision; the service has no Spotify client, credentials, mutation code or frontend.
+
+C2 package `0.3.0` preserves all existing C1 contracts and immutable model formats. Read the [C2 handoff](docs/C2-handoff.md), [local policy API and integration decisions](docs/C2-api.md), [evaluation method](docs/C2-evaluation.md), and [actual synthetic results](experiments/c2-simulation-seeds11-29-47.md). LinUCB did not beat C1 or epsilon-greedy in the recorded simulator; no real-listener or unbiased off-policy improvement is claimed. Shared-contract/public UI/Tiger Data adoption remains with integration.
+
+From this directory, run `uv run python scripts/smoke_policy.py` for the real C2 HTTP smoke; `uv run python -m sortfm_ml.simulate --seeds 11 29 47 --size 400 --budget 80 --holdout-size 150 --output experiments/c2-simulation-seeds11-29-47.json` reproduces the simulation. `uv run python scripts/benchmark_bandit.py --output experiments/c2-benchmark-cpu.json` measures the declared local CPU and authenticated ASGI workloads. Existing C1 commands below remain valid.
 
 ## Install, train, evaluate, serve
 

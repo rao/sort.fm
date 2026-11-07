@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const CONTRACT_VERSION = "1.0.0" as const;
 export const FEATURE_VERSION = "sortfm.features.v1" as const;
-export const IdSchema = z.string().min(1).max(128).regex(/^[a-zA-Z0-9:_-]+$/);
+export const IdSchema = z.string().min(1).max(128).regex(/^[a-zA-Z0-9:_.-]+$/);
 export const UuidSchema = z.uuid();
 export const TimestampSchema = z.iso.datetime({offset: true});
 export const ProbabilitySchema = z.number().min(0).max(1);

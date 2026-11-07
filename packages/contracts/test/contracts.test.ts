@@ -84,3 +84,12 @@ test("scoring optionally registers a caller-owned exposure without changing trai
   expect(ScoreRequestSchema.safeParse({...request, candidates: [{...candidate, exposureId: "not-a-uuid"}]}).success).toBe(false);
   expect(TrainingExampleSchema.safeParse({...candidate, decisionId: completedArchive.decisionId, label: 1, split: "train", labeledAt: completedArchive.createdAt, exposureId: decision.exposureId}).success).toBe(false);
 });
+
+test('dotted Spotify usernames survive session and internal model boundaries',()=>{
+ const session={mode:'spotify',user:{id:'spotify:ram.in',spotifyId:'ram.in',displayName:'Owner',avatarUrl:null},capabilities:{spotifyRead:true,spotifyWrite:false,playback:false}};
+ expect(AccountSessionSchema.safeParse(session).success).toBe(true);
+ expect(ScoreRequestSchema.safeParse({userId:'spotify:ram.in',featureVersion:'sortfm.features.v1',candidates:[],modelVersion:null}).success).toBe(true);
+ for(const id of ['../owner','owner/child','owner\\child','owner?token=secret','owner user']) {
+  expect(AccountSessionSchema.safeParse({...session,user:{...session.user,id}}).success).toBe(false);
+ }
+});

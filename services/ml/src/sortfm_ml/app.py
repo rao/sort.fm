@@ -2,21 +2,59 @@
 
 import os
 import secrets
-from typing import Annotated
+from datetime import datetime
+from pathlib import Path
+from typing import Annotated, Callable
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .schemas import (
+    EvaluationQuery, ExplainQuery, ExplainResponse, FitRequest, FitResponse,
+    MLHealth, ModelMetrics, ObserveRequest, ObserveResponse, ScoreRequest, ScoreResponse,
+)
+from .service import ModelService, ServiceError
+from .policy_service import PolicyService
+from .policy_schemas import (PolicyDecision, PolicyDiagnostics, PolicyDiagnosticsQuery,
+                             PolicyExposure, PolicyExposureQuery, PolicyFeedbackRequest,
+                             PolicyReleaseReceipt, PolicyReleaseRequest, PolicySelectRequest)
 
-def create_app(shared_secret: str | None = None) -> FastAPI:
+
+def create_app(
+    shared_secret: str | None = None, storage_dir: str | Path | None = None, *,
+    policy_clock: Callable[[], datetime] | None = None,
+    policy_reservation_ttl_seconds: int | None = None,
+) -> FastAPI:
     """Capture configuration once so each application has independent credentials."""
     configured_secret = (
         os.getenv("ML_SERVICE_SHARED_SECRET") if shared_secret is None else shared_secret
     )
     application = FastAPI(title="sort.fm ML", version="1.0.0")
+    model_service = ModelService(
+        os.getenv("ML_ARTIFACT_DIR", "artifacts") if storage_dir is None else storage_dir
+    )
+    application.state.model_service = model_service
+    policy_service = PolicyService(model_service, clock=policy_clock,
+        reservation_ttl_seconds=int(os.getenv("ML_POLICY_RESERVATION_TTL_SECONDS", "300"))
+        if policy_reservation_ttl_seconds is None else policy_reservation_ttl_seconds)
+    application.state.policy_service = policy_service
+
+    @application.exception_handler(ServiceError)
+    async def model_error(_request: Request, error: ServiceError) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status,
+            content={"code": error.code, "message": error.message, "retryable": error.retryable},
+        )
+
+    @application.exception_handler(ResponseValidationError)
+    async def response_error(_request: Request, _error: ResponseValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=500,
+            content={"code": "INTERNAL_ERROR", "message": "The service response is invalid.", "retryable": False},
+        )
 
     @application.exception_handler(StarletteHTTPException)
     async def service_error(_request: Request, error: StarletteHTTPException) -> JSONResponse:
@@ -37,13 +75,13 @@ def create_app(shared_secret: str | None = None) -> FastAPI:
     async def validation_error(_request: Request, _error: RequestValidationError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"code": "BAD_REQUEST", "message": "The request is invalid.", "retryable": False})
 
-    @application.get("/health")
+    @application.get("/health", response_model=MLHealth)
     async def health() -> dict[str, object]:
         return {
             "status": "ok",
             "service": "ml",
             "contractVersion": "1.0.0",
-            "capabilities": {"scoring": False, "training": False},
+            "capabilities": {"scoring": True, "training": True},
         }
 
     async def require_shared_secret(
@@ -75,24 +113,51 @@ def create_app(shared_secret: str | None = None) -> FastAPI:
 
     internal = APIRouter(dependencies=[Depends(require_shared_secret)])
 
-    async def not_implemented() -> JSONResponse:
-        return JSONResponse(
-            status_code=501,
-            content={
-                "code": "NOT_IMPLEMENTED",
-                "message": "This ML capability is not implemented yet.",
-                "retryable": False,
-            },
-        )
+    # Synchronous handlers run in FastAPI's worker pool: CPU fits and flock
+    # waits must not block the ASGI event loop or public liveness checks.
+    @internal.post("/fit", response_model=FitResponse)
+    def fit(payload: FitRequest) -> dict:
+        return model_service.fit(payload.model_dump(exclude_unset=True))
 
-    for method, path in [
-        ("POST", "/fit"),
-        ("POST", "/score"),
-        ("POST", "/observe"),
-        ("GET", "/evaluation"),
-        ("GET", "/explain"),
-    ]:
-        internal.add_api_route(path, not_implemented, methods=[method], status_code=501)
+    @internal.post("/score", response_model=ScoreResponse)
+    def score(payload: ScoreRequest) -> dict:
+        return model_service.score(payload.model_dump(exclude_unset=True))
+
+    @internal.post("/observe", response_model=ObserveResponse)
+    def observe(payload: ObserveRequest) -> dict:
+        return policy_service.observe(payload.model_dump(exclude_unset=True))
+
+    # C2-local proposals: shared C1 route DTOs remain unchanged. Integration
+    # owns public exposure mapping, user authentication and Tiger Data writes.
+    @internal.post("/policy/select", response_model=PolicyDecision, response_model_exclude_unset=True)
+    def policy_select(payload: PolicySelectRequest) -> dict:
+        return policy_service.select(payload.model_dump(exclude_unset=True))
+
+    @internal.post("/policy/feedback", response_model=ObserveResponse)
+    def policy_feedback(payload: PolicyFeedbackRequest) -> dict:
+        body = payload.model_dump(exclude_unset=True)
+        usefulness = body.pop("usefulness", None)
+        return policy_service.observe(body, usefulness, require_policy=True)
+
+    @internal.post("/policy/release", response_model=PolicyReleaseReceipt)
+    def policy_release(payload: PolicyReleaseRequest) -> dict:
+        return policy_service.release(payload.model_dump())
+
+    @internal.get("/policy/diagnostics", response_model=PolicyDiagnostics, response_model_exclude_unset=True)
+    def policy_diagnostics(query: Annotated[PolicyDiagnosticsQuery, Query()]) -> dict:
+        return policy_service.diagnostics(query.userId)
+
+    @internal.get("/policy/exposure", response_model=PolicyExposure, response_model_exclude_unset=True)
+    def policy_exposure(query: Annotated[PolicyExposureQuery, Query()]) -> dict:
+        return policy_service.exposure(query.userId, query.exposureId)
+
+    @internal.get("/evaluation", response_model=ModelMetrics)
+    def evaluation(query: Annotated[EvaluationQuery, Query()]) -> dict:
+        return model_service.evaluation(query.userId, query.modelVersion)
+
+    @internal.get("/explain", response_model=ExplainResponse)
+    def explain(query: Annotated[ExplainQuery, Query()]) -> dict:
+        return model_service.explain(query.userId, query.exposureId)
 
     application.include_router(internal)
     return application

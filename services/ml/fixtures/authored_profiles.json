@@ -1,0 +1,33 @@
+{
+  "labelProvenance": "AI-authored illustrative labels; not human/listener feedback",
+  "notice": "These made-up feature profiles and manually assigned illustrative labels test deterministic adaptation only. They are not observations of any listener and provide no evidence of real-world utility.",
+  "initialCount": 12,
+  "columns": ["trackId", "saved_age_days", "energy", "acousticness", "recent_play_count", "label"],
+  "profiles": [
+    ["demo:authored-01", 600, 0.12, 0.85, 1, 1],
+    ["demo:authored-02", 420, 0.22, 0.72, 0, 1],
+    ["demo:authored-03", 800, 0.18, 0.80, 2, 1],
+    ["demo:authored-04", 220, 0.28, 0.65, 1, 1],
+    ["demo:authored-05", 920, 0.35, 0.70, 3, 1],
+    ["demo:authored-06", 360, 0.30, 0.68, 0, 1],
+    ["demo:authored-07", 450, 0.84, 0.15, 1, 0],
+    ["demo:authored-08", 720, 0.76, 0.24, 3, 0],
+    ["demo:authored-09", 260, 0.90, 0.10, 0, 0],
+    ["demo:authored-10", 580, 0.71, 0.30, 2, 0],
+    ["demo:authored-11", 850, 0.80, 0.18, 0, 0],
+    ["demo:authored-12", 300, 0.68, 0.28, 1, 0],
+    ["demo:authored-13", 480, 0.73, 0.22, 1, 1],
+    ["demo:authored-14", 510, 0.77, 0.26, 1, 1],
+    ["demo:authored-15", 430, 0.71, 0.27, 0, 1],
+    ["demo:authored-16", 550, 0.79, 0.20, 2, 1],
+    ["demo:authored-17", 470, 0.76, 0.24, 1, 1],
+    ["demo:authored-18", 520, 0.72, 0.29, 1, 1],
+    ["demo:authored-19", 490, 0.78, 0.23, 0, 1],
+    ["demo:authored-20", 460, 0.75, 0.25, 2, 1],
+    ["demo:authored-21", 540, 0.74, 0.21, 1, 1],
+    ["demo:authored-22", 530, 0.70, 0.28, 0, 1],
+    ["demo:authored-23", 440, 0.80, 0.19, 1, 1],
+    ["demo:authored-24", 500, 0.76, 0.26, 2, 1]
+  ],
+  "probe": {"trackId": "demo:authored-probe", "values": {"saved_age_days": 500, "energy": 0.75, "acousticness": 0.25, "recent_play_count": 1}}
+}

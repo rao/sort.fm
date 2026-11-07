@@ -78,3 +78,11 @@ test("production config enforces TLS and does not accept boolean typos", () => {
   expect(config.webOrigin).toBe("https://sort.fm");
   expect(config.apiOrigin).toBe("https://api.sort.fm");
 });
+
+test('installed registrars can replace the live queue and health reports supplied capabilities',async()=>{
+ const server=await buildApp({config:loadConfig({NODE_ENV:'test'}),capabilities:{database:true,spotify:true},registerRoutes:app=>{
+  app.get(PUBLIC_ROUTES.queue.path,async()=>({installed:true}));
+ }});apps.push(server);
+ expect((await server.inject({url:'/api/queue'})).json()).toEqual({installed:true});
+ expect((await server.inject({url:'/api/health'})).json().capabilities).toEqual({demo:true,spotify:true,database:true,ml:false});
+});

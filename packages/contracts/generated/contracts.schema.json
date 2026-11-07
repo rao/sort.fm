@@ -24,7 +24,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "spotifyId": {
                   "anyOf": [
@@ -32,7 +32,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128,
-                      "pattern": "^[a-zA-Z0-9:_-]+$"
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
                     },
                     {
                       "type": "null"
@@ -165,7 +165,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "provider": {
           "type": "string",
@@ -541,6 +541,707 @@
       ],
       "additionalProperties": false
     },
+    "CalibrationHistorySchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "calibration"
+              },
+              "labelId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "trackId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9]{22}$"
+              },
+              "exposureId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "submittedLabel": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "number",
+                    "const": 1
+                  }
+                ]
+              },
+              "label": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 0
+                      },
+                      {
+                        "type": "number",
+                        "const": 1
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "revoked",
+                  "superseded"
+                ]
+              },
+              "canUndo": {
+                "type": "boolean"
+              },
+              "feedbackRevision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": [
+              "mode",
+              "labelId",
+              "trackId",
+              "exposureId",
+              "idempotencyKey",
+              "submittedLabel",
+              "label",
+              "state",
+              "canUndo",
+              "feedbackRevision",
+              "createdAt",
+              "updatedAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ],
+      "additionalProperties": false
+    },
+    "CalibrationLabelRequestSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9]{22}$"
+        },
+        "exposureId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            }
+          ]
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "trackId",
+        "exposureId",
+        "label",
+        "idempotencyKey"
+      ],
+      "additionalProperties": false
+    },
+    "CalibrationLabelResultSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "const": "calibration"
+        },
+        "labelId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "trackId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9]{22}$"
+        },
+        "exposureId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "submittedLabel": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            }
+          ]
+        },
+        "label": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 0
+                },
+                {
+                  "type": "number",
+                  "const": 1
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "revoked",
+            "superseded"
+          ]
+        },
+        "canUndo": {
+          "type": "boolean"
+        },
+        "feedbackRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        }
+      },
+      "required": [
+        "mode",
+        "labelId",
+        "trackId",
+        "exposureId",
+        "idempotencyKey",
+        "submittedLabel",
+        "label",
+        "state",
+        "canUndo",
+        "feedbackRevision",
+        "createdAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "CalibrationQueueQuerySchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "limit": {
+          "default": 20,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "CalibrationQueueResultSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "contractVersion": {
+          "type": "string",
+          "const": "1.0.0"
+        },
+        "mode": {
+          "type": "string",
+          "const": "calibration"
+        },
+        "items": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "track": {
+                "type": "object",
+                "properties": {
+                  "trackId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "spotify",
+                      "synthetic"
+                    ]
+                  },
+                  "spotifyUri": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^spotify:track:[a-zA-Z0-9]{22}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "artists": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[a-zA-Z0-9:_.-]+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "album": {
+                    "type": "string"
+                  },
+                  "imageUrl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "durationMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "explicit": {
+                    "type": "boolean"
+                  },
+                  "originalAddedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "releaseDate": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}(-\\d{2})?(-\\d{2})?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "isPlayable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "trackId",
+                  "source",
+                  "spotifyUri",
+                  "title",
+                  "artists",
+                  "album",
+                  "imageUrl",
+                  "durationMs",
+                  "explicit",
+                  "originalAddedAt",
+                  "releaseDate",
+                  "isPlayable"
+                ],
+                "additionalProperties": false
+              },
+              "prediction": {
+                "type": "object",
+                "properties": {
+                  "modelKind": {
+                    "type": "string",
+                    "enum": [
+                      "untrained",
+                      "heuristic",
+                      "logistic",
+                      "sgd_logistic",
+                      "tree"
+                    ]
+                  },
+                  "modelVersion": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "featureVersion": {
+                    "type": "string",
+                    "const": "sortfm.features.v1"
+                  },
+                  "trainedExamples": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "removalProbability": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "heuristicScore": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "uncertainty": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "uncertaintyMethod": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "entropy",
+                          "bootstrap"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "calibrated": {
+                    "type": "boolean"
+                  },
+                  "explanations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "feature": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "contribution": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "description": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "feature",
+                        "value",
+                        "contribution",
+                        "description"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "modelKind",
+                  "modelVersion",
+                  "featureVersion",
+                  "trainedExamples",
+                  "removalProbability",
+                  "heuristicScore",
+                  "uncertainty",
+                  "uncertaintyMethod",
+                  "calibrated",
+                  "explanations"
+                ],
+                "additionalProperties": false
+              },
+              "exposure": {
+                "type": "object",
+                "properties": {
+                  "exposureId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "trackId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
+                  },
+                  "policy": {
+                    "type": "string",
+                    "enum": [
+                      "balanced",
+                      "discovery",
+                      "certainty"
+                    ]
+                  },
+                  "selectionMethod": {
+                    "type": "string",
+                    "enum": [
+                      "fixture",
+                      "deterministic_baseline",
+                      "logistic_rank",
+                      "linucb",
+                      "thompson"
+                    ]
+                  },
+                  "policyVersion": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "explorationCoefficient": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "propensityEstimate": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "modelVersion": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "featureVersion": {
+                    "type": "string",
+                    "const": "sortfm.features.v1"
+                  },
+                  "removalScore": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "heuristicScore": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "uncertainty": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "position": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "servedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": [
+                  "exposureId",
+                  "trackId",
+                  "policy",
+                  "selectionMethod",
+                  "policyVersion",
+                  "explorationCoefficient",
+                  "propensityEstimate",
+                  "modelVersion",
+                  "featureVersion",
+                  "removalScore",
+                  "heuristicScore",
+                  "uncertainty",
+                  "position",
+                  "servedAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "track",
+              "prediction",
+              "exposure"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "remaining": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fallbackReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "contractVersion",
+        "mode",
+        "items",
+        "remaining",
+        "nextCursor",
+        "fallbackReason"
+      ],
+      "additionalProperties": false
+    },
     "CandidateSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -549,7 +1250,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "features": {
           "type": "object",
@@ -911,7 +1612,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128,
-                "pattern": "^[a-zA-Z0-9:_-]+$"
+                "pattern": "^[a-zA-Z0-9:_.-]+$"
               },
               "action": {
                 "type": "string",
@@ -1089,7 +1790,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "decisionId": {
           "type": "string",
@@ -1103,7 +1804,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "action": {
               "type": "string",
@@ -1176,7 +1877,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128,
-                      "pattern": "^[a-zA-Z0-9:_-]+$"
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
                     },
                     "spotifyId": {
                       "anyOf": [
@@ -1184,7 +1885,7 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 128,
-                          "pattern": "^[a-zA-Z0-9:_-]+$"
+                          "pattern": "^[a-zA-Z0-9:_.-]+$"
                         },
                         {
                           "type": "null"
@@ -1273,7 +1974,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       "source": {
                         "type": "string",
@@ -1309,7 +2010,7 @@
                                   "type": "string",
                                   "minLength": 1,
                                   "maxLength": 128,
-                                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                                 },
                                 {
                                   "type": "null"
@@ -1526,7 +2227,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       "policy": {
                         "type": "string",
@@ -1899,7 +2600,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": "string"
@@ -1918,7 +2619,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "exposureId": {
           "type": "string",
@@ -2084,7 +2785,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "exposure": {
           "type": "object",
@@ -2098,7 +2799,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "policy": {
               "type": "string",
@@ -2690,7 +3391,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "policy": {
           "type": "string",
@@ -3439,7 +4140,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "decisionId": {
           "type": "string",
@@ -3497,7 +4198,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "featureVersion": {
           "type": "string",
@@ -3517,7 +4218,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128,
-                "pattern": "^[a-zA-Z0-9:_-]+$"
+                "pattern": "^[a-zA-Z0-9:_.-]+$"
               },
               "features": {
                 "type": "object",
@@ -3912,7 +4613,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": "string"
@@ -4182,7 +4883,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^[a-zA-Z0-9:_-]+$"
+      "pattern": "^[a-zA-Z0-9:_.-]+$"
     },
     "IdempotencyKeySchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4198,7 +4899,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "progress": {
           "type": "object",
@@ -5159,7 +5860,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": "string",
@@ -5418,7 +6119,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "mutationId": {
           "type": "string",
@@ -5472,7 +6173,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             {
               "type": "null"
@@ -5506,7 +6207,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "eventId": {
           "type": "string",
@@ -5527,7 +6228,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "feedbackRevision": {
           "type": "integer",
@@ -6152,7 +6853,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "source": {
               "type": "string",
@@ -6188,7 +6889,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       {
                         "type": "null"
@@ -6405,7 +7106,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "policy": {
               "type": "string",
@@ -6592,7 +7293,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128,
-                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                   },
                   "source": {
                     "type": "string",
@@ -6628,7 +7329,7 @@
                               "type": "string",
                               "minLength": 1,
                               "maxLength": 128,
-                              "pattern": "^[a-zA-Z0-9:_-]+$"
+                              "pattern": "^[a-zA-Z0-9:_.-]+$"
                             },
                             {
                               "type": "null"
@@ -6845,7 +7546,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128,
-                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                   },
                   "policy": {
                     "type": "string",
@@ -7013,7 +7714,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "action": {
           "type": "string",
@@ -7056,7 +7757,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "action": {
           "type": "string",
@@ -7220,7 +7921,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "track": {
           "type": "object",
@@ -7229,7 +7930,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "source": {
               "type": "string",
@@ -7265,7 +7966,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       {
                         "type": "null"
@@ -7380,7 +8081,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "featureVersion": {
           "type": "string",
@@ -7396,7 +8097,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128,
-                "pattern": "^[a-zA-Z0-9:_-]+$"
+                "pattern": "^[a-zA-Z0-9:_.-]+$"
               },
               "features": {
                 "type": "object",
@@ -7763,7 +8464,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": "string"
@@ -7781,7 +8482,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128,
-                "pattern": "^[a-zA-Z0-9:_-]+$"
+                "pattern": "^[a-zA-Z0-9:_.-]+$"
               },
               "prediction": {
                 "type": "object",
@@ -7936,7 +8637,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "features": {
           "type": "object",
@@ -8302,7 +9003,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": [
@@ -8380,7 +9081,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "source": {
           "type": "string",
@@ -8416,7 +9117,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128,
-                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                   },
                   {
                     "type": "null"
@@ -8504,7 +9205,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "source": {
               "type": "string",
@@ -8540,7 +9241,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       {
                         "type": "null"
@@ -8637,7 +9338,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "features": {
           "type": "object",
@@ -9016,7 +9717,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "commandId": {
           "type": "string",
@@ -9193,7 +9894,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128,
-                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                   },
                   "spotifyId": {
                     "anyOf": [
@@ -9201,7 +9902,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       {
                         "type": "null"
@@ -9604,7 +10305,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128,
-                      "pattern": "^[a-zA-Z0-9:_-]+$"
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
                     },
                     "source": {
                       "type": "string",
@@ -9640,7 +10341,7 @@
                                 "type": "string",
                                 "minLength": 1,
                                 "maxLength": 128,
-                                "pattern": "^[a-zA-Z0-9:_-]+$"
+                                "pattern": "^[a-zA-Z0-9:_.-]+$"
                               },
                               {
                                 "type": "null"
@@ -9857,7 +10558,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128,
-                      "pattern": "^[a-zA-Z0-9:_-]+$"
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
                     },
                     "policy": {
                       "type": "string",
@@ -10020,7 +10721,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "action": {
             "type": "string",
@@ -10063,7 +10764,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "action": {
             "type": "string",
@@ -10252,7 +10953,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "action": {
             "type": "string",
@@ -10431,7 +11132,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "action": {
                   "type": "string",
@@ -10582,6 +11283,843 @@
                 "labelState",
                 "feedbackRevision",
                 "error",
+                "createdAt",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "calibrationQueue": {
+      "method": "GET",
+      "path": "/api/calibration/queue",
+      "auth": "owner",
+      "query": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "contractVersion": {
+            "type": "string",
+            "const": "1.0.0"
+          },
+          "mode": {
+            "type": "string",
+            "const": "calibration"
+          },
+          "items": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "track": {
+                  "type": "object",
+                  "properties": {
+                    "trackId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "spotify",
+                        "synthetic"
+                      ]
+                    },
+                    "spotifyUri": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^spotify:track:[a-zA-Z0-9]{22}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "artists": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128,
+                                "pattern": "^[a-zA-Z0-9:_.-]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "album": {
+                      "type": "string"
+                    },
+                    "imageUrl": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "durationMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "explicit": {
+                      "type": "boolean"
+                    },
+                    "originalAddedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "releaseDate": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}(-\\d{2})?(-\\d{2})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "isPlayable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "trackId",
+                    "source",
+                    "spotifyUri",
+                    "title",
+                    "artists",
+                    "album",
+                    "imageUrl",
+                    "durationMs",
+                    "explicit",
+                    "originalAddedAt",
+                    "releaseDate",
+                    "isPlayable"
+                  ],
+                  "additionalProperties": false
+                },
+                "prediction": {
+                  "type": "object",
+                  "properties": {
+                    "modelKind": {
+                      "type": "string",
+                      "enum": [
+                        "untrained",
+                        "heuristic",
+                        "logistic",
+                        "sgd_logistic",
+                        "tree"
+                      ]
+                    },
+                    "modelVersion": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "featureVersion": {
+                      "type": "string",
+                      "const": "sortfm.features.v1"
+                    },
+                    "trainedExamples": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "removalProbability": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "heuristicScore": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "uncertainty": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "uncertaintyMethod": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "entropy",
+                            "bootstrap"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "calibrated": {
+                      "type": "boolean"
+                    },
+                    "explanations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "feature": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "contribution": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "feature",
+                          "value",
+                          "contribution",
+                          "description"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "modelKind",
+                    "modelVersion",
+                    "featureVersion",
+                    "trainedExamples",
+                    "removalProbability",
+                    "heuristicScore",
+                    "uncertainty",
+                    "uncertaintyMethod",
+                    "calibrated",
+                    "explanations"
+                  ],
+                  "additionalProperties": false
+                },
+                "exposure": {
+                  "type": "object",
+                  "properties": {
+                    "exposureId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "trackId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
+                    },
+                    "policy": {
+                      "type": "string",
+                      "enum": [
+                        "balanced",
+                        "discovery",
+                        "certainty"
+                      ]
+                    },
+                    "selectionMethod": {
+                      "type": "string",
+                      "enum": [
+                        "fixture",
+                        "deterministic_baseline",
+                        "logistic_rank",
+                        "linucb",
+                        "thompson"
+                      ]
+                    },
+                    "policyVersion": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "explorationCoefficient": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "propensityEstimate": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "modelVersion": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "featureVersion": {
+                      "type": "string",
+                      "const": "sortfm.features.v1"
+                    },
+                    "removalScore": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "heuristicScore": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "uncertainty": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "servedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    }
+                  },
+                  "required": [
+                    "exposureId",
+                    "trackId",
+                    "policy",
+                    "selectionMethod",
+                    "policyVersion",
+                    "explorationCoefficient",
+                    "propensityEstimate",
+                    "modelVersion",
+                    "featureVersion",
+                    "removalScore",
+                    "heuristicScore",
+                    "uncertainty",
+                    "position",
+                    "servedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "track",
+                "prediction",
+                "exposure"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fallbackReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contractVersion",
+          "mode",
+          "items",
+          "remaining",
+          "nextCursor",
+          "fallbackReason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "calibrationLabel": {
+      "method": "POST",
+      "path": "/api/calibration/labels",
+      "auth": "owner",
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9]{22}$"
+          },
+          "exposureId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 0
+              },
+              {
+                "type": "number",
+                "const": 1
+              }
+            ]
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "trackId",
+          "exposureId",
+          "label",
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "calibration"
+          },
+          "labelId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "trackId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9]{22}$"
+          },
+          "exposureId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "submittedLabel": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 0
+              },
+              {
+                "type": "number",
+                "const": 1
+              }
+            ]
+          },
+          "label": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "number",
+                    "const": 1
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked",
+              "superseded"
+            ]
+          },
+          "canUndo": {
+            "type": "boolean"
+          },
+          "feedbackRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "mode",
+          "labelId",
+          "trackId",
+          "exposureId",
+          "idempotencyKey",
+          "submittedLabel",
+          "label",
+          "state",
+          "canUndo",
+          "feedbackRevision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "calibrationUndo": {
+      "method": "POST",
+      "path": "/api/calibration/labels/:id/undo",
+      "auth": "owner",
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "calibration"
+          },
+          "labelId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "trackId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9]{22}$"
+          },
+          "exposureId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "submittedLabel": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 0
+              },
+              {
+                "type": "number",
+                "const": 1
+              }
+            ]
+          },
+          "label": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "number",
+                    "const": 1
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked",
+              "superseded"
+            ]
+          },
+          "canUndo": {
+            "type": "boolean"
+          },
+          "feedbackRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": [
+          "mode",
+          "labelId",
+          "trackId",
+          "exposureId",
+          "idempotencyKey",
+          "submittedLabel",
+          "label",
+          "state",
+          "canUndo",
+          "feedbackRevision",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "calibrationHistory": {
+      "method": "GET",
+      "path": "/api/calibration/history",
+      "auth": "owner",
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "const": "calibration"
+                },
+                "labelId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "trackId": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9]{22}$"
+                },
+                "exposureId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "idempotencyKey": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "submittedLabel": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "const": 1
+                    }
+                  ]
+                },
+                "label": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 0
+                        },
+                        {
+                          "type": "number",
+                          "const": 1
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "revoked",
+                    "superseded"
+                  ]
+                },
+                "canUndo": {
+                  "type": "boolean"
+                },
+                "feedbackRevision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": [
+                "mode",
+                "labelId",
+                "trackId",
+                "exposureId",
+                "idempotencyKey",
+                "submittedLabel",
+                "label",
+                "state",
+                "canUndo",
+                "feedbackRevision",
                 "createdAt",
                 "updatedAt"
               ],
@@ -11255,7 +12793,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "modelVersion": {
             "type": "string"
@@ -11576,7 +13114,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       "spotifyId": {
                         "anyOf": [
@@ -11584,7 +13122,7 @@
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 128,
-                            "pattern": "^[a-zA-Z0-9:_-]+$"
+                            "pattern": "^[a-zA-Z0-9:_.-]+$"
                           },
                           {
                             "type": "null"
@@ -11673,7 +13211,7 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 128,
-                          "pattern": "^[a-zA-Z0-9:_-]+$"
+                          "pattern": "^[a-zA-Z0-9:_.-]+$"
                         },
                         "source": {
                           "type": "string",
@@ -11709,7 +13247,7 @@
                                     "type": "string",
                                     "minLength": 1,
                                     "maxLength": 128,
-                                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                                   },
                                   {
                                     "type": "null"
@@ -11926,7 +13464,7 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 128,
-                          "pattern": "^[a-zA-Z0-9:_-]+$"
+                          "pattern": "^[a-zA-Z0-9:_.-]+$"
                         },
                         "policy": {
                           "type": "string",
@@ -12330,7 +13868,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "featureVersion": {
             "type": "string",
@@ -12350,7 +13888,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "features": {
                   "type": "object",
@@ -12745,7 +14283,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "modelVersion": {
             "type": "string"
@@ -12969,7 +14507,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "featureVersion": {
             "type": "string",
@@ -12985,7 +14523,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "features": {
                   "type": "object",
@@ -13352,7 +14890,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "modelVersion": {
             "type": "string"
@@ -13370,7 +14908,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "prediction": {
                   "type": "object",
@@ -13530,7 +15068,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "eventId": {
             "type": "string",
@@ -13551,7 +15089,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "feedbackRevision": {
             "type": "integer",
@@ -13972,7 +15510,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "modelVersion": {
             "type": "string"
@@ -14178,7 +15716,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "exposureId": {
             "type": "string",

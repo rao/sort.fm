@@ -1,0 +1,39 @@
+# Production rollout
+
+The approved target is Vercel at `https://sort.fm`, Railway at `https://api.sort.fm`, a private single-worker Railway ML service, and the existing Tiger Data database. Local builds and this runbook are preparation, not deployed acceptance. The owner created Vercel project `sort-fm` with root `apps/web` and is connecting the registrar domain. After the owner enabled the Railway plan, project `sort-fm` (`5ff2fbde-db08-4a51-b3d3-70dffe40cb92`) was created in Krom's Projects. Production contains empty API and ML services with configured Dockerfile/health settings and an ML volume at `/data/ml`. No API/ML deployment has started. The real Thriller backend acceptance run completed with Undo, and the local API resumed after the operator window was released. A fresh private checksum-verified ML backup preserves the resulting artifacts.
+
+## Build boundaries
+
+Use the repository root as Docker build context so the API can resolve the shared workspace. Keep Vercel's project root at `apps/web` and enable inclusion of source files outside that root. `apps/web/vercel.json` runs install/build from the repository root and serves only the web `dist`; `VITE_API_ORIGIN=https://api.sort.fm` is its required public API setting. Never give Vercel the root server `.env`, Spotify credentials, database URL, ML secret or SoundNet key. Upload exclusions and container ignore rules must exclude local environments, private ML artifacts, backups and Git metadata.
+
+Railway API and ML are separate services using `deploy/api/Dockerfile` and `deploy/ml/Dockerfile`. Apply the current dashboard/API settings in `deploy/README.md`; new services do not use the retired legacy config-file mechanism. Set API `NODE_ENV=production`, `HOST=0.0.0.0`, `PUBLIC_WEB_ORIGIN=https://sort.fm`, `PUBLIC_API_ORIGIN=https://api.sort.fm`, `DEMO_MODE_ENABLED=true` and the provider-registered `SPOTIFY_REDIRECT_URI=https://api.sort.fm/api/auth/spotify/callback`. The process honors Railway's `PORT`. Other server variables retain their names from `.env.example`; enter secrets through private service variables, never committed files, build arguments or `VITE_` names.
+
+ML must have one process/replica with durable `ML_ARTIFACT_DIR=/data/ml` and a persistent volume at that path. Use its private Railway address and explicit listening port for API `ML_SERVICE_URL`; both services receive the same private `ML_SERVICE_SHARED_SECRET`. Set API `ML_ALLOW_RAILWAY_PRIVATE_HTTP=true` only inside Railway private networking; missing or any other value leaves the narrow HTTP exception disabled. Do not create a public ML domain. Railway private networking must resolve and reach the actual bound address. Inspect `/health` from the API environment, then authenticate a read-only evaluation request without printing the secret. Liveness checks do not prove database or provider readiness.
+
+## State and cutover
+
+Production must not race a local API using the same application schema and a different ML artifact directory. The feedback outbox acknowledges one consumer's fit; running independent local/production models against that outbox can leave one model stale. Drain the local API before starting the production API for this owner. Keep the local frontend available as a fallback, but use only one active backend/model pair for the owner's shared state.
+
+Before cutover, securely snapshot the database and copy/checksum the private ML artifact directory outside Git. Preserve the existing token-encryption key if reusing encrypted accounts in Tiger. Transfer artifacts privately to the ML volume, with no build-context inclusion. Preserve existing owner/exposure artifacts; a fresh model does not reproduce historical `/explain` snapshots. Validate model version, counts and known immutable exposure explanations after transfer. Keep the backup until production rollback has been tested.
+
+Migrations remain an explicit operator step using `bun packages/db/src/migrate.ts` with the target service's private database settings. Confirm migration011 is present, a second run is a no-op, and the existing telemetry hypertable is retained where supported. Do not run destructive schema resets or migrations automatically on every service startup. Configure the exact production Spotify callback in the developer dashboard before the owner's new consent flow.
+
+## Acceptance
+
+After DNS/TLS and deployment, run from the repository root:
+
+```sh
+bun scripts/smoke-production.ts
+```
+
+This is an anonymous check of the frontend, initialized API wiring, synthetic demo isolation, account/ML guards and cross-origin credentials. It never supplies an owner cookie or sends a real cleanup command. Local verification is explicit:
+
+```sh
+bun scripts/smoke-production.ts --web http://127.0.0.1:5173 --api http://127.0.0.1:3001 --allow-local-http
+```
+
+Then use the real production browser to verify secure HttpOnly session cookies, exact credentialed CORS, allowlisted OAuth, import/summary, responsive review controls, honest model counts/version and Open in Spotify. A user-selected song must complete Archive before Unlike, then Undo must restore its liked state. Separately verify direct Unlike/Undo and Keep/Skip feedback semantics. Confirm persisted revisions and automatic ML delivery; do not use controlled transport tests as evidence of Spotify writes. After enough real labels exist, show changed predictions and adaptive ordering, then persistence through a graceful API/ML restart. Keep insufficient metrics null.
+
+Rehearse the anonymous judge demo without access to the owner's library. Record deployed URLs/commit, each actual acceptance result, and unresolved gates in `status.md`. Native playback, bulk SoundNet and C2 policy activation remain optional until P0 is complete.
+
+References: [Railway monorepos](https://docs.railway.com/deployments/monorepo), [start commands](https://docs.railway.com/deployments/start-command), [health checks](https://docs.railway.com/deployments/healthchecks), [Vercel monorepos](https://vercel.com/docs/monorepos) and [build configuration](https://vercel.com/docs/builds/configure-a-build).

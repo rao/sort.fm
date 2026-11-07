@@ -1,4 +1,4 @@
-import {connectDatabase, PostgresA1Store, Repository, type Database} from '@sortfm/db';
+import {connectDatabase, PostgresA1Store, Repository, SoundNetQueue, type Database} from '@sortfm/db';
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService} from './reviews/queue';
@@ -7,7 +7,7 @@ import {FeedbackWorker} from './reviews/feedback';
 import {ReviewService} from './reviews/service';
 import {ReviewWorker} from './reviews/worker';
 import {SpotifyMutations} from './spotify/mutations';
-import {assembleLibraryCandidates,createMlClient,createRepositoryMl,type RepositoryMl} from './ml';
+import {assembleLibraryCandidates,createMlClient,createRepositoryMl,createMlReadModule,type RepositoryMl} from './ml';
 import {buildApp} from './app';
 import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
@@ -43,12 +43,13 @@ export async function buildRuntime(options: {
  } else startupIssues.push('DATABASE_URL_REQUIRED');
 
  let spotify:ReturnType<typeof createSpotifyModule>|null=null;
+ const a1Store=database?new PostgresA1Store(database):null;
  const required=['SPOTIFY_CLIENT_ID','SPOTIFY_ALLOWED_USER_IDS','TOKEN_ENCRYPTION_KEY','SESSION_SECRET'] as const;
  const missing=required.filter(key=>!env[key]?.trim());
  startupIssues.push(...missing.map(key=>`${key}_REQUIRED`));
- if(database&&missing.length===0) {
+ if(a1Store&&missing.length===0) {
   try {
-   spotify=createSpotifyModule({config:loadSpotifyConfig(env),store:new PostgresA1Store(database),...(options.spotifyHttp?{http:options.spotifyHttp}:{})});
+   spotify=createSpotifyModule({config:loadSpotifyConfig(env),store:a1Store,...(options.spotifyHttp?{http:options.spotifyHttp}:{})});
   } catch {startupIssues.push('SPOTIFY_CONFIG_INVALID');}
  }
 
@@ -79,11 +80,17 @@ export async function buildRuntime(options: {
   service:new ReviewService(repository,{auth:spotify.auth,worker:reviewWorker}),worker:reviewWorker,
   enableWrites:()=>spotify!.auth.enableReviewWrites(),
  }):null;
+ const soundnet=database?new SoundNetQueue(database):null;
+ const modelReads=spotify&&repository&&a1Store&&soundnet?createMlReadModule({
+  auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},ml,
+  getSummary:userId=>a1Store.transaction(tx=>tx.getSummary(userId)),
+  audioProgress:userId=>soundnet.progress(userId),latestModel:userId=>repository.latestModel(userId),
+ }):null;
 
  try {
   const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
    if(feedback){app.addHook('onReady',async()=>{feedback.start();});app.addHook('onClose',async()=>{await feedback.close();});}
-   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);}
+   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);await modelReads?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));
    }

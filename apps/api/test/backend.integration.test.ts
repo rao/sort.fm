@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createMlClient} from '../src/ml';
 import {Database,migrate,Repository} from '@sortfm/db';
-import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema,ReviewRequestSchema,ReviewResultSchema,DecisionHistorySchema,type ReviewResult} from '@sortfm/contracts';
+import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema,ReviewRequestSchema,ReviewResultSchema,DecisionHistorySchema,ModelInsightsSchema,PUBLIC_ROUTES,type ReviewResult} from '@sortfm/contracts';
 import {buildRuntime} from '../src/runtime';
 import {SpotifyHttp} from '../src/spotify/http';
 
@@ -101,6 +101,13 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   expect(demo.items[0]?.track.source).toBe('synthetic');
   expect((await(await fetch(`${base}/api/health`)).json() as {capabilities:{ml:boolean}}).capabilities.ml).toBe(true);
   expect((await ml.evaluation({userId:session.user!.id})).status).toBe('insufficient_data');
+  const insights=ModelInsightsSchema.parse(await(await fetch(`${base}/api/ml/insights`,{headers:{cookie:sessionCookie}})).json());
+  expect(insights.prediction).toBeNull();expect(insights.audioFeatures).toMatchObject({featuresReady:0,featuresTotal:4});
+  expect(insights.metrics).toEqual(await ml.evaluation({userId:session.user!.id}));
+  const analytics=PUBLIC_ROUTES.analytics.response.parse(await(await fetch(`${base}/api/analytics/summary`,{headers:{cookie:sessionCookie}})).json());
+  expect(analytics.library).toMatchObject({total:4,remaining:4,reviewed:0});
+  expect(analytics.metrics).toEqual(insights.metrics);
+  expect((await fetch(`${base}/api/ml/insights`)).status).toBe(401);
   // Actual authenticated public routes and automatic workers; no direct settlement/fit.
   const userId=session.user!.id,headers={cookie:sessionCookie,origin:'http://127.0.0.1:5173','content-type':'application/json'};
   const awaitDecision=async(id:string,expected:'COMPLETE'|'UNDONE')=>{
@@ -123,6 +130,8 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
    }
    expect(acknowledged).toBe(true);
    expect((await ml.evaluation({userId})).labeledExamples).toBe(labels);
+   const publicMetrics=ModelInsightsSchema.parse(await(await fetch(`${base}/api/ml/insights`,{headers})).json());
+   expect(publicMetrics.metrics.labeledExamples).toBe(labels);
   };
   let labels=0;const decisions:ReviewResult[]=[];
   for(const [index,action] of (['KEEP','SKIP','ARCHIVE','UNLIKE'] as const).entries()){
@@ -158,6 +167,8 @@ test.skipIf(!databaseUrl)('HTTP import, scored queue, all review actions and Und
   const fresh=QueueResultSchema.parse(await(await fetch(`${base}/api/queue?limit=4`,{headers})).json());
   expect(fresh.items).toHaveLength(4);expect(fresh.items.every(item=>!queue.items.some(old=>old.exposure.exposureId===item.exposure.exposureId))).toBe(true);
   worker.kill('SIGTERM');await worker.exited;
+  const unavailable=await fetch(`${base}/api/ml/insights`,{headers});
+  expect(unavailable.status).toBe(503);expect((await unavailable.json() as {code:string}).code).toBe('ML_UNAVAILABLE');
   const fallback=QueueResultSchema.parse(await(await fetch(`${base}/api/queue?limit=1`,{headers:{cookie:sessionCookie}})).json());
   expect(fallback.items[0]?.prediction.modelVersion).toBe('queue:metadata:v1');
   expect(fallback.items[0]?.prediction.removalProbability).toBeNull();

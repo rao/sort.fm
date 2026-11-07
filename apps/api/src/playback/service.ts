@@ -75,7 +75,13 @@ export class PlaybackService {
   const purpose=playbackPurpose(query.state);if(!purpose||!browserToken||!/^[\w-]{43}$/.test(browserToken))throw stateError();
   const context=await this.context(raw),stateHash=digest(query.state!);
   let attempt;
-  try{attempt=await this.options.store.consumeOAuth({...this.current(context),stateHash,purpose,browserHash:digest(browserToken)});}catch(error){if(error instanceof SpotifyError)throw error;throw stateError();}
+  try{attempt=await this.options.store.consumeOAuth({...this.current(context),stateHash,purpose,browserHash:digest(browserToken)});}catch(error){
+   // Persistence errors are structural: keep the DB independent of API classes,
+   // and preserve only the explicit live-primary-session failure with fixed text.
+   if(error&&typeof error==='object'&&'code'in error&&error.code==='AUTHENTICATION_REQUIRED')throw authenticationRequired();
+   if(error instanceof SpotifyError)throw error;
+   throw stateError();
+  }
   if(attempt.ownerId!==context.ownerId||attempt.purpose!==purpose||attempt.initiatingSessionHash!==context.initiatingSessionHash||attempt.stateHash!==stateHash)throw stateError();
   if(query.error)throw new SpotifyError('OAUTH_ACCESS_DENIED','Playback authorization was declined.',400);
   if(!query.code||query.code.length>4096)throw new SpotifyError('OAUTH_CODE_REQUIRED','Spotify did not return an authorization code.',400);

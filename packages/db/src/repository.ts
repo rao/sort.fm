@@ -23,13 +23,14 @@ export async function upsertSavedTracks(tx:Transaction,inputs:SavedTrackInput[])
 }
 
 async function upsertTrack(tx:Transaction,input:TrackInput){const v=TrackInputSchema.parse(input);await tx`INSERT INTO tracks(track_id,card,fetched_at) VALUES(${v.track.trackId},${json(v.track)}::jsonb,${v.fetchedAt}) ON CONFLICT(track_id) DO UPDATE SET card=excluded.card,fetched_at=excluded.fetched_at WHERE tracks.fetched_at<=excluded.fetched_at`;}
-async function lockUser(tx:Transaction,userId:string){const [user]=await tx`SELECT feedback_revision FROM users WHERE id=${userId} FOR UPDATE`;return user??fail('USER_NOT_FOUND');}
+export async function lockUser(tx:Transaction,userId:string){const [user]=await tx`SELECT feedback_revision FROM users WHERE id=${userId} FOR UPDATE`;return user??fail('USER_NOT_FOUND');}
 async function telemetry(tx:Transaction,v:TelemetryInput,context:Record<string,unknown>={}){
  const payload={...v,context};
  const rows=await tx`INSERT INTO interaction_events(event_id,user_id,event_type,payload,occurred_at) VALUES(${v.eventId},${v.userId},${v.eventType},${json(payload)}::jsonb,${v.occurredAt}) ON CONFLICT DO NOTHING RETURNING event_id`;
  if(!rows.length){const [same]=await tx`SELECT 1 FROM interaction_events WHERE event_id=${v.eventId} AND user_id=${v.userId} AND payload=${json(payload)}::jsonb`;if(!same)fail('EVENT_CONFLICT');return;}
  await tx`INSERT INTO ml_telemetry(event_id,user_id,model_version,event_type,prediction_score,uncertainty,processing_latency_ms,occurred_at,context) VALUES(${v.eventId},${v.userId},${v.modelVersion},${v.eventType},${v.predictionScore},${v.uncertainty},${v.processingLatencyMs},${v.occurredAt},${json(context)}::jsonb)`;
 }
+export async function readLibrary(tx:Transaction,userId:string,includeHistory=false):Promise<{track:TrackCard;currentStatus:SavedTrackInput['currentStatus'];audioFeatures:FeatureVector|null;currentDecision:ReviewResult|null}[]>{return (await tx`SELECT t.card,s.original_added_at,s.current_status,a.normalized,d.result AS current_decision FROM saved_tracks s JOIN tracks t USING(track_id) LEFT JOIN current_decisions c ON c.user_id=s.user_id AND c.track_id=s.track_id LEFT JOIN review_decisions d ON d.user_id=c.user_id AND d.decision_id=c.decision_id LEFT JOIN audio_features a ON a.track_id=s.track_id AND a.feature_version=${FEATURE_VERSION} WHERE s.user_id=${userId} AND (${includeHistory} OR NOT EXISTS(SELECT 1 FROM library_state WHERE user_id=${userId}) OR EXISTS(SELECT 1 FROM library_membership m WHERE m.user_id=s.user_id AND m.track_id=s.track_id)) ORDER BY s.original_added_at,t.track_id`).map((r:any)=>({track:{...r.card,originalAddedAt:iso(r.original_added_at)},currentStatus:r.current_status,audioFeatures:r.normalized??null,currentDecision:r.current_decision??null}));}
 export class Repository extends ReviewRecoveryRepository {
  async upsertUser(profile:NonNullable<z.infer<typeof AccountSessionSchema>['user']>,authorized=false){
   const p=AccountSessionSchema.shape.user.unwrap().parse(profile);
@@ -37,13 +38,11 @@ export class Repository extends ReviewRecoveryRepository {
  }
  upsertTrack(v:TrackInput){return this.db.transaction(tx=>upsertTrack(tx,v));}
  upsertSavedTracks(v:SavedTrackInput[]){return this.db.transaction(tx=>upsertSavedTracks(tx,v));}
- async library(userId:string,includeHistory=false):Promise<{track:TrackCard;currentStatus:SavedTrackInput['currentStatus'];audioFeatures:FeatureVector|null;currentDecision:ReviewResult|null}[]>{
-  return this.db.transaction(async tx=>(await tx`SELECT t.card,s.original_added_at,s.current_status,a.normalized,d.result AS current_decision FROM saved_tracks s JOIN tracks t USING(track_id) LEFT JOIN current_decisions c ON c.user_id=s.user_id AND c.track_id=s.track_id LEFT JOIN review_decisions d ON d.user_id=c.user_id AND d.decision_id=c.decision_id LEFT JOIN audio_features a ON a.track_id=s.track_id AND a.feature_version=${FEATURE_VERSION} WHERE s.user_id=${userId} AND (${includeHistory} OR NOT EXISTS(SELECT 1 FROM library_state WHERE user_id=${userId}) OR EXISTS(SELECT 1 FROM library_membership m WHERE m.user_id=s.user_id AND m.track_id=s.track_id)) ORDER BY s.original_added_at,t.track_id`).map((r:any)=>({track:{...r.card,originalAddedAt:iso(r.original_added_at)},currentStatus:r.current_status,audioFeatures:r.normalized??null,currentDecision:r.current_decision??null})));
- }
+ async library(userId:string,includeHistory=false){return this.db.transaction(tx=>readLibrary(tx,userId,includeHistory));}
  async insertExposure(input:ExposureInput){const v=ExposureInputSchema.parse(input);await this.db.transaction(async tx=>{
   const [saved]=await tx`SELECT 1 FROM saved_tracks WHERE user_id=${v.userId} AND track_id=${v.exposure.trackId}`;if(!saved)fail('TRACK_NOT_OWNED');
   const rows=await tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at) VALUES(${v.exposure.exposureId},${v.userId},${v.exposure.trackId},${json(v)}::jsonb,${v.exposure.servedAt}) ON CONFLICT DO NOTHING RETURNING exposure_id`;
-  if(!rows.length){const [same]=await tx`SELECT 1 FROM exposures WHERE exposure_id=${v.exposure.exposureId} AND user_id=${v.userId} AND payload=${json(v)}::jsonb`;if(!same)fail('EXPOSURE_CONFLICT');}
+  if(!rows.length){const [same]=await tx`SELECT 1 FROM exposures WHERE exposure_id=${v.exposure.exposureId} AND user_id=${v.userId} AND payload=${json(v)}::jsonb AND purpose='review'`;if(!same)fail('EXPOSURE_CONFLICT');}
  });}
  async getExposure(userId:string,id:string):Promise<ExposureInput|null>{return this.db.transaction(async tx=>(await tx`SELECT payload FROM exposures WHERE user_id=${userId} AND exposure_id=${id}`)[0]?.payload??null);}
  async createDecision(input:DecisionInput):Promise<ReviewResult>{const v=DecisionInputSchema.parse(input);return this.db.transaction(async tx=>{
@@ -51,8 +50,8 @@ export class Repository extends ReviewRecoveryRepository {
   const [old]=await tx`SELECT * FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
   if(old){if(old.request_fingerprint!==v.requestFingerprint || json(old.request)!==json(v.request)){
    const [same]=await tx`SELECT 1 FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey} AND request_fingerprint=${v.requestFingerprint} AND request=${json(v.request)}::jsonb`;if(!same)fail('IDEMPOTENCY_CONFLICT');}return old.result;}
-  const [exposure]=await tx`SELECT track_id,served_at FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`;
-  if(!exposure)fail('EXPOSURE_NOT_FOUND');if(exposure.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
+  const [exposure]=await tx`SELECT track_id,served_at,purpose FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`;
+  if(!exposure)fail('EXPOSURE_NOT_FOUND');if(exposure.purpose!=='review')fail('EXPOSURE_PURPOSE_MISMATCH');if(exposure.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
   if((await tx`SELECT 1 FROM exposure_consumptions WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`).length)fail('EXPOSURE_ALREADY_CONSUMED');
   const [current]=await tx`SELECT d.result FROM current_decisions c JOIN review_decisions d USING(user_id,decision_id) WHERE c.user_id=${v.userId} AND c.track_id=${v.request.trackId}`;
   if(current && !['COMPLETE','UNDONE','FAILED_TERMINAL'].includes(current.result.status))fail('MUTATION_PENDING');
@@ -61,6 +60,8 @@ export class Repository extends ReviewRecoveryRepository {
   const [membership]=await tx`SELECT 1 FROM library_state s WHERE s.user_id=${v.userId} AND NOT EXISTS(SELECT 1 FROM library_membership m WHERE m.user_id=s.user_id AND m.track_id=${v.request.trackId})`;
   if(membership)fail('TRACK_NOT_IN_LIBRARY');
   if(current&&new Date(exposure.served_at).getTime()<=Date.parse(current.result.updatedAt))fail('STALE_EXPOSURE');
+  const [calibrationState]=await tx`SELECT occurred_at FROM effective_feedback WHERE user_id=${v.userId} AND track_id=${v.request.trackId} AND source='calibration'`;
+  if(calibrationState&&new Date(exposure.served_at).getTime()<=new Date(calibrationState.occurred_at).getTime())fail('STALE_EXPOSURE');
   const result=ReviewResultSchema.parse({decisionId:v.decisionId,...v.request,status:'PENDING',mutationStep:'PENDING',mode:track.card.source==='synthetic'?'demo':'spotify',liked:null,archived:null,canUndo:false,label:null,labelState:'inactive',feedbackRevision:owner.feedback_revision,error:null,createdAt:v.createdAt,updatedAt:v.createdAt});
   await tx`INSERT INTO review_decisions(decision_id,user_id,track_id,exposure_id,idempotency_key,request_fingerprint,request,result,created_at) VALUES(${v.decisionId},${v.userId},${v.request.trackId},${v.request.exposureId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${json(result)}::jsonb,${v.createdAt})`;
   await tx`INSERT INTO exposure_consumptions(user_id,exposure_id,decision_id) VALUES(${v.userId},${v.request.exposureId},${v.decisionId})`;
@@ -98,7 +99,7 @@ export class Repository extends ReviewRecoveryRepository {
    const old=d.result as ReviewResult;if(old.status!==expectedStatus)fail('STATE_CONFLICT');
    for(const k of ['decisionId','trackId','action','exposureId','idempotencyKey','mode','createdAt'] as const)if(old[k]!==v[k])fail('DECISION_IDENTITY_CONFLICT');
    if(old.status==='UNDONE'||(old.status==='COMPLETE'&&v.status!=='UNDONE'))fail('INVALID_TRANSITION');
-   const [prior]=await tx`SELECT f.* FROM feedback f JOIN review_decisions r USING(user_id,decision_id) WHERE f.user_id=${userId} AND r.track_id=${v.trackId} ORDER BY f.revision DESC LIMIT 1`;
+   const [prior]=await tx`SELECT * FROM effective_feedback WHERE user_id=${userId} AND track_id=${v.trackId}`;
    const changedLabel=old.labelState!==v.labelState || (v.status==='COMPLETE' && prior && prior.decision_id!==v.decisionId && prior.label!==null && !prior.revoked);
    const revision=Number(user.feedback_revision)+(changedLabel?1:0);
    if(v.feedbackRevision!==revision)fail('REVISION_CONFLICT');

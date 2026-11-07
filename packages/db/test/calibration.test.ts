@@ -1,0 +1,92 @@
+import {test,expect,describe,beforeAll,afterAll} from 'bun:test';
+import {Database} from '../src/client';import {migrate} from '../src/migrate';import {Repository} from '../src/repository';import {PostgresCalibrationStore} from '../src/calibration';import {PostgresA1Store} from '../src/a1-store';
+import {demoTracks,createDemoQueue} from '@sortfm/contracts/fixtures';import {createIdempotencyKey} from '@sortfm/contracts/client';import type {ExposureInput,ReviewResult,CalibrationLabelInput} from '@sortfm/contracts';
+const url=process.env.TEST_DATABASE_URL;
+describe.skipIf(!url)('calibration persistence',()=>{
+ let db:Database,repo:Repository,cal:PostgresCalibrationStore;const owner='test:calibration';let tick=Date.parse('2026-01-01T00:00:00Z');const time=()=>new Date(tick+=1000).toISOString();
+ const tracks=['a','b','c','d'].map(letter=>({...demoTracks[0]!,trackId:letter.repeat(22),source:'spotify' as const,spotifyUri:`spotify:track:${letter.repeat(22)}` as const,isPlayable:true}));
+ const exposure=(index=0):ExposureInput=>{const item=createDemoQueue({limit:1,servedAt:time(),exposureId:()=>crypto.randomUUID()}).items[0]!;return {userId:owner,exposure:{...item.exposure,trackId:tracks[index]!.trackId},prediction:item.prediction,features:{featureVersion:'sortfm.features.v1',values:{energy:null,saved_age_days:10},provenance:'spotify',permittedForTraining:true}};};
+ const label=(e:ExposureInput,value:0|1=0):CalibrationLabelInput=>({userId:owner,labelId:crypto.randomUUID(),request:{trackId:e.exposure.trackId,exposureId:e.exposure.exposureId,label:value,idempotencyKey:createIdempotencyKey()},requestFingerprint:crypto.randomUUID(),createdAt:time()});
+ beforeAll(async()=>{db=new Database(url!,`test_calibration_${crypto.randomUUID().replaceAll('-','')}`);repo=new Repository(db);cal=new PostgresCalibrationStore(db);await migrate(db);await repo.upsertUser({id:owner,spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertUser({id:'test:other',spotifyId:null,displayName:'Other',avatarUrl:null});await repo.upsertSavedTracks(tracks.map(track=>({userId:owner,track,originalAddedAt:track.originalAddedAt,syncedAt:time(),currentStatus:'saved' as const})));await new PostgresA1Store(db).transaction(tx=>tx.completeImportMembership({userId:owner,expectedMembershipRevision:0,jobId:crypto.randomUUID(),pass:0,trackIds:tracks.map(t=>t.trackId),sourceTotal:4,observedAt:time()}));},30000);
+ afterAll(async()=>{await db.sql.unsafe(`DROP SCHEMA "${db.schema}" CASCADE`);await db.close();},30000);
+ test('labels commit once with exact features/outbox and zero cleanup effects; Undo/relabel keeps split',async()=>{
+  const e=exposure();await cal.insertCalibrationExposure(e);const input=label(e);const [a,b]=await Promise.all([cal.createCalibrationLabel(input),cal.createCalibrationLabel({...input,labelId:crypto.randomUUID(),createdAt:time()})]);expect(a).toEqual(b);expect(a.state).toBe('active');expect(a.feedbackRevision).toBe(1);
+  let training=await repo.trainingExamples(owner);expect(training.feedbackRevision).toBe(1);expect(training.examples).toHaveLength(1);expect(training.examples[0]!.features).toEqual(e.features);expect(training.examples[0]!.decisionId).toBe(a.labelId);const split=training.examples[0]!.split;
+  const [effects]=await db.transaction(tx=>tx`SELECT (SELECT count(*)::int FROM review_decisions) AS decisions,(SELECT count(*)::int FROM review_work) AS work,(SELECT count(*)::int FROM spotify_mutations) AS mutations,(SELECT source_total FROM library_state WHERE user_id=${owner}) AS total,(SELECT target_revision FROM feedback_sync_jobs WHERE user_id=${owner}) AS revision`);expect(effects).toEqual({decisions:0,work:0,mutations:0,total:4,revision:1});
+  expect((await cal.calibrationCandidates(owner)).eligibleTrackIds).not.toContain(e.exposure.trackId);
+  await expect(cal.createCalibrationLabel({...input,request:{...input.request,label:1}})).rejects.toMatchObject({code:'IDEMPOTENCY_CONFLICT'});
+  const undo={userId:owner,commandId:crypto.randomUUID(),labelId:a.labelId,request:{idempotencyKey:createIdempotencyKey()},requestFingerprint:'undo-first',createdAt:time()};
+  expect((await cal.undoCalibrationLabel(undo)).state).toBe('revoked');expect((await cal.undoCalibrationLabel({...undo,commandId:crypto.randomUUID(),createdAt:time()})).feedbackRevision).toBe(2);
+  expect((await cal.createCalibrationLabel(input)).state).toBe('revoked');expect((await repo.trainingExamples(owner)).examples).toHaveLength(0);
+  await expect(cal.createCalibrationLabel({...input,labelId:crypto.randomUUID(),request:{...input.request,idempotencyKey:createIdempotencyKey()}})).rejects.toMatchObject({code:'EXPOSURE_ALREADY_CONSUMED'});
+  const fresh=exposure();await cal.insertCalibrationExposure(fresh);const next=await cal.createCalibrationLabel(label(fresh,1));training=await repo.trainingExamples(owner);expect(training.examples).toHaveLength(1);expect(training.examples[0]!.label).toBe(1);expect(training.examples[0]!.split).toBe(split);expect(next.feedbackRevision).toBe(3);
+  expect((await cal.undoCalibrationLabel(undo)).state).toBe('revoked');expect((await repo.library(owner))[0]!.currentStatus).toBe('saved');expect((await repo.library(owner))[0]!.track.originalAddedAt).toBe(tracks[0]!.originalAddedAt);
+ },30000);
+ test('purpose, ownership and stale exposures reject before command creation',async()=>{
+  const review=exposure(1);await repo.insertExposure(review);await expect(cal.createCalibrationLabel(label(review))).rejects.toMatchObject({code:'EXPOSURE_PURPOSE_MISMATCH'});
+  const c=exposure(1);await cal.insertCalibrationExposure(c);await expect(repo.createDecision({userId:owner,decisionId:crypto.randomUUID(),request:{trackId:c.exposure.trackId,exposureId:c.exposure.exposureId,action:'KEEP',idempotencyKey:createIdempotencyKey()},requestFingerprint:'cross',createdAt:time()})).rejects.toMatchObject({code:'EXPOSURE_PURPOSE_MISMATCH'});
+  await expect(repo.insertExposure(c)).rejects.toMatchObject({code:'EXPOSURE_CONFLICT'});
+  await expect(cal.createCalibrationLabel({...label(c),userId:'test:other'})).rejects.toMatchObject({code:'EXPOSURE_NOT_FOUND'});
+  const stale=exposure(1);await cal.insertCalibrationExposure(stale);const active=await cal.createCalibrationLabel(label(c));await cal.undoCalibrationLabel({userId:owner,commandId:crypto.randomUUID(),labelId:active.labelId,request:{idempotencyKey:createIdempotencyKey()},requestFingerprint:'undo-b',createdAt:time()});
+  await expect(cal.createCalibrationLabel(label(stale))).rejects.toMatchObject({code:'STALE_EXPOSURE'});
+ },30000);
+ test('pending cleanup preserves calibration; settled SKIP supersedes; cleanup Undo never revives label',async()=>{
+  const current=(await cal.calibrationHistory(owner)).items.find(r=>r.trackId===tracks[0]!.trackId&&r.state==='active')!;expect(current).toBeDefined();
+  const e=exposure();await repo.insertExposure(e);const pending=await repo.createDecision({userId:owner,decisionId:crypto.randomUUID(),request:{trackId:e.exposure.trackId,exposureId:e.exposure.exposureId,action:'SKIP',idempotencyKey:createIdempotencyKey()},requestFingerprint:'skip',createdAt:time()});
+  expect((await repo.trainingExamples(owner)).examples.find(x=>x.trackId===e.exposure.trackId)!.decisionId).toBe(current.labelId);
+  await expect(cal.undoCalibrationLabel({userId:owner,commandId:crypto.randomUUID(),labelId:current.labelId,request:{idempotencyKey:createIdempotencyKey()},requestFingerprint:'pending',createdAt:time()})).rejects.toMatchObject({code:'MUTATION_PENDING'});
+  const snapshot=await repo.trainingExamples(owner);const complete:ReviewResult={...pending,status:'COMPLETE',mutationStep:'NONE',canUndo:true,feedbackRevision:snapshot.feedbackRevision+1,updatedAt:time()};await repo.settleDecision(owner,complete,'PENDING','train');
+  expect((await cal.calibrationHistory(owner)).items.find(x=>x.labelId===current.labelId)!.state).toBe('superseded');
+  expect((await repo.trainingExamples(owner)).examples.some(x=>x.trackId===current.trackId)).toBe(false);
+  await expect(cal.undoCalibrationLabel({userId:owner,commandId:crypto.randomUUID(),labelId:current.labelId,request:{idempotencyKey:createIdempotencyKey()},requestFingerprint:'stale',createdAt:time()})).rejects.toMatchObject({code:'STALE_CALIBRATION_LABEL'});
+  await repo.createUndo({userId:owner,commandId:crypto.randomUUID(),decisionId:complete.decisionId,request:{idempotencyKey:createIdempotencyKey()},requestFingerprint:'cleanup-undo',createdAt:time()});
+  await repo.settleDecision(owner,{...complete,status:'UNDONE',canUndo:false,labelState:'revoked',feedbackRevision:complete.feedbackRevision+1,updatedAt:time()},'COMPLETE','train');
+  expect((await repo.trainingExamples(owner)).examples.some(x=>x.trackId===current.trackId)).toBe(false);
+ },30000);
+ test('two classes retain exact features; racing commands consume one exposure and advance once',async()=>{
+  const e=exposure(2);await cal.insertCalibrationExposure(e);const before=await repo.trainingExamples(owner);const first=label(e,0),second=label(e,1);
+  const outcomes=await Promise.allSettled([cal.createCalibrationLabel(first),cal.createCalibrationLabel(second)]);
+  expect(outcomes.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(outcomes.filter(r=>r.status==='rejected')).toHaveLength(1);
+  expect((outcomes.find(r=>r.status==='rejected') as PromiseRejectedResult).reason.code).toBe('EXPOSURE_ALREADY_CONSUMED');
+  const winner=(outcomes.find(r=>r.status==='fulfilled') as PromiseFulfilledResult<Awaited<ReturnType<typeof cal.createCalibrationLabel>>>).value;
+  const d=exposure(3);await cal.insertCalibrationExposure(d);const other=label(d,winner.submittedLabel===0?1:0);await cal.createCalibrationLabel(other);
+  await expect(db.transaction(tx=>tx`UPDATE calibration_labels SET label=NULL WHERE label_id=${winner.labelId}`)).rejects.toThrow();
+  const snapshot=await repo.trainingExamples(owner);expect(snapshot.feedbackRevision).toBe(before.feedbackRevision+2);expect(snapshot.examples).toHaveLength(2);expect(snapshot.examples.map(r=>r.label).sort()).toEqual([0,1]);expect(snapshot.examples.find(r=>r.trackId===e.exposure.trackId)!.features).toEqual(e.features);
+  const retry=winner.labelId===first.labelId?first:second;winner.state='revoked';expect((await cal.createCalibrationLabel(retry)).state).toBe('active');
+  const noLongerEligible=exposure(2);await expect(cal.insertCalibrationExposure(noLongerEligible)).rejects.toMatchObject({code:'CALIBRATION_LABEL_ACTIVE'});
+ },30000);
+ test('failed cleanup and expired leases preserve labels; outbox failures roll back Undo',async()=>{
+  const active=(await cal.calibrationHistory(owner)).items.find(r=>r.trackId===tracks[2]!.trackId&&r.state==='active')!;
+  const e=exposure(2);await repo.insertExposure(e);const command=await repo.createDecision({userId:owner,decisionId:crypto.randomUUID(),request:{trackId:e.exposure.trackId,exposureId:e.exposure.exposureId,action:'KEEP',idempotencyKey:createIdempotencyKey()},requestFingerprint:'fail-keep',createdAt:time()});
+  const revision=(await repo.trainingExamples(owner)).feedbackRevision;
+  const failed:ReviewResult={...command,status:'FAILED_RETRYABLE',updatedAt:time(),feedbackRevision:revision};await repo.settleDecision(owner,failed,'PENDING','holdout');
+  await db.transaction(tx=>tx`INSERT INTO review_work_leases(user_id,command_id,lease_id,lease_until,worker_id) VALUES(${owner},${command.decisionId},${crypto.randomUUID()},clock_timestamp()-interval '1 hour','expired-test') ON CONFLICT(user_id) DO UPDATE SET command_id=excluded.command_id,lease_id=excluded.lease_id,lease_until=excluded.lease_until`);
+  expect((await repo.trainingExamples(owner)).examples.find(r=>r.trackId===active.trackId)!.decisionId).toBe(active.labelId);expect((await cal.calibrationHistory(owner)).items.find(r=>r.labelId===active.labelId)!.canUndo).toBe(false);
+  const undo={userId:owner,commandId:crypto.randomUUID(),labelId:active.labelId,request:{idempotencyKey:createIdempotencyKey()},requestFingerprint:'rollback-undo',createdAt:time()};
+  await expect(cal.undoCalibrationLabel(undo)).rejects.toMatchObject({code:'MUTATION_PENDING'});
+  await db.transaction(tx=>tx`DELETE FROM review_work_leases WHERE user_id=${owner}`);
+  await repo.settleDecision(owner,{...failed,status:'FAILED_TERMINAL',updatedAt:time()},'FAILED_RETRYABLE','holdout');
+  expect((await cal.calibrationHistory(owner)).items.find(r=>r.labelId===active.labelId)!.canUndo).toBe(true);
+  await db.transaction(async tx=>{await tx.unsafe("CREATE FUNCTION reject_outbox() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'TEST_OUTBOX_FAILURE'; END $$");await tx.unsafe('CREATE TRIGGER reject_outbox BEFORE INSERT OR UPDATE ON feedback_sync_jobs FOR EACH ROW EXECUTE FUNCTION reject_outbox()');});
+  undo.createdAt=time();await expect(cal.undoCalibrationLabel(undo)).rejects.toThrow('TEST_OUTBOX_FAILURE');
+  expect((await repo.trainingExamples(owner)).feedbackRevision).toBe(revision);expect((await cal.calibrationHistory(owner)).items.find(r=>r.labelId===active.labelId)!.state).toBe('active');
+  expect((await db.transaction(tx=>tx`SELECT 1 FROM calibration_undos WHERE command_id=${undo.commandId}`))).toHaveLength(0);
+  await db.transaction(tx=>tx.unsafe('DROP TRIGGER reject_outbox ON feedback_sync_jobs'));await cal.undoCalibrationLabel(undo);
+  expect((await cal.calibrationCandidates(owner)).eligibleTrackIds).toContain(active.trackId);const fresh=exposure(2);await cal.insertCalibrationExposure(fresh);await cal.createCalibrationLabel(label(fresh,0));
+ },30000);
+ test('eligibility and ownership recheck current membership/playability, and fresh cleanup after calibration',async()=>{
+  const e=exposure(1);await cal.insertCalibrationExposure(e);
+  await expect(cal.createCalibrationLabel({...label(e),request:{...label(e).request,trackId:tracks[0]!.trackId}})).rejects.toMatchObject({code:'EXPOSURE_TRACK_MISMATCH'});
+  await db.transaction(tx=>tx`DELETE FROM library_membership WHERE user_id=${owner} AND track_id=${e.exposure.trackId}`);
+  await expect(cal.createCalibrationLabel(label(e))).rejects.toMatchObject({code:'TRACK_NOT_IN_LIBRARY'});expect((await cal.calibrationCandidates(owner)).eligibleTrackIds).not.toContain(e.exposure.trackId);
+  await db.transaction(tx=>tx`INSERT INTO library_membership(user_id,track_id,job_id,pass) SELECT user_id,${e.exposure.trackId},job_id,pass FROM library_state WHERE user_id=${owner}`);
+  await db.transaction(tx=>tx`UPDATE tracks SET card=jsonb_set(card,'{isPlayable}','false') WHERE track_id=${e.exposure.trackId}`);
+  await expect(cal.createCalibrationLabel(label(e))).rejects.toMatchObject({code:'CALIBRATION_NOT_ELIGIBLE'});
+  await db.transaction(tx=>tx`UPDATE tracks SET card=jsonb_set(card,'{isPlayable}','true') WHERE track_id=${e.exposure.trackId}`);
+  const staleReview=exposure(1);await repo.insertExposure(staleReview);await cal.createCalibrationLabel(label(e));
+  await expect(repo.createDecision({userId:owner,decisionId:crypto.randomUUID(),request:{trackId:e.exposure.trackId,exposureId:staleReview.exposure.exposureId,action:'KEEP',idempotencyKey:createIdempotencyKey()},requestFingerprint:'stale-cleanup',createdAt:time()})).rejects.toMatchObject({code:'STALE_EXPOSURE'});
+  expect((await cal.calibrationHistory('test:other')).items).toHaveLength(0);
+  await expect(cal.undoCalibrationLabel({userId:'test:other',commandId:crypto.randomUUID(),labelId:(await cal.calibrationHistory(owner)).items[0]!.labelId,request:{idempotencyKey:createIdempotencyKey()},requestFingerprint:'foreign',createdAt:time()})).rejects.toMatchObject({code:'CALIBRATION_LABEL_NOT_FOUND'});
+ },30000);
+
+});

@@ -31,3 +31,12 @@ test('bounded concurrent requests do not await slow audio on caller launch',asyn
  releases.splice(0).forEach(r=>r());await Bun.sleep(20);releases.splice(0).forEach(r=>r());await work;
  expect(maxActive).toBe(3);expect(completed).toBe(6);
 });
+test('SoundNet HTTP 200 pull failures retry within the existing attempt budget',async()=>{
+ const client=new SoundNetClient('secret',{fetch:async()=>Response.json({error:'Failed to pull track data'})});
+ await expect(client.fetch(id)).rejects.toMatchObject({code:'PROVIDER_TRACK_UNAVAILABLE',retryable:true});
+ const failures:unknown[][]=[],events:Record<string,unknown>[]=[];
+ const queue={maxAttempts:5,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),fail:async(...args:unknown[])=>{failures.push(args);return true;}} as unknown as SoundNetQueue;
+ const worker=new SoundNetWorker(queue,client,{concurrency:3,maxConcurrency:3,random:()=>0,log:e=>events.push(e)});
+ await worker.process({trackId:id,featureVersion:'sortfm.features.v1',token:crypto.randomUUID(),attempts:5});
+ expect(failures[0]!.slice(1,3)).toEqual(['PROVIDER_TRACK_UNAVAILABLE',true]);expect(failures[0]![4]).toEqual({error:'Failed to pull track data'});expect(events[0]!.retryInMs).toBeNull();expect(worker.concurrency).toBe(2);
+});

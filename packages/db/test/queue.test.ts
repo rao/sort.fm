@@ -58,4 +58,13 @@ describe.skipIf(!url)('durable queue',()=>{
   expect((await limited.progress('test:queue')).failed).toBe(1);
  });
 
+ test('failed provider acceptance exposes a sanitized metadata fallback reason and retains evidence',async()=>{
+  const report={createdAt:new Date().toISOString(),samples:[{status:'success'},{status:'failed',code:'TIMEOUT',raw:{error:'private vendor diagnostic'}}]};
+  await db.transaction(async tx=>{await tx`INSERT INTO provider_smoke(provider,verified_at,report) VALUES('soundnet-review',now(),${JSON.stringify(report)}::jsonb)`;});
+  const blocked=await queue.progress('test:queue');expect(blocked.reason).toContain('verification failed');expect(blocked.reason).toContain('metadata');expect(blocked.reason).not.toContain('private');expect(blocked.featuresReady).toBe(1);
+  // A recorded retry success is not itself an approval and cannot hide the initial failure.
+  await db.transaction(async tx=>{await tx`UPDATE provider_smoke SET report=report||${JSON.stringify({retries:[{status:'success'}]})}::jsonb WHERE provider='soundnet-review'`;});
+  expect((await queue.progress('test:queue')).reason).toContain('verification failed');expect(await queue.smokeApproved()).toBe(false);
+ },30000);
+
 });

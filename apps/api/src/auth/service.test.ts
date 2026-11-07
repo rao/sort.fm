@@ -149,3 +149,38 @@ test('refresh retries are bounded to fit inside the durable lease', async () => 
   expect(refreshes).toBe(2);
   expect(ctx.store.data.accounts.get(result.account.user.id)?.refreshLease).toBeNull();
 });
+
+test('expired sessions stop authenticating and a successful read retries with the refreshed bearer', async () => {
+  let reads = 0;
+  const ctx = setup({fetch:async (url, init) => {
+    if (url.endsWith('/me')) return Response.json(profile);
+    if (url.includes('/api/token')) {
+      const refreshing = new URLSearchParams(init!.body as URLSearchParams).get('grant_type') === 'refresh_token';
+      return Response.json(refreshing ? {...token, access_token:'new-bearer'} : token);
+    }
+    reads++;
+    if (reads === 1) return new Response('', {status:401});
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer new-bearer');
+    return Response.json({items:[], total:0});
+  }});
+  const result = await login(ctx.auth);
+  expect(await new SpotifyClient(ctx.auth, ctx.http).get(result.account.user.id, '/me/tracks?limit=50&offset=0')).toEqual({items:[], total:0});
+  expect(reads).toBe(2); expect(await ctx.auth.session(result.sessionToken)).not.toBeNull();
+  ctx.advance(31 * 24 * 60 * 60 * 1000);
+  expect(await ctx.auth.session(result.sessionToken)).toBeNull(); expect(ctx.store.data.sessions.size).toBe(0);
+});
+
+test('concurrent reauthorization wins over an old successful refresh without overwriting credentials', async () => {
+  let begin!: () => void, finish!: () => void;
+  const begun = new Promise<void>(r => {begin = r;}), gate = new Promise<void>(r => {finish = r;});
+  const ctx = setup({fetch:async (url, init) => {
+    if (!url.includes('/api/token')) return Response.json(profile);
+    if (new URLSearchParams(init!.body as URLSearchParams).get('grant_type') === 'refresh_token') {begin(); await gate; return Response.json({...token, access_token:'obsolete-token'});}
+    return Response.json(token);
+  }});
+  const first = await login(ctx.auth); ctx.advance(3_600_000);
+  const refreshing = ctx.auth.accessToken(first.account.user.id); await begun;
+  const second = await login(ctx.auth); finish();
+  expect((await refreshing).token).toBe('access-secret');
+  expect(await ctx.auth.session(first.sessionToken)).toBeNull(); expect(await ctx.auth.session(second.sessionToken)).not.toBeNull();
+});

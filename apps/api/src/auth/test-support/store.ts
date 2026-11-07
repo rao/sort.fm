@@ -1,9 +1,9 @@
 import type {SavedTrackInput} from '@sortfm/contracts';
-import type {A1Store, A1Transaction, Account, Session, OAuthAttempt, ImportJob, ImportObservation, TasteContext, CompleteImportMembershipInput} from '../store';
+import type {A1Store, A1Transaction, Account, Session, OAuthAttempt, ImportJob, ImportObservation, TasteContext, ImportMembership} from '../store';
 
 /** Transactional dependency double, never used by a production entry point. */
 export class TestStore implements A1Store {
-  data = {accounts:new Map<string, Account>(), sessions:new Map<string, Session>(), oauth:new Map<string, OAuthAttempt>(), jobs:new Map<string, ImportJob>(), saved:new Map<string, SavedTrackInput>(), observations:new Map<string, ImportObservation>(), taste:new Map<string, TasteContext>(), membership:new Map<string, CompleteImportMembershipInput>()};
+  data = {accounts:new Map<string, Account>(), sessions:new Map<string, Session>(), oauth:new Map<string, OAuthAttempt>(), jobs:new Map<string, ImportJob>(), saved:new Map<string, SavedTrackInput>(), observations:new Map<string, ImportObservation>(), taste:new Map<string, TasteContext>(), membership:new Map<string, ImportMembership>()};
   private tail: Promise<unknown> = Promise.resolve();
   failNextPage = false;
   async transaction<T>(work: (tx: A1Transaction) => Promise<T>): Promise<T> {

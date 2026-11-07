@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AccountSessionSchema, DecisionHistorySchema, DemoBootstrapSchema, HealthSchema, LibraryImportStatusSchema, LibrarySummarySchema, ModelInsightsSchema, ModelMetricsSchema, OkSchema, PlayRequestSchema, PlayerStatusSchema, QueueQuerySchema, QueueResultSchema, ReviewRequestSchema, ReviewResultSchema, UndoRequestSchema } from "./schemas";
 import { EvaluationQuerySchema, ExplainQuerySchema, ExplainResponseSchema, FitRequestSchema, FitResponseSchema, ObserveRequestSchema, ObserveResponseSchema, ScoreRequestSchema, ScoreResponseSchema } from "./features";
 import {CalibrationHistorySchema, CalibrationLabelRequestSchema, CalibrationLabelResultSchema, CalibrationQueueQuerySchema, CalibrationQueueResultSchema} from "./calibration";
+import {PlaybackConnectionStatusSchema,PlaybackConnectRequestSchema,PlaybackConnectResponseSchema,PlaybackEmptyRequestSchema,PlaybackSdkTokenSchema,PlaybackPlayRequestSchema,PlaybackTransferRequestSchema} from './playback';
 
 // Request/response definitions are canonical; unimplemented endpoints return ErrorEnvelope.
 export const PUBLIC_ROUTES = {
@@ -26,6 +27,11 @@ export const PUBLIC_ROUTES = {
   retrain: {method: "POST", path: "/api/ml/retrain", response: FitResponseSchema, auth: "owner"},
   playerStatus: {method: "GET", path: "/api/player/status", response: PlayerStatusSchema, auth: "owner"},
   play: {method: "POST", path: "/api/player/play", body: PlayRequestSchema, response: OkSchema, auth: "owner"},
+  playbackConnection: {method: "GET", path: "/api/player/connection", query: PlaybackEmptyRequestSchema, response: PlaybackConnectionStatusSchema, auth: "owner"},
+  playbackConnect: {method: "POST", path: "/api/player/connect", body: PlaybackConnectRequestSchema, response: PlaybackConnectResponseSchema, auth: "owner"},
+  playbackToken: {method: "POST", path: "/api/player/token", body: PlaybackEmptyRequestSchema, response: PlaybackSdkTokenSchema, auth: "owner"},
+  playbackPlay: {method: "POST", path: "/api/player/sdk/play", body: PlaybackPlayRequestSchema, response: OkSchema, auth: "owner"},
+  playbackTransfer: {method: "POST", path: "/api/player/transfer", body: PlaybackTransferRequestSchema, response: OkSchema, auth: "owner"},
   demoBootstrap: {method: "GET", path: "/api/demo/bootstrap", response: DemoBootstrapSchema, auth: "public"},
 } as const;
 export const INTERNAL_ROUTES = {

@@ -71,6 +71,25 @@ describe('library feature assembly',()=>{
   const f=assembleLibraryCandidates([one],options)[0]!.features;
   expect(f.provenance).toBe('soundnet');expect(f.rightsBasis).toContain('Test fixture authorization');expect(f.rightsBasis).toContain('Original test values');
  });
+ test('Musicae partial audio reaches real-track scoring without filling missing happiness or popularity',()=>{
+  const one=row();one.track.trackId='0000000000000000000001';one.track.source='spotify';one.track.spotifyUri=`spotify:track:${one.track.trackId}`;
+  one.audioFeatures={...audio({energy:0,tempo_bpm:123,loudness_db:null,mode_major:0}),provenance:'musicae'};
+  const before=structuredClone(one),f=assembleLibraryCandidates([one],options)[0]!.features;
+  expect(f.provenance).toBe('musicae');expect(f.values.energy).toBe(0);expect(f.values.tempo_bpm).toBe(123);expect(f.values.mode_major).toBe(0);
+  expect(f.values.loudness_db).toBeNull();expect(f.values.happiness).toBeUndefined();expect(f.values.soundnet_popularity).toBeUndefined();
+  expect(f.rightsBasis).toContain('Original test values');expect(f.permittedForTraining).toBe(true);expect(one).toEqual(before);
+ });
+ test('Musicae observations retain field validation and cannot alias valence into happiness',()=>{
+  const one=row();one.track.trackId='0000000000000000000001';one.track.source='spotify';one.track.spotifyUri=`spotify:track:${one.track.trackId}`;
+  one.audioFeatures={...audio({energy:80,tempo_bpm:123,happiness:null,soundnet_popularity:null}),provenance:'musicae'};
+  Object.assign(one.audioFeatures.values,{valence:0.9,popularity:0.9});
+  const f=assembleLibraryCandidates([one],options)[0]!.features;
+  expect(f.provenance).toBe('musicae');expect(f.values.energy).toBeNull();expect(f.values.tempo_bpm).toBe(123);
+  expect(f.values.happiness).toBeNull();expect(f.values.soundnet_popularity).toBeNull();expect(f.values).not.toHaveProperty('valence');expect(f.values).not.toHaveProperty('popularity');
+  one.audioFeatures.permittedForTraining=false;
+  expect(assembleLibraryCandidates([one],options)[0]!.features.provenance).toBe('spotify');
+  expect(assembleLibraryCandidates([one],options)[0]!.features.values.tempo_bpm).toBeUndefined();
+ });
 });
 
 test('feedback split matches Python SHA256 compact tuple fixtures',()=>{

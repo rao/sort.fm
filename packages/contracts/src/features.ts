@@ -21,7 +21,7 @@ export const FeatureValuesSchema = z.strictObject({
   removed_centroid_distance: z.number().nonnegative().nullable().optional(),
 });
 export const FEATURE_KEYS = Object.keys(FeatureValuesSchema.shape) as (keyof z.infer<typeof FeatureValuesSchema>)[];
-export const FeatureVectorSchema = z.strictObject({featureVersion: z.literal(FEATURE_VERSION), values: FeatureValuesSchema, provenance: z.enum(["synthetic", "licensed", "spotify", "soundnet"]), permittedForTraining: z.boolean(), rightsBasis: z.string().min(1).optional()});
+export const FeatureVectorSchema = z.strictObject({featureVersion: z.literal(FEATURE_VERSION), values: FeatureValuesSchema, provenance: z.enum(["synthetic", "licensed", "spotify", "soundnet", "musicae"]), permittedForTraining: z.boolean(), rightsBasis: z.string().min(1).optional()});
 export type FeatureVector = z.infer<typeof FeatureVectorSchema>;
 export const CandidateSchema = z.strictObject({trackId: IdSchema, features: FeatureVectorSchema});
 // Optional caller-assigned ID lets ML retain the exact served prediction for /explain.

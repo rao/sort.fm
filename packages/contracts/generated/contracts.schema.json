@@ -101,7 +101,10 @@
       "properties": {
         "provider": {
           "type": "string",
-          "const": "soundnet"
+          "enum": [
+            "soundnet",
+            "musicae"
+          ]
         },
         "status": {
           "type": "string",
@@ -169,7 +172,10 @@
         },
         "provider": {
           "type": "string",
-          "const": "soundnet"
+          "enum": [
+            "soundnet",
+            "musicae"
+          ]
         },
         "raw": {},
         "normalized": {
@@ -482,7 +488,8 @@
                 "synthetic",
                 "licensed",
                 "spotify",
-                "soundnet"
+                "soundnet",
+                "musicae"
               ]
             },
             "permittedForTraining": {
@@ -1562,7 +1569,8 @@
                 "synthetic",
                 "licensed",
                 "spotify",
-                "soundnet"
+                "soundnet",
+                "musicae"
               ]
             },
             "permittedForTraining": {
@@ -3350,7 +3358,8 @@
                 "synthetic",
                 "licensed",
                 "spotify",
-                "soundnet"
+                "soundnet",
+                "musicae"
               ]
             },
             "permittedForTraining": {
@@ -4113,7 +4122,8 @@
             "synthetic",
             "licensed",
             "spotify",
-            "soundnet"
+            "soundnet",
+            "musicae"
           ]
         },
         "permittedForTraining": {
@@ -4530,7 +4540,8 @@
                       "synthetic",
                       "licensed",
                       "spotify",
-                      "soundnet"
+                      "soundnet",
+                      "musicae"
                     ]
                   },
                   "permittedForTraining": {
@@ -5601,7 +5612,10 @@
           "properties": {
             "provider": {
               "type": "string",
-              "const": "soundnet"
+              "enum": [
+                "soundnet",
+                "musicae"
+              ]
             },
             "status": {
               "type": "string",
@@ -6571,7 +6585,8 @@
                 "synthetic",
                 "licensed",
                 "spotify",
-                "soundnet"
+                "soundnet",
+                "musicae"
               ]
             },
             "permittedForTraining": {
@@ -8409,7 +8424,8 @@
                       "synthetic",
                       "licensed",
                       "spotify",
-                      "soundnet"
+                      "soundnet",
+                      "musicae"
                     ]
                   },
                   "permittedForTraining": {
@@ -8949,7 +8965,8 @@
                 "synthetic",
                 "licensed",
                 "spotify",
-                "soundnet"
+                "soundnet",
+                "musicae"
               ]
             },
             "permittedForTraining": {
@@ -9650,7 +9667,8 @@
                 "synthetic",
                 "licensed",
                 "spotify",
-                "soundnet"
+                "soundnet",
+                "musicae"
               ]
             },
             "permittedForTraining": {
@@ -12716,7 +12734,10 @@
             "properties": {
               "provider": {
                 "type": "string",
-                "const": "soundnet"
+                "enum": [
+                  "soundnet",
+                  "musicae"
+                ]
               },
               "status": {
                 "type": "string",
@@ -14200,7 +14221,8 @@
                         "synthetic",
                         "licensed",
                         "spotify",
-                        "soundnet"
+                        "soundnet",
+                        "musicae"
                       ]
                     },
                     "permittedForTraining": {
@@ -14835,7 +14857,8 @@
                         "synthetic",
                         "licensed",
                         "spotify",
-                        "soundnet"
+                        "soundnet",
+                        "musicae"
                       ]
                     },
                     "permittedForTraining": {
@@ -15432,7 +15455,8 @@
                   "synthetic",
                   "licensed",
                   "spotify",
-                  "soundnet"
+                  "soundnet",
+                  "musicae"
                 ]
               },
               "permittedForTraining": {

@@ -1,0 +1,17 @@
+import type {PlaybackStore,PlaybackGrant,PlaybackOAuthAttempt,PlaybackSessionContext,PlaybackRefreshFence} from '@sortfm/contracts';
+import {authenticationRequired} from '../spotify/errors';
+export const owner='spotify:owner',sessionToken='s'.repeat(43);
+export class PlaybackTestStore implements PlaybackStore {
+ live=true;grants=new Map<string,PlaybackGrant>();attempts=new Map<string,PlaybackOAuthAttempt>();consumed=new Set<string>();completed=new Set<string>();
+ sessionHash='';private copy<T>(v:T):T{return structuredClone(v);}
+ check(c:PlaybackSessionContext){if(!this.live||c.ownerId!==owner||c.initiatingSessionHash!==this.sessionHash)throw authenticationRequired();}
+ key(v:{ownerId:string;purpose:string}){return `${v.ownerId}:${v.purpose}`;}
+ async getGrant(c:PlaybackSessionContext&{purpose:'sdk'|'control'}){this.check(c);return this.copy(this.grants.get(this.key(c))??null);}
+ async createOAuth(a:PlaybackOAuthAttempt,now:number){this.check({...a,now});if(this.attempts.has(a.stateHash)||(this.grants.get(this.key(a))?.credentialVersion??null)!==a.expectedCredentialVersion)throw Error('STATE_CONFLICT');this.attempts.set(a.stateHash,this.copy(a));}
+ async consumeOAuth(c:PlaybackSessionContext&{stateHash:string;purpose:'sdk'|'control';browserHash:string}){this.check(c);const a=this.attempts.get(c.stateHash);if(!a||a.ownerId!==c.ownerId||a.initiatingSessionHash!==c.initiatingSessionHash||a.purpose!==c.purpose||a.browserHash!==c.browserHash||a.expiresAt<=c.now||this.consumed.has(c.stateHash))throw Error('OAUTH_STATE_INVALID');this.consumed.add(c.stateHash);return this.copy(a);}
+ async completeOAuth(c:PlaybackSessionContext&{stateHash:string;grant:PlaybackGrant}){this.check(c);const a=this.attempts.get(c.stateHash);if(!a||!this.consumed.has(c.stateHash)||this.completed.has(c.stateHash)||a.expiresAt<=c.now||a.ownerId!==c.ownerId||a.initiatingSessionHash!==c.initiatingSessionHash||a.purpose!==c.grant.purpose||(this.grants.get(this.key(a))?.credentialVersion??null)!==a.expectedCredentialVersion)return false;this.grants.set(this.key(c.grant),this.copy(c.grant));this.completed.add(c.stateHash);return true;}
+ async claimRefresh(c:PlaybackRefreshFence&{leaseUntil:number}){this.check(c);const g=this.grants.get(this.key(c));if(!g||g.revoked||g.credentialVersion!==c.expectedCredentialVersion||(g.refreshLease&&g.refreshLease.until>c.now))return null;g.refreshLease={id:c.leaseId,until:c.leaseUntil,initiatingSessionHash:c.initiatingSessionHash};return this.copy(g);}
+ async completeRefresh(c:PlaybackRefreshFence&{grant:PlaybackGrant}){this.check(c);const g=this.grants.get(this.key(c));if(!g||g.revoked||g.credentialVersion!==c.expectedCredentialVersion||g.refreshLease?.id!==c.leaseId||g.refreshLease.until<=c.now||g.refreshLease.initiatingSessionHash!==c.initiatingSessionHash)return false;this.grants.set(this.key(c),this.copy(c.grant));return true;}
+ async releaseRefresh(c:PlaybackRefreshFence){const g=this.grants.get(this.key(c));if(!g||g.credentialVersion!==c.expectedCredentialVersion||g.refreshLease?.id!==c.leaseId)return false;g.refreshLease=null;return true;}
+ async revokeGrant(c:Parameters<PlaybackStore['revokeGrant']>[0]){const g=this.grants.get(this.key(c));if(!g||g.credentialVersion!==c.expectedCredentialVersion||(c.leaseId&&g.refreshLease?.id!==c.leaseId))return false;g.revoked=true;g.encryptedAccessToken='';g.encryptedRefreshToken='';g.refreshLease=null;return true;}
+}

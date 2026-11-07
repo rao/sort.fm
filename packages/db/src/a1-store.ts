@@ -33,21 +33,32 @@ class PostgresA1Transaction implements A1Transaction {
  async getOAuth(stateHash:string):Promise<OAuthAttempt|null>{const [r]=await this.tx`SELECT encrypted_payload FROM oauth_attempts WHERE state_hash=${stateHash} FOR UPDATE`;return r?JSON.parse(r.encrypted_payload):null;}
  async putOAuth(v:OAuthAttempt){encrypted(v.verifier);await this.tx`INSERT INTO oauth_attempts(state_hash,encrypted_payload,expires_at) VALUES(${v.stateHash},${json(v)},${new Date(v.expiresAt).toISOString()}) ON CONFLICT DO NOTHING`;}
  async deleteOAuth(stateHash:string){await this.tx`DELETE FROM oauth_attempts WHERE state_hash=${stateHash}`;}
- async getJob(userId:string):Promise<ImportJob|null>{return (await this.tx`SELECT payload FROM import_jobs WHERE user_id=${userId} AND job_type='library' FOR UPDATE`)[0]?.payload??null;}
+ async getJob(userId:string):Promise<ImportJob|null>{await this.tx`SELECT id FROM users WHERE id=${userId} FOR UPDATE`;return (await this.tx`SELECT payload FROM import_jobs WHERE user_id=${userId} AND job_type='library' FOR UPDATE`)[0]?.payload??null;}
  async putJob(v:ImportJob){LibraryImportStatusSchema.parse(v.progress);await this.tx`INSERT INTO import_jobs(user_id,job_type,payload) VALUES(${v.userId},'library',${json(v)}::jsonb) ON CONFLICT(user_id,job_type) DO UPDATE SET payload=excluded.payload,updated_at=now()`;}
  upsertSavedTracks(rows:SavedTrackInput[]){return upsertSavedTracks(this.tx,rows);}
  async putObservations(rows:ImportObservation[]){for(const v of rows){
   const inserted=await this.tx`INSERT INTO library_snapshots(user_id,job_id,pass,page_offset,observation) VALUES(${v.userId},${v.jobId},${v.pass},${v.offset},${json(v)}::jsonb) ON CONFLICT DO NOTHING RETURNING user_id`;
   if(!inserted.length){const [same]=await this.tx`SELECT 1 FROM library_snapshots WHERE user_id=${v.userId} AND job_id=${v.jobId} AND pass=${v.pass} AND page_offset=${v.offset} AND observation=${json(v)}::jsonb`;if(!same)throw new PersistenceError('OBSERVATION_CONFLICT');}
  }}
+ async getMembershipRevision(userId:string):Promise<number>{
+  const [user]=await this.tx`SELECT membership_revision FROM users WHERE id=${userId} FOR UPDATE`;
+  if(!user)throw new PersistenceError('USER_NOT_FOUND');return user.membership_revision;
+ }
  async completeImportMembership(v:ImportMembership){
   if(!Number.isInteger(v.sourceTotal)||v.sourceTotal<0||new Set(v.trackIds).size>v.sourceTotal)throw new PersistenceError('INVALID_MEMBERSHIP');
-  await this.tx`SELECT id FROM users WHERE id=${v.userId} FOR UPDATE`;
+  const revision=await this.getMembershipRevision(v.userId);
+  if(!Number.isInteger(v.expectedMembershipRevision)||v.expectedMembershipRevision<0||revision!==v.expectedMembershipRevision)throw new PersistenceError('IMPORT_MEMBERSHIP_CHANGED');
+  // A provider write can have succeeded before its local settlement. Lease expiry
+  // does not resolve that ambiguity, so inspect durable commands, not lease liveness.
+  const [pending]=await this.tx`SELECT 1 FROM review_decisions d WHERE d.user_id=${v.userId} AND d.request->>'action' IN ('ARCHIVE','UNLIKE') AND
+   (d.result->>'status' IN ('PENDING','FAILED_RETRYABLE') OR EXISTS(SELECT 1 FROM undo_commands u WHERE u.user_id=d.user_id AND u.decision_id=d.decision_id AND u.settled_at IS NULL)) LIMIT 1`;
+  if(pending)throw new PersistenceError('MEMBERSHIP_MUTATION_PENDING');
   const [state]=await this.tx`SELECT * FROM library_state WHERE user_id=${v.userId}`;
   if(state && (new Date(state.observed_at).getTime()>Date.parse(v.observedAt)||(state.job_id===v.jobId&&state.pass>v.pass)))throw new PersistenceError('STALE_IMPORT');
   await this.tx`DELETE FROM library_membership WHERE user_id=${v.userId}`;
   // FK guarantees every known member already has its durable metadata/snapshot.
   await this.tx`INSERT INTO library_membership(user_id,track_id,job_id,pass) SELECT ${v.userId},value,${v.jobId},${v.pass} FROM jsonb_array_elements_text(${json([...new Set(v.trackIds)])}::jsonb)`;
+  await this.tx`UPDATE users SET membership_revision=membership_revision+1 WHERE id=${v.userId}`;
   await this.tx`INSERT INTO library_state(user_id,job_id,pass,source_total,observed_at) VALUES(${v.userId},${v.jobId},${v.pass},${v.sourceTotal},${v.observedAt}) ON CONFLICT(user_id) DO UPDATE SET job_id=excluded.job_id,pass=excluded.pass,source_total=excluded.source_total,observed_at=excluded.observed_at`;
  }
  async getSummary(userId:string):Promise<LibrarySummary>{

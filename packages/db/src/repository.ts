@@ -66,6 +66,10 @@ export class Repository extends ReviewRecoveryRepository {
   await tx`INSERT INTO exposure_consumptions(user_id,exposure_id,decision_id) VALUES(${v.userId},${v.request.exposureId},${v.decisionId})`;
   await tx`INSERT INTO current_decisions(user_id,track_id,decision_id) VALUES(${v.userId},${v.request.trackId},${v.decisionId}) ON CONFLICT(user_id,track_id) DO UPDATE SET decision_id=excluded.decision_id`;
   await tx`INSERT INTO review_work(command_id,user_id,decision_id,operation) VALUES(${v.decisionId},${v.userId},${v.decisionId},'review')`;
+  // A1 uses SERIALIZABLE snapshots. A row lock alone does not refresh an older
+  // snapshot; touching the owner forces its stale publisher to retry and observe
+  // this pending command. Keep the semantic revision unchanged until settlement.
+  if(v.request.action==='ARCHIVE'||v.request.action==='UNLIKE')await tx`UPDATE users SET membership_revision=membership_revision WHERE id=${v.userId}`;
   return result;
  });}
  async getDecision(userId:string,id:string):Promise<ReviewResult|null>{return this.db.transaction(async tx=>(await tx`SELECT result FROM review_decisions WHERE user_id=${userId} AND decision_id=${id}`)[0]?.result??null);}
@@ -78,6 +82,7 @@ export class Repository extends ReviewRecoveryRepository {
   const [d]=await tx`SELECT d.result,c.decision_id AS current_id FROM review_decisions d LEFT JOIN current_decisions c USING(user_id,track_id) WHERE d.user_id=${v.userId} AND d.decision_id=${v.decisionId}`;
   if(!d)fail('DECISION_NOT_FOUND');if(d.current_id!==v.decisionId)fail('STALE_DECISION');if(!d.result.canUndo)fail('MUTATION_PENDING');
   const [pending]=await tx`SELECT 1 FROM undo_commands WHERE user_id=${v.userId} AND decision_id=${v.decisionId} AND settled_at IS NULL`;if(pending)fail('MUTATION_PENDING');
+  if(d.result.action==='ARCHIVE'||d.result.action==='UNLIKE')await tx`UPDATE users SET membership_revision=membership_revision WHERE id=${v.userId}`;
   await tx`INSERT INTO undo_commands(command_id,user_id,decision_id,idempotency_key,request_fingerprint,payload,created_at) VALUES(${v.commandId},${v.userId},${v.decisionId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v)}::jsonb,${v.createdAt})`;
   await tx`INSERT INTO review_work(command_id,user_id,decision_id,operation) VALUES(${v.commandId},${v.userId},${v.decisionId},'undo')`;return v;
  });}
@@ -108,6 +113,10 @@ export class Repository extends ReviewRecoveryRepository {
     const status=v.status==='UNDONE'?'saved':({KEEP:'kept',SKIP:'deferred',ARCHIVE:'archived',UNLIKE:'unliked'} as const)[v.action];
     await tx`UPDATE saved_tracks SET current_status=${status} WHERE user_id=${userId} AND track_id=${v.trackId}`;
     if(v.action==='ARCHIVE'||v.action==='UNLIKE'){
+     // Invalidate snapshots captured before this confirmed remote change, even if
+     // the first full import has not yet published membership. Idempotent retries
+     // return above and do not increment this revision again.
+     await tx`UPDATE users SET membership_revision=membership_revision+1 WHERE id=${userId}`;
      if(v.status==='COMPLETE'){
       const removed=await tx`DELETE FROM library_membership WHERE user_id=${userId} AND track_id=${v.trackId} RETURNING track_id`;
       if(removed.length)await tx`UPDATE library_state SET source_total=GREATEST(0,source_total-1) WHERE user_id=${userId}`;

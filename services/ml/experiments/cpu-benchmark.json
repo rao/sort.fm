@@ -1,0 +1,28 @@
+{
+  "notice": "Local CPU timings on synthetic data, five measured runs; not a latency SLA or predictive evaluation.",
+  "machine": "arm64",
+  "python": "3.11.12",
+  "numpy": "2.4.6",
+  "sklearn": "1.9.1",
+  "trainingExamples": 100,
+  "scoredCandidates": 2700,
+  "contextColumns": 48,
+  "seed": 42,
+  "inputSha256": "2ffb900fbb43a25fe0fe537ad7ba637a3bf5c94baaf2a1b2b1533eb3edf734dc",
+  "fitSeconds": [
+    0.01770583400502801,
+    0.010517209069803357,
+    0.010678708786144853,
+    0.012790709035471082,
+    0.01086691697128117
+  ],
+  "scoreSeconds": [
+    0.30538824992254376,
+    0.31284629087895155,
+    0.3246789160184562,
+    0.3185091249179095,
+    0.3341217499691993
+  ],
+  "medianFitSeconds": 0.01086691697128117,
+  "medianScoreSeconds": 0.3185091249179095
+}

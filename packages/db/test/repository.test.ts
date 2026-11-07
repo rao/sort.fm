@@ -12,7 +12,7 @@ describe.skipIf(!url)('PostgreSQL repositories',()=>{
  const item=createDemoQueue({exposureId:()=>crypto.randomUUID(),limit:1}).items[0]!;
  const features={featureVersion:FEATURE_VERSION,values:{energy:null},provenance:'synthetic' as const,permittedForTraining:true};
  const decision={userId,decisionId:crypto.randomUUID(),request:{trackId:track.trackId,action:'KEEP' as const,exposureId:item.exposure.exposureId,idempotencyKey:createIdempotencyKey()},requestFingerprint:'first',createdAt:now};
- beforeAll(async()=>{db=new Database(url!,`test_d_${crypto.randomUUID().replaceAll('-','')}`);repo=new Repository(db);const result=await migrate(db);expect(result.applied).toHaveLength(9);expect((await migrate(db)).applied).toHaveLength(0);await repo.upsertUser({id:userId,spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertUser({id:other,spotifyId:null,displayName:'Other',avatarUrl:null});});
+ beforeAll(async()=>{db=new Database(url!,`test_d_${crypto.randomUUID().replaceAll('-','')}`);repo=new Repository(db);const result=await migrate(db);expect(result.applied).toHaveLength(10);expect((await migrate(db)).applied).toHaveLength(0);await repo.upsertUser({id:userId,spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertUser({id:other,spotifyId:null,displayName:'Other',avatarUrl:null});});
  afterAll(async()=>{await db.sql.unsafe(`DROP SCHEMA "${db.schema}" CASCADE`);await db.close();});
  test('snapshots preserve first added time and status, nullable audio joins remain usable',async()=>{
   await repo.upsertSavedTracks([{userId,track,originalAddedAt:track.originalAddedAt,syncedAt:now,currentStatus:'kept'}]);

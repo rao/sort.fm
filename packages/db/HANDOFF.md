@@ -71,3 +71,19 @@ that shortens to 250ms spacing only after the request starts and the transaction
 A conservative monotonic remaining-time check retains rollback protection. Local
 regressions inject 400ms DB latency, delayed SQL responses near expiry, competing
 dispatchers, and post-start commit failure. No real SoundNet requests were made.
+
+## Import/review membership race fix
+
+Shared contract dependency: root commit 3143ef4 (locally cherry-picked as ee923f5).
+Migration 010 adds membership_revision; A1 port reads/captures it before every scan pass
+and passes expectedMembershipRevision on publication. Owner-locked CAS and durable
+pending destructive-command checks prevent stale import overwrite of confirmed Unlike
+or Undo, including expired worker leases. A1 owns baseline persistence/restart handling;
+root integrates both slices atomically. Local PostgreSQL regressions reproduce the old
+race and cover settlement, Undo, concurrent publication/command creation, rollback,
+initial partial imports and missing baselines. Shared Tiger migration remains root-owned.
+
+The regression suite also forces an old SERIALIZABLE import snapshot to overlap new
+READ COMMITTED destructive-command/Undo creation. New command creation touches the owner
+row without changing its semantic revision, so PostgreSQL aborts/retries the stale
+import snapshot and the pending-command guard sees the new work.

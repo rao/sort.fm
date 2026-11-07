@@ -18,15 +18,15 @@ describe.skipIf(!url)('A1 persistence port',()=>{
  test('completed membership replaces current set, partial import never erases history or publishes removals',async()=>{
   await store.transaction(async tx=>{
    await tx.upsertSavedTracks(demoTracks.slice(0,2).map(track=>({userId,track:{...track,isPlayable:true},originalAddedAt:track.originalAddedAt,syncedAt:now,currentStatus:'saved'})));
-   await tx.completeImportMembership({userId,jobId,pass:0,trackIds:demoTracks.slice(0,2).map(t=>t.trackId),sourceTotal:3,observedAt:now});
+   await tx.completeImportMembership({userId,expectedMembershipRevision:0,jobId,pass:0,trackIds:demoTracks.slice(0,2).map(t=>t.trackId),sourceTotal:3,observedAt:now});
   });
   expect(await store.transaction(tx=>tx.getSummary(userId))).toMatchObject({total:3,remaining:2});
   await store.transaction(tx=>tx.upsertSavedTracks([{userId,track:{...demoTracks[0]!,isPlayable:true},originalAddedAt:now,syncedAt:now,currentStatus:'saved'}]));
   expect((await store.transaction(tx=>tx.getSummary(userId))).remaining).toBe(2);
-  await store.transaction(tx=>tx.completeImportMembership({userId,jobId,pass:1,trackIds:[demoTracks[0]!.trackId],sourceTotal:1,observedAt:now}));
+  await store.transaction(tx=>tx.completeImportMembership({userId,expectedMembershipRevision:1,jobId,pass:1,trackIds:[demoTracks[0]!.trackId],sourceTotal:1,observedAt:now}));
   expect((await store.transaction(tx=>tx.getSummary(userId))).remaining).toBe(1);
   expect((await new Repository(db).library(userId)).length).toBe(1);
-  await store.transaction(tx=>tx.completeImportMembership({userId,jobId,pass:2,trackIds:[],sourceTotal:0,observedAt:now}));
+  await store.transaction(tx=>tx.completeImportMembership({userId,expectedMembershipRevision:2,jobId,pass:2,trackIds:[],sourceTotal:0,observedAt:now}));
   expect((await store.transaction(tx=>tx.getSummary(userId))).total).toBe(0);
   expect((await new Repository(db).library(userId)).length).toBe(0);expect((await new Repository(db).library(userId,true)).length).toBe(2);
   const [saved]=await db.transaction(tx=>tx`SELECT count(*)::int AS n,min(original_added_at) AS original FROM saved_tracks WHERE user_id=${userId}`);expect(saved.n).toBe(2);expect(new Date(saved.original).toISOString()).toBe(demoTracks[0]!.originalAddedAt);

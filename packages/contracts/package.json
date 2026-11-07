@@ -1,0 +1,5 @@
+{
+  "name": "@sortfm/contracts", "version": "1.0.0", "private": true, "type": "module",
+  "exports": {".": "./src/index.ts", "./fixtures": "./src/fixtures.ts", "./client": "./src/client.ts"},
+  "dependencies": {"zod": "^4.1.12"}
+}

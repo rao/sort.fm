@@ -1,0 +1,634 @@
+{
+  "session": {
+    "mode": "demo",
+    "user": {
+      "id": "demo:guest",
+      "spotifyId": null,
+      "displayName": "Demo listener",
+      "avatarUrl": null
+    },
+    "capabilities": {
+      "spotifyRead": false,
+      "spotifyWrite": false,
+      "playback": false
+    }
+  },
+  "queue": {
+    "contractVersion": "1.0.0",
+    "mode": "demo",
+    "items": [
+      {
+        "track": {
+          "trackId": "demo:001",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "After the Rain",
+          "artists": [
+            {
+              "id": "demo:artist-paper-satellites",
+              "name": "Paper Satellites"
+            }
+          ],
+          "album": "Window Seat",
+          "imageUrl": null,
+          "durationMs": 180000,
+          "explicit": false,
+          "originalAddedAt": "2020-01-07T00:00:00.000Z",
+          "releaseDate": "2018",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000001",
+          "trackId": "demo:001",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 0,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:002",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Copper Moon",
+          "artists": [
+            {
+              "id": "demo:artist-the-quiet-circuits",
+              "name": "The Quiet Circuits"
+            }
+          ],
+          "album": "Night Bus",
+          "imageUrl": null,
+          "durationMs": 187000,
+          "explicit": false,
+          "originalAddedAt": "2021-02-07T00:00:00.000Z",
+          "releaseDate": "2019",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000002",
+          "trackId": "demo:002",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 1,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:003",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Small Hours",
+          "artists": [
+            {
+              "id": "demo:artist-mira-field",
+              "name": "Mira Field"
+            }
+          ],
+          "album": "Pocket Weather",
+          "imageUrl": null,
+          "durationMs": 194000,
+          "explicit": false,
+          "originalAddedAt": "2022-03-07T00:00:00.000Z",
+          "releaseDate": "2020",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000003",
+          "trackId": "demo:003",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 2,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:004",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Blue Arcade",
+          "artists": [
+            {
+              "id": "demo:artist-soft-geometry",
+              "name": "Soft Geometry"
+            }
+          ],
+          "album": "New Shapes",
+          "imageUrl": null,
+          "durationMs": 201000,
+          "explicit": false,
+          "originalAddedAt": "2023-04-07T00:00:00.000Z",
+          "releaseDate": "2021",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000004",
+          "trackId": "demo:004",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 3,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:005",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Porch Light",
+          "artists": [
+            {
+              "id": "demo:artist-sunday-static",
+              "name": "Sunday Static"
+            }
+          ],
+          "album": "Almost Home",
+          "imageUrl": null,
+          "durationMs": 208000,
+          "explicit": false,
+          "originalAddedAt": "2024-05-07T00:00:00.000Z",
+          "releaseDate": "2022",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000005",
+          "trackId": "demo:005",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 4,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:006",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Glass Orchard",
+          "artists": [
+            {
+              "id": "demo:artist-northbound-echo",
+              "name": "Northbound Echo"
+            }
+          ],
+          "album": "Slow Bloom",
+          "imageUrl": null,
+          "durationMs": 215000,
+          "explicit": false,
+          "originalAddedAt": "2025-06-07T00:00:00.000Z",
+          "releaseDate": "2023",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000006",
+          "trackId": "demo:006",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 5,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:007",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Half a Summer",
+          "artists": [
+            {
+              "id": "demo:artist-velvet-transit",
+              "name": "Velvet Transit"
+            }
+          ],
+          "album": "Moving Day",
+          "imageUrl": null,
+          "durationMs": 222000,
+          "explicit": false,
+          "originalAddedAt": "2020-07-07T00:00:00.000Z",
+          "releaseDate": "2024",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000007",
+          "trackId": "demo:007",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 6,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:008",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Signal Coast",
+          "artists": [
+            {
+              "id": "demo:artist-juniper-lines",
+              "name": "Juniper Lines"
+            }
+          ],
+          "album": "Low Tide",
+          "imageUrl": null,
+          "durationMs": 229000,
+          "explicit": false,
+          "originalAddedAt": "2021-08-07T00:00:00.000Z",
+          "releaseDate": "2025",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000008",
+          "trackId": "demo:008",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 7,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:009",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Two Stops Away",
+          "artists": [
+            {
+              "id": "demo:artist-the-quiet-circuits",
+              "name": "The Quiet Circuits"
+            }
+          ],
+          "album": "Night Bus",
+          "imageUrl": null,
+          "durationMs": 236000,
+          "explicit": false,
+          "originalAddedAt": "2022-09-07T00:00:00.000Z",
+          "releaseDate": "2018",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000009",
+          "trackId": "demo:009",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 8,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:010",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Distant Kitchen",
+          "artists": [
+            {
+              "id": "demo:artist-mira-field",
+              "name": "Mira Field"
+            }
+          ],
+          "album": "Pocket Weather",
+          "imageUrl": null,
+          "durationMs": 243000,
+          "explicit": false,
+          "originalAddedAt": "2023-10-07T00:00:00.000Z",
+          "releaseDate": "2019",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000010",
+          "trackId": "demo:010",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 9,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:011",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Late Snow",
+          "artists": [
+            {
+              "id": "demo:artist-paper-satellites",
+              "name": "Paper Satellites"
+            }
+          ],
+          "album": "Window Seat",
+          "imageUrl": null,
+          "durationMs": 250000,
+          "explicit": false,
+          "originalAddedAt": "2024-11-07T00:00:00.000Z",
+          "releaseDate": "2020",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000011",
+          "trackId": "demo:011",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 10,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      },
+      {
+        "track": {
+          "trackId": "demo:012",
+          "source": "synthetic",
+          "spotifyUri": null,
+          "title": "Amber Room",
+          "artists": [
+            {
+              "id": "demo:artist-soft-geometry",
+              "name": "Soft Geometry"
+            }
+          ],
+          "album": "New Shapes",
+          "imageUrl": null,
+          "durationMs": 257000,
+          "explicit": false,
+          "originalAddedAt": "2025-12-07T00:00:00.000Z",
+          "releaseDate": "2021",
+          "isPlayable": false
+        },
+        "prediction": {
+          "modelKind": "untrained",
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "trainedExamples": 0,
+          "removalProbability": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "uncertaintyMethod": "none",
+          "calibrated": false,
+          "explanations": []
+        },
+        "exposure": {
+          "exposureId": "00000000-0000-4000-8000-000000000012",
+          "trackId": "demo:012",
+          "policy": "balanced",
+          "selectionMethod": "fixture",
+          "policyVersion": "fixture-v1",
+          "explorationCoefficient": 0,
+          "propensityEstimate": null,
+          "modelVersion": "untrained-v0",
+          "featureVersion": "sortfm.features.v1",
+          "removalScore": null,
+          "heuristicScore": null,
+          "uncertainty": null,
+          "position": 11,
+          "servedAt": "2026-11-07T16:00:00.000Z"
+        }
+      }
+    ],
+    "remaining": 12,
+    "nextCursor": null,
+    "fallbackReason": "Synthetic fixture order. Personalized ranking is not implemented in the foundation."
+  },
+  "metrics": {
+    "status": "insufficient_data",
+    "reason": "No labeled feedback has been collected. These are synthetic fixtures, not a trained model.",
+    "modelVersion": "untrained-v0",
+    "dataset": "synthetic",
+    "evaluationMethod": "none",
+    "labeledExamples": 0,
+    "trainedExamples": 0,
+    "heldOutExamples": 0,
+    "heldOutPositive": 0,
+    "heldOutNegative": 0,
+    "baseRate": null,
+    "balancedAccuracy": null,
+    "rocAuc": null,
+    "prAuc": null,
+    "logLoss": null,
+    "brierScore": null,
+    "precisionAtK": null,
+    "evaluatedAt": null
+  },
+  "notice": "Demo mode: fictional songs, no Spotify account or writes. Foundation preview; review actions and model training arrive in the next handoffs."
+}

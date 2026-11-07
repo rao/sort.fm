@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+services/ml/artifacts/*
+!services/ml/artifacts/.gitkeep
+coverage/
+.DS_Store
+.superpowers/
+*.log

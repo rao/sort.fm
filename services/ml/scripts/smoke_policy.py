@@ -11,7 +11,7 @@ from uuid import uuid4
 import httpx
 
 from sortfm_ml.cli import generate_synthetic
-from sortfm_ml.policy_schemas import PolicyDecision, PolicyDiagnostics
+from sortfm_ml.policy_schemas import PolicyDecision, PolicyDiagnostics, PolicyExposure, PolicyReleaseReceipt
 
 
 def main():
@@ -56,6 +56,7 @@ def main():
             try:
                 process = start()
                 assert client.post("/policy/select", json={}).status_code == 401
+                assert client.post("/policy/release", json={}).status_code == 401
                 data = generate_synthetic(seed=42, size=180)
                 fitted = post("/fit", data)
                 train = [row for row in data["examples"] if row["split"] == "train"]
@@ -78,6 +79,18 @@ def main():
                 assert next_choice["trainedRewards"] == 1
                 assert next_choice["selection"]["selectionMethod"] == "linucb"
                 assert next_choice["modelVersion"] != fitted["modelVersion"]
+                released = {"userId": data["userId"], "requestId": str(uuid4()),
+                            "exposureId": next_choice["exposureId"], "reason": "prefetch_discarded"}
+                receipt = post("/policy/release", released)
+                PolicyReleaseReceipt.model_validate(receipt)
+                assert receipt["outcome"] == "released"
+                assert post("/policy/release", released) == receipt
+                # Release changes scheduling only, including when a C1 fit
+                # already contains the track. It cannot erase learned rewards.
+                assert stats()["counts"]["activeRewards"] == 1
+                rescheduled = post("/policy/select", {**selection, "exposureId": str(uuid4()),
+                    "candidates": [next_choice["candidate"]]})
+                assert rescheduled["trackId"] == next_choice["trackId"]
                 undo = {**observed, "eventId": str(uuid4()), "feedbackRevision": 182, "operation": "revoke", "label": None}
                 post("/observe", undo)
                 assert stats()["counts"]["activeRewards"] == 0
@@ -86,13 +99,16 @@ def main():
                 process.wait(timeout=5)
                 process = start()
                 assert post("/policy/select", selection) == chosen
+                assert post("/policy/release", released) == receipt
                 assert stats()["counts"]["activeRewards"] == 0
                 explained = client.get("/explain", params={"userId": data["userId"], "exposureId": chosen["exposureId"]}, headers=headers)
                 assert explained.json()["prediction"] == chosen["prediction"]
                 log = client.get("/policy/exposure", params={"userId": data["userId"], "exposureId": chosen["exposureId"]}, headers=headers)
                 assert log.status_code == 200
+                PolicyExposure.model_validate(log.json())
                 assert log.json()["decision"] == chosen
-                print("PASS real HTTP C2: auth, cold fallback, LinUCB after KEEP feedback, rating, idempotency, Undo, restart, immutable C1 explain/policy logs; synthetic only")
+                assert log.json()["reservation"]["closureReason"] == "undo"
+                print("PASS real HTTP C2: auth, cold fallback, LinUCB after KEEP feedback, rating, release/reschedule, immutable receipts, Undo, restart, C1 explain and lifecycle inspection; synthetic only")
             finally:
                 if process is not None and process.poll() is None:
                     process.terminate()

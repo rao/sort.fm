@@ -2,8 +2,9 @@
 
 import os
 import secrets
+from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Callable
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
@@ -19,11 +20,13 @@ from .service import ModelService, ServiceError
 from .policy_service import PolicyService
 from .policy_schemas import (PolicyDecision, PolicyDiagnostics, PolicyDiagnosticsQuery,
                              PolicyExposure, PolicyExposureQuery, PolicyFeedbackRequest,
-                             PolicySelectRequest)
+                             PolicyReleaseReceipt, PolicyReleaseRequest, PolicySelectRequest)
 
 
 def create_app(
-    shared_secret: str | None = None, storage_dir: str | Path | None = None
+    shared_secret: str | None = None, storage_dir: str | Path | None = None, *,
+    policy_clock: Callable[[], datetime] | None = None,
+    policy_reservation_ttl_seconds: int | None = None,
 ) -> FastAPI:
     """Capture configuration once so each application has independent credentials."""
     configured_secret = (
@@ -34,7 +37,9 @@ def create_app(
         os.getenv("ML_ARTIFACT_DIR", "artifacts") if storage_dir is None else storage_dir
     )
     application.state.model_service = model_service
-    policy_service = PolicyService(model_service)
+    policy_service = PolicyService(model_service, clock=policy_clock,
+        reservation_ttl_seconds=int(os.getenv("ML_POLICY_RESERVATION_TTL_SECONDS", "300"))
+        if policy_reservation_ttl_seconds is None else policy_reservation_ttl_seconds)
     application.state.policy_service = policy_service
 
     @application.exception_handler(ServiceError)
@@ -133,6 +138,10 @@ def create_app(
         body = payload.model_dump(exclude_unset=True)
         usefulness = body.pop("usefulness", None)
         return policy_service.observe(body, usefulness, require_policy=True)
+
+    @internal.post("/policy/release", response_model=PolicyReleaseReceipt)
+    def policy_release(payload: PolicyReleaseRequest) -> dict:
+        return policy_service.release(payload.model_dump())
 
     @internal.get("/policy/diagnostics", response_model=PolicyDiagnostics, response_model_exclude_unset=True)
     def policy_diagnostics(query: Annotated[PolicyDiagnosticsQuery, Query()]) -> dict:

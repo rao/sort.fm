@@ -1,10 +1,11 @@
-"""C2-local API proposals; the frozen shared C1 schemas remain unchanged."""
+"""C2-local API schemas; the frozen shared C1 schemas remain unchanged."""
+from datetime import datetime
 from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
 from .schemas import (Candidate, Count, FeatureVersion, Identifier, ObserveRequest,
-                      Prediction, Probability, SafeInteger, Uuid, WireModel)
+                      Prediction, Probability, SafeInteger, Timestamp, Uuid, WireModel)
 
 
 class PolicyConfig(WireModel):
@@ -102,6 +103,65 @@ class PolicyExposureQuery(WireModel):
     exposureId: Uuid
 
 
+class PolicyReleaseRequest(WireModel):
+    userId: Identifier
+    requestId: Uuid
+    exposureId: Uuid
+    reason: Literal["skip", "abandoned", "prefetch_discarded"]
+
+
+class PolicyReleaseReceipt(WireModel):
+    userId: Identifier
+    requestId: Uuid
+    exposureId: Uuid
+    trackId: Identifier
+    outcome: Literal["released", "already_closed"]
+    recordedAt: Timestamp
+    expiresAt: Timestamp
+    effectiveClosedAt: Timestamp
+
+
+class PolicyReservation(WireModel):
+    exposureId: Uuid
+    reservedAt: Timestamp
+    expiresAt: Timestamp
+    status: Literal["active", "released", "expired"]
+    closedAt: Timestamp | None
+    closureReason: Literal["explicit_release", "undo", "expiry"] | None
+
+    @model_validator(mode="after")
+    def coherent_lifecycle(self) -> Self:
+        reserved, expires = datetime.fromisoformat(self.reservedAt), datetime.fromisoformat(self.expiresAt)
+        if not 30 <= (expires - reserved).total_seconds() <= 900:
+            raise ValueError("Reservation duration must be bounded")
+        if self.status == "active":
+            if self.closedAt is not None or self.closureReason is not None:
+                raise ValueError("Active reservations cannot be closed")
+        elif self.status == "expired":
+            if self.closedAt != self.expiresAt or self.closureReason != "expiry":
+                raise ValueError("Expiry closes at the original deadline")
+        elif (self.closedAt is None or self.closureReason not in ("explicit_release", "undo")
+              or datetime.fromisoformat(self.closedAt) > expires):
+            raise ValueError("Released reservations require a valid terminal closure")
+        return self
+
+
+class PolicyReservationInspection(PolicyReservation):
+    evaluatedAt: Timestamp
+
+
+class PolicyEligibilityExclusion(WireModel):
+    trackId: Identifier
+    blockingExposureIds: list[Uuid]
+    completedReview: bool
+
+
+class PolicyEligibility(WireModel):
+    evaluatedAt: Timestamp
+    filteringApplied: bool
+    exclusions: list[PolicyEligibilityExclusion]
+
+
 class PolicyDiagnostics(WireModel):
     userId: Identifier
     policyVersion: str
@@ -117,3 +177,5 @@ class PolicyDiagnostics(WireModel):
 class PolicyExposure(WireModel):
     decision: PolicyDecision
     feedback: list[dict]
+    reservation: PolicyReservationInspection
+    eligibility: PolicyEligibility | None

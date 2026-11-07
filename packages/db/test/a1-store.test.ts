@@ -3,11 +3,11 @@ import {Database} from '../src/client';import {migrate} from '../src/migrate';im
 import {demoTracks} from '@sortfm/contracts/fixtures';import type {Account} from '@sortfm/contracts';
 const url=process.env.TEST_DATABASE_URL;
 describe.skipIf(!url)('A1 persistence port',()=>{
- const db=new Database(url!,`test_a1_${crypto.randomUUID().replaceAll('-','')}`);const store=new PostgresA1Store(db);const userId='test:a1';const jobId=crypto.randomUUID();const now=new Date().toISOString();
+ let db:Database;let store:PostgresA1Store;const userId='test:a1';const jobId=crypto.randomUUID();const now=new Date().toISOString();
  const envelope='v1.'+Buffer.alloc(12).toString('base64url')+'.'+Buffer.alloc(16).toString('base64url')+'.ciphertext';
  const account:Account={user:{id:userId,spotifyId:null,displayName:'Test',avatarUrl:null},accessToken:envelope,refreshToken:envelope,expiresAt:Date.now()+1000,scopes:[],credentialVersion:crypto.randomUUID(),revoked:false,refreshLease:null};
  // Cloud DDL/cleanup can exceed the unit-test default under shared pool load.
- beforeAll(async()=>{await migrate(db);},30_000);afterAll(async()=>{await db.sql.unsafe(`DROP SCHEMA "${db.schema}" CASCADE`);await db.close();},30_000);
+ beforeAll(async()=>{db=new Database(url!,`test_a1_${crypto.randomUUID().replaceAll('-','')}`);store=new PostgresA1Store(db);await migrate(db);},30_000);afterAll(async()=>{await db.sql.unsafe(`DROP SCHEMA "${db.schema}" CASCADE`);await db.close();},30_000);
  test('encrypted fields, detached reads and rollback',async()=>{
   await expect(store.transaction(tx=>tx.putAccount({...account,accessToken:'plaintext'}))).rejects.toThrow('ENCRYPTED_CREDENTIAL_REQUIRED');
   await store.transaction(tx=>tx.putAccount(account));

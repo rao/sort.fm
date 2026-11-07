@@ -6,13 +6,13 @@ import {FEATURE_VERSION,type ReviewResult} from '@sortfm/contracts';import {crea
 const INTEGRATION_TIMEOUT_MS=30_000;
 const url=process.env.TEST_DATABASE_URL;
 describe.skipIf(!url)('settlement invariants',()=>{
- const db=new Database(url!,`test_settle_${crypto.randomUUID().replaceAll('-','')}`);const repo=new Repository(db);const store=new PostgresA1Store(db);const userId='test:settle';const now=new Date().toISOString();const track={...demoTracks[0]!,isPlayable:true};
+ let db:Database;let repo:Repository;let store:PostgresA1Store;const userId='test:settle';const now=new Date().toISOString();const track={...demoTracks[0]!,isPlayable:true};
  async function command(action:ReviewResult['action']){
   const item=createDemoQueue({limit:1,exposureId:()=>crypto.randomUUID()}).items[0]!;
   await repo.insertExposure({userId,exposure:item.exposure,prediction:item.prediction,features:{featureVersion:FEATURE_VERSION,values:{},provenance:'synthetic',permittedForTraining:true}});
   return repo.createDecision({userId,decisionId:crypto.randomUUID(),request:{trackId:track.trackId,action,exposureId:item.exposure.exposureId,idempotencyKey:createIdempotencyKey()},requestFingerprint:crypto.randomUUID(),createdAt:now});
  }
- beforeAll(async()=>{await migrate(db);await repo.upsertUser({id:userId,spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertSavedTracks([{userId,track,originalAddedAt:track.originalAddedAt,syncedAt:now,currentStatus:'saved'}]);await store.transaction(tx=>tx.completeImportMembership({userId,jobId:crypto.randomUUID(),pass:0,trackIds:[track.trackId],sourceTotal:1,observedAt:now}));},INTEGRATION_TIMEOUT_MS);
+ beforeAll(async()=>{db=new Database(url!,`test_settle_${crypto.randomUUID().replaceAll('-','')}`);repo=new Repository(db);store=new PostgresA1Store(db);await migrate(db);await repo.upsertUser({id:userId,spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertSavedTracks([{userId,track,originalAddedAt:track.originalAddedAt,syncedAt:now,currentStatus:'saved'}]);await store.transaction(tx=>tx.completeImportMembership({userId,jobId:crypto.randomUUID(),pass:0,trackIds:[track.trackId],sourceTotal:1,observedAt:now}));},INTEGRATION_TIMEOUT_MS);
  afterAll(async()=>{await db.sql.unsafe(`DROP SCHEMA "${db.schema}" CASCADE`);await db.close();},INTEGRATION_TIMEOUT_MS);
  test('unlike and undo update membership and total exactly once',async()=>{
   const pending=await command('UNLIKE');const complete:ReviewResult={...pending,status:'COMPLETE',mutationStep:'UNLIKED',liked:false,archived:false,canUndo:true,label:1,labelState:'active',feedbackRevision:1};

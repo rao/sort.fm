@@ -3,8 +3,8 @@ import {Database} from '../src/client';import {migrate} from '../src/migrate';im
 import {demoTracks} from '@sortfm/contracts/fixtures';import {normalizeSoundNet} from '../../../apps/api/src/jobs/soundnet/normalize';
 const url=process.env.TEST_DATABASE_URL;
 describe.skipIf(!url)('durable queue',()=>{
- const db=new Database(url!,`test_queue_${crypto.randomUUID().replaceAll('-','')}`);const repo=new Repository(db);const queue=new SoundNetQueue(db);const id='a'.repeat(22);
- beforeAll(async()=>{await migrate(db);await repo.upsertUser({id:'test:queue',spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertSavedTracks([{userId:'test:queue',track:{...demoTracks[0]!,trackId:id,source:'spotify',spotifyUri:`spotify:track:${id}`},originalAddedAt:new Date().toISOString(),syncedAt:new Date().toISOString(),currentStatus:'saved'}]);});
+ let db:Database;let repo:Repository;let queue:SoundNetQueue;const id='a'.repeat(22);
+ beforeAll(async()=>{db=new Database(url!,`test_queue_${crypto.randomUUID().replaceAll('-','')}`);repo=new Repository(db);queue=new SoundNetQueue(db);await migrate(db);await repo.upsertUser({id:'test:queue',spotifyId:null,displayName:'Test',avatarUrl:null});await repo.upsertSavedTracks([{userId:'test:queue',track:{...demoTracks[0]!,trackId:id,source:'spotify',spotifyUri:`spotify:track:${id}`},originalAddedAt:new Date().toISOString(),syncedAt:new Date().toISOString(),currentStatus:'saved'}]);});
  afterAll(async()=>{await db.sql.unsafe(`DROP SCHEMA "${db.schema}" CASCADE`);await db.close();});
  test('enqueue dedupes, expired leases recover, stale completions cannot overwrite success',async()=>{
   await queue.enqueueUser('test:queue');await queue.enqueueUser('test:queue');const first=(await queue.claim(100))!;expect(first.trackId).toBe(id);expect(await queue.claim()).toBeNull();

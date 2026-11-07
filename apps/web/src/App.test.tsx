@@ -69,3 +69,25 @@ describe("frontend contract rendering", () => {
 		expect(html.match(/disabled=""/g)).toHaveLength(4);
 	});
 });
+
+test("missing live metrics never claims zero training or a partial history total", () => {
+	const html = renderToStaticMarkup(
+		<ModelPanel
+			prediction={null}
+			metrics={null}
+			labeled={null}
+			total={20}
+			live
+		/>,
+	);
+	expect(html).toContain("Metrics unavailable");
+	expect(html).toContain("Unavailable");
+	expect(html).not.toContain("Model not trained");
+});
+
+test("read-only Spotify sessions disable destructive action buttons", () => {
+	const html = renderToStaticMarkup(
+		<ActionButtons disabled={false} canRemove={false} onAction={() => {}} />,
+	);
+	expect(html.match(/disabled=""/g)).toHaveLength(2);
+});

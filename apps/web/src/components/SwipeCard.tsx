@@ -16,9 +16,11 @@ const keys: Record<ReviewAction, string> = {
 };
 export function ActionButtons({
 	disabled,
+	canRemove = true,
 	onAction,
 }: {
 	disabled: boolean;
+	canRemove?: boolean;
 	onAction: (action: ReviewAction) => void;
 }) {
 	return (
@@ -27,7 +29,10 @@ export function ActionButtons({
 				<button
 					type="button"
 					key={action}
-					disabled={disabled}
+					disabled={
+						disabled ||
+						(!canRemove && (action === "ARCHIVE" || action === "UNLIKE"))
+					}
 					className={`action-button ${action.toLowerCase()}`}
 					onClick={() => onAction(action)}
 					aria-label={`${actionLabels[action]} song (${keys[action]})`}

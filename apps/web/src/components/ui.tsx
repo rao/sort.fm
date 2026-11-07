@@ -171,14 +171,18 @@ export function Cover({
 				/>
 			) : (
 				<span
-					className="cover-art"
+					className={
+						track.source === "synthetic" ? "cover-art" : "cover-placeholder"
+					}
 					role="img"
 					aria-label={
 						track.source === "synthetic"
 							? `Original demo artwork for ${track.album}`
 							: "Album artwork unavailable"
 					}
-				/>
+				>
+					{track.source !== "synthetic" && <Icon name="music" size={32} />}
+				</span>
 			)}
 			{typography && track.source === "synthetic" && (
 				<div className="cover-type" aria-hidden="true">

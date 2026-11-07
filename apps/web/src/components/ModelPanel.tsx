@@ -50,11 +50,13 @@ export function ModelPanel({
 	labeled,
 	total,
 	metrics,
+	live = false,
 }: {
 	prediction: Prediction | null;
-	labeled: number;
+	labeled: number | null;
 	total: number;
-	metrics: ModelMetrics;
+	metrics: ModelMetrics | null;
+	live?: boolean;
 }) {
 	return (
 		<aside className="model-panel">
@@ -63,20 +65,25 @@ export function ModelPanel({
 					<Icon name="spark" size={19} />
 				</span>
 				<h2>Your taste, in focus</h2>
-				<span className="small-badge">EARLY DAYS</span>
+				<span className="small-badge">
+					{prediction?.modelKind ?? "UNAVAILABLE"}
+				</span>
 			</div>
 			<PredictionDisplay prediction={prediction} />
 			<div className="model-progress">
 				<div>
 					<span>Your feedback</span>
 					<strong>
-						{labeled} <span>/ {total}</span>
+						{labeled ?? "Unavailable"} {!live && <span>/ {total}</span>}
 					</strong>
 				</div>
-				<Progress label="Labeled songs" value={labeled} max={total} />
+				{!live && (
+					<Progress label="Labeled songs" value={labeled ?? 0} max={total} />
+				)}
 				<p>
-					{total - labeled} songs still unlabeled. Skip doesn't count as a
-					label.
+					{live
+						? "Persisted model feedback. Skip does not supply a label."
+						: `${total - (labeled ?? 0)} songs still unlabeled. Skip does not count as a label.`}
 				</p>
 			</div>
 			<details className="why-song">
@@ -89,8 +96,9 @@ export function ModelPanel({
 					))
 				) : (
 					<p>
-						This is a curated demo sequence across artists and saved dates. No
-						personalized ranking or trained prediction is active.
+						{live
+							? "No explanation was supplied for this server-selected song. The shown score and version belong to its saved exposure."
+							: "This is a curated demo sequence across artists and saved dates. No personalized ranking or trained prediction is active."}
 					</p>
 				)}
 			</details>
@@ -99,10 +107,12 @@ export function ModelPanel({
 			</a>
 			<div className="model-foot">
 				<span className="status-dot" />
-				{metrics.trainedExamples
-					? `${metrics.trainedExamples} training examples`
-					: "Model not trained"}
-				<span>{metrics.modelVersion}</span>
+				{metrics?.trainedExamples
+					? `${metrics?.trainedExamples} training examples`
+					: metrics
+						? "Model not trained"
+						: "Metrics unavailable"}
+				<span>{metrics?.modelVersion ?? "Metrics unavailable"}</span>
 			</div>
 		</aside>
 	);

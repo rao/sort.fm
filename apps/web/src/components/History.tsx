@@ -14,7 +14,7 @@ export function History({
 	const entries = state.history.filter(
 		({ result, item }) =>
 			(filter === "all" || result.action === filter) &&
-			`${item.track.title} ${item.track.artists.map((artist) => artist.name).join(" ")}`
+			`${item?.track.title ?? result.trackId} ${item?.track.artists.map((artist) => artist.name).join(" ") ?? ""}`
 				.toLowerCase()
 				.includes(search.toLowerCase()),
 	);
@@ -58,11 +58,30 @@ export function History({
 				<div className="history-list">
 					{entries.map(({ item, result }) => (
 						<article className="history-row" key={result.decisionId}>
-							<Cover track={item.track} />
+							{item ? (
+								<Cover track={item.track} />
+							) : (
+								<span className="missing-cover">
+									<Icon name="music" />
+								</span>
+							)}
 							<div className="history-song">
-								<h2>{item.track.title}</h2>
+								<h2>{item?.track.title ?? "Saved Spotify decision"}</h2>
+								{result.mode === "spotify" &&
+									/^[a-zA-Z0-9]{22}$/.test(result.trackId) && (
+										<a
+											className="text-link"
+											href={`https://open.spotify.com/track/${result.trackId}`}
+											target="_blank"
+											rel="noreferrer"
+										>
+											Open in Spotify
+										</a>
+									)}
 								<p>
-									{item.track.artists.map((artist) => artist.name).join(", ")}
+									{item?.track.artists
+										.map((artist) => artist.name)
+										.join(", ") ?? result.trackId}
 								</p>
 							</div>
 							<span
@@ -70,7 +89,9 @@ export function History({
 							>
 								{result.status === "UNDONE"
 									? "Restored"
-									: actionPast[result.action]}
+									: result.status === "COMPLETE"
+										? actionPast[result.action]
+										: result.status.toLowerCase().replaceAll("_", " ")}
 							</span>
 							<span className="history-time">
 								{new Date(result.updatedAt).toLocaleTimeString([], {
@@ -81,7 +102,13 @@ export function History({
 							<button
 								type="button"
 								className="button ghost small"
-								disabled={!result.canUndo || state.busy || !!state.retry}
+								disabled={
+									!result.canUndo ||
+									state.busy ||
+									!!state.retry ||
+									state.refreshing ||
+									!!state.refreshError
+								}
 								onClick={() => onUndo(result.decisionId)}
 							>
 								<Icon name="undo" size={15} />
@@ -109,11 +136,18 @@ export function History({
 					</a>
 				</EmptyState>
 			)}
+			{state.historyHasMore && (
+				<p className="fine-print">
+					Showing the latest saved decisions. Older history is not available in
+					this view yet.
+				</p>
+			)}
 			<div className="recovery-note">
 				<Icon name="info" size={18} />
 				<p>
-					Demo history lives in this tab and resets on reload. In a connected
-					library, Archive saves a private playlist copy before unliking. Undo
+					{state.bootstrap?.session.mode === "spotify"
+						? "These are persisted server decisions. Song details may be unavailable for previously reviewed tracks. Archive saves a private playlist copy before unliking. Undo"
+						: "Demo history lives in this tab and resets on reload. In a connected library, Archive saves a private playlist copy before unliking. Undo"}
 					restores the like, but Spotify may change its saved order.
 				</p>
 			</div>

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.3.4/schema.json",
+  "root": true,
+  "files": { "includes": ["src/**", "index.html"] },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": { "noNonNullAssertion": "off", "noDescendingSpecificity": "off" },
+      "complexity": { "noImportantStyles": "off" }
+    }
+  }
+}

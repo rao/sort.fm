@@ -4,7 +4,7 @@ The source of truth is `packages/contracts/src/{schemas,features,db,routes}.ts`.
 
 The same command writes `packages/contracts/generated/demo-bootstrap.json`, a deterministic cross-language fixture matching the live bootstrap response shape. Timestamps/IDs in that artifact are fixed examples; HTTP routes generate fresh served timestamps/exposure IDs.
 
-Wire JSON uses camelCase; dates are UTC ISO 8601 strings (offset input is accepted). UUIDs identify decisions, commands, exposures and events. `trackId` is the 22-character Spotify ID or an explicit `demo:` ID. Synthetic track `spotifyUri` is always null. A Spotify card's URI must match its ID. No Spotify popularity or removed relinking fields are required.
+Wire JSON uses camelCase; dates are UTC ISO 8601 strings (offset input is accepted). UUIDs identify decisions, commands, exposures and events. Internal IDs allow letters, digits, colon, underscore, hyphen and period; dotted legacy Spotify usernames such as `ram.in` must round-trip unchanged as `spotify:ram.in`. Slash, backslash, spaces and URL query delimiters remain invalid. This additive prelaunch correction preserves contract/feature versions and is mirrored in Python. `trackId` is the 22-character Spotify ID or an explicit `demo:` ID. Synthetic track `spotifyUri` is always null. A Spotify card's URI must match its ID. No Spotify popularity or removed relinking fields are required.
 
 ## Review semantics
 
@@ -22,7 +22,7 @@ Command uniqueness is `(userId, operation, idempotencyKey)`. Persist the command
 
 DB `DecisionInput` persists the review command. `UndoCommandInput` separately persists `{userId, commandId, decisionId, request:UndoRequest, requestFingerprint, createdAt}`; `decisionId` remains the original target and `commandId` identifies this undo attempt. `ReviewResult.idempotencyKey` always identifies the original review; undo command deduplication uses its own stored request key.
 
-Keep immutable decisions keyed by `decisionId`; a separate `(userId,trackId)` record points to the current decision. Undo targets that decision and must reject a stale decision if a newer review supersedes it (`409 STALE_DECISION`). While mutation status is pending/reconciling, `canUndo=false`; a workflow must settle/reconcile before undo (`409 MUTATION_PENDING`). Failed partial workflows need explicit recovery, not a fabricated completion.
+Keep immutable decisions keyed by `decisionId`; a separate `(userId,trackId)` record points to the current decision. Undo targets that decision and must reject a stale decision if a newer review supersedes it (`409 STALE_DECISION`). While mutation status is pending/reconciling, `canUndo=false`; a workflow must settle/reconcile before undo (`409 MUTATION_PENDING`). Failed partial workflows need explicit recovery, not a fabricated completion. A persisted but unfinished Undo returns retryable `409 UNDO_PENDING`; the original completed decision and active label remain until restoration is confirmed. Retry the same Undo key and only treat `UNDONE` as success.
 
 `ReviewResult` separates workflow status (`PENDING`, `COMPLETE`, `FAILED_RETRYABLE`, `FAILED_TERMINAL`, `UNDONE`) from `mutationStep` (`NONE`, `PENDING`, `ARCHIVED_PLAYLIST_INSERTED`, `UNLIKED`, `RESTORED`, `RECONCILING`). `liked` and `archived` are nullable confirmed states, never guesses. Completed ARCHIVE requires `archived=true, liked=false`; completed UNLIKE requires `liked=false`. Only completed strong decisions activate their label. SKIP stays unlabeled; Undo revokes the original label and increments `feedbackRevision`. A retry must not create duplicate labels. A stores durable state; foundation stubs have no persistence.
 
@@ -30,7 +30,7 @@ P0 archive undo restores the saved track and retains the archive playlist copy. 
 
 ## Queue, model and session boundaries
 
-`QueueResult = {contractVersion, mode, items, remaining, nextCursor, fallbackReason}`. Each item contains `{track, prediction, exposure}`. `TrackCard`, `Prediction` and `Exposure` are independently exported. Queue exposure records preserve the score/version/context at serving time. Validate exposure owner and track at review time. A served/prefetched item is not necessarily a viewed item. Demo fixture exposures are regenerated per request and are not durably recorded in Task 00.
+`QueueResult = {contractVersion, mode, items, remaining, nextCursor, fallbackReason}`. Each item contains `{track, prediction, exposure}`. `TrackCard`, `Prediction` and `Exposure` are independently exported. Queue exposure records preserve the score/version/context at serving time. Validate exposure owner and track at review time. Each new decision consumes a fresh, unconsumed exposure newer than the current decision update; after Undo, fetch a new queue exposure before a new decision. Deduplicated retries return the original command before freshness or membership checks, including after removal. A served/prefetched item is not necessarily a viewed item. Demo fixture exposures are regenerated per request and are not durably recorded in Task 00.
 
 DB `ExposureInput` stores both the full `prediction` (including explanations and uncertainty method) and named `features` alongside `exposure`; all versions/scores must match. `/explain` must use this persisted snapshot rather than the current model.
 

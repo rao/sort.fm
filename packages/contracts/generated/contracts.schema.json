@@ -24,7 +24,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "spotifyId": {
                   "anyOf": [
@@ -32,7 +32,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128,
-                      "pattern": "^[a-zA-Z0-9:_-]+$"
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
                     },
                     {
                       "type": "null"
@@ -165,7 +165,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "provider": {
           "type": "string",
@@ -549,7 +549,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "features": {
           "type": "object",
@@ -911,7 +911,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128,
-                "pattern": "^[a-zA-Z0-9:_-]+$"
+                "pattern": "^[a-zA-Z0-9:_.-]+$"
               },
               "action": {
                 "type": "string",
@@ -1089,7 +1089,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "decisionId": {
           "type": "string",
@@ -1103,7 +1103,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "action": {
               "type": "string",
@@ -1176,7 +1176,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128,
-                      "pattern": "^[a-zA-Z0-9:_-]+$"
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
                     },
                     "spotifyId": {
                       "anyOf": [
@@ -1184,7 +1184,7 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 128,
-                          "pattern": "^[a-zA-Z0-9:_-]+$"
+                          "pattern": "^[a-zA-Z0-9:_.-]+$"
                         },
                         {
                           "type": "null"
@@ -1273,7 +1273,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       "source": {
                         "type": "string",
@@ -1309,7 +1309,7 @@
                                   "type": "string",
                                   "minLength": 1,
                                   "maxLength": 128,
-                                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                                 },
                                 {
                                   "type": "null"
@@ -1526,7 +1526,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       "policy": {
                         "type": "string",
@@ -1899,7 +1899,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": "string"
@@ -1918,7 +1918,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "exposureId": {
           "type": "string",
@@ -2084,7 +2084,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "exposure": {
           "type": "object",
@@ -2098,7 +2098,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "policy": {
               "type": "string",
@@ -2690,7 +2690,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "policy": {
           "type": "string",
@@ -3439,7 +3439,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "decisionId": {
           "type": "string",
@@ -3497,7 +3497,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "featureVersion": {
           "type": "string",
@@ -3517,7 +3517,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128,
-                "pattern": "^[a-zA-Z0-9:_-]+$"
+                "pattern": "^[a-zA-Z0-9:_.-]+$"
               },
               "features": {
                 "type": "object",
@@ -3912,7 +3912,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": "string"
@@ -4182,7 +4182,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^[a-zA-Z0-9:_-]+$"
+      "pattern": "^[a-zA-Z0-9:_.-]+$"
     },
     "IdempotencyKeySchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4198,7 +4198,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "progress": {
           "type": "object",
@@ -5159,7 +5159,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": "string",
@@ -5418,7 +5418,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "mutationId": {
           "type": "string",
@@ -5472,7 +5472,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             {
               "type": "null"
@@ -5506,7 +5506,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "eventId": {
           "type": "string",
@@ -5527,7 +5527,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "feedbackRevision": {
           "type": "integer",
@@ -6152,7 +6152,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "source": {
               "type": "string",
@@ -6188,7 +6188,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       {
                         "type": "null"
@@ -6405,7 +6405,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "policy": {
               "type": "string",
@@ -6592,7 +6592,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128,
-                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                   },
                   "source": {
                     "type": "string",
@@ -6628,7 +6628,7 @@
                               "type": "string",
                               "minLength": 1,
                               "maxLength": 128,
-                              "pattern": "^[a-zA-Z0-9:_-]+$"
+                              "pattern": "^[a-zA-Z0-9:_.-]+$"
                             },
                             {
                               "type": "null"
@@ -6845,7 +6845,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128,
-                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                   },
                   "policy": {
                     "type": "string",
@@ -7013,7 +7013,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "action": {
           "type": "string",
@@ -7056,7 +7056,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "action": {
           "type": "string",
@@ -7220,7 +7220,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "track": {
           "type": "object",
@@ -7229,7 +7229,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "source": {
               "type": "string",
@@ -7265,7 +7265,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       {
                         "type": "null"
@@ -7380,7 +7380,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "featureVersion": {
           "type": "string",
@@ -7396,7 +7396,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128,
-                "pattern": "^[a-zA-Z0-9:_-]+$"
+                "pattern": "^[a-zA-Z0-9:_.-]+$"
               },
               "features": {
                 "type": "object",
@@ -7763,7 +7763,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": "string"
@@ -7781,7 +7781,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 128,
-                "pattern": "^[a-zA-Z0-9:_-]+$"
+                "pattern": "^[a-zA-Z0-9:_.-]+$"
               },
               "prediction": {
                 "type": "object",
@@ -7936,7 +7936,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "features": {
           "type": "object",
@@ -8302,7 +8302,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "modelVersion": {
           "type": [
@@ -8380,7 +8380,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "source": {
           "type": "string",
@@ -8416,7 +8416,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128,
-                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                   },
                   {
                     "type": "null"
@@ -8504,7 +8504,7 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9:_-]+$"
+              "pattern": "^[a-zA-Z0-9:_.-]+$"
             },
             "source": {
               "type": "string",
@@ -8540,7 +8540,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       {
                         "type": "null"
@@ -8637,7 +8637,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "features": {
           "type": "object",
@@ -9016,7 +9016,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9:_-]+$"
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
         },
         "commandId": {
           "type": "string",
@@ -9193,7 +9193,7 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 128,
-                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                   },
                   "spotifyId": {
                     "anyOf": [
@@ -9201,7 +9201,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       {
                         "type": "null"
@@ -9604,7 +9604,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128,
-                      "pattern": "^[a-zA-Z0-9:_-]+$"
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
                     },
                     "source": {
                       "type": "string",
@@ -9640,7 +9640,7 @@
                                 "type": "string",
                                 "minLength": 1,
                                 "maxLength": 128,
-                                "pattern": "^[a-zA-Z0-9:_-]+$"
+                                "pattern": "^[a-zA-Z0-9:_.-]+$"
                               },
                               {
                                 "type": "null"
@@ -9857,7 +9857,7 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 128,
-                      "pattern": "^[a-zA-Z0-9:_-]+$"
+                      "pattern": "^[a-zA-Z0-9:_.-]+$"
                     },
                     "policy": {
                       "type": "string",
@@ -10020,7 +10020,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "action": {
             "type": "string",
@@ -10063,7 +10063,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "action": {
             "type": "string",
@@ -10252,7 +10252,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "action": {
             "type": "string",
@@ -10431,7 +10431,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "action": {
                   "type": "string",
@@ -11255,7 +11255,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "modelVersion": {
             "type": "string"
@@ -11576,7 +11576,7 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128,
-                        "pattern": "^[a-zA-Z0-9:_-]+$"
+                        "pattern": "^[a-zA-Z0-9:_.-]+$"
                       },
                       "spotifyId": {
                         "anyOf": [
@@ -11584,7 +11584,7 @@
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 128,
-                            "pattern": "^[a-zA-Z0-9:_-]+$"
+                            "pattern": "^[a-zA-Z0-9:_.-]+$"
                           },
                           {
                             "type": "null"
@@ -11673,7 +11673,7 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 128,
-                          "pattern": "^[a-zA-Z0-9:_-]+$"
+                          "pattern": "^[a-zA-Z0-9:_.-]+$"
                         },
                         "source": {
                           "type": "string",
@@ -11709,7 +11709,7 @@
                                     "type": "string",
                                     "minLength": 1,
                                     "maxLength": 128,
-                                    "pattern": "^[a-zA-Z0-9:_-]+$"
+                                    "pattern": "^[a-zA-Z0-9:_.-]+$"
                                   },
                                   {
                                     "type": "null"
@@ -11926,7 +11926,7 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 128,
-                          "pattern": "^[a-zA-Z0-9:_-]+$"
+                          "pattern": "^[a-zA-Z0-9:_.-]+$"
                         },
                         "policy": {
                           "type": "string",
@@ -12330,7 +12330,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "featureVersion": {
             "type": "string",
@@ -12350,7 +12350,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "features": {
                   "type": "object",
@@ -12745,7 +12745,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "modelVersion": {
             "type": "string"
@@ -12969,7 +12969,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "featureVersion": {
             "type": "string",
@@ -12985,7 +12985,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "features": {
                   "type": "object",
@@ -13352,7 +13352,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "modelVersion": {
             "type": "string"
@@ -13370,7 +13370,7 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 128,
-                  "pattern": "^[a-zA-Z0-9:_-]+$"
+                  "pattern": "^[a-zA-Z0-9:_.-]+$"
                 },
                 "prediction": {
                   "type": "object",
@@ -13530,7 +13530,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "eventId": {
             "type": "string",
@@ -13551,7 +13551,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "feedbackRevision": {
             "type": "integer",
@@ -13972,7 +13972,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "modelVersion": {
             "type": "string"
@@ -14178,7 +14178,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^[a-zA-Z0-9:_-]+$"
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
           },
           "exposureId": {
             "type": "string",

@@ -13,3 +13,16 @@ coverage/
 .DS_Store
 .superpowers/
 *.log
+
+# Private operator state and provider/database exports never belong in this public repo.
+backups/
+exports/
+private-data/
+secrets/
+.secrets/
+*.dump
+*.pem
+*.key
+*.p12
+*.pfx
+*.joblib

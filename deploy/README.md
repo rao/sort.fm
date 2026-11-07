@@ -6,7 +6,7 @@ The deployment runbook is [`docs/integration/production.md`](../docs/integration
 
 Use project Root Directory `apps/web` and **enable “Include source files outside of the Root Directory in the Build Step.”** The app-root `vercel.json` installs the frozen root workspace and builds only `@sortfm/web`; Vercel serves `apps/web/dist`. Keep the repository-root `.vercelignore` so CLI uploads retain workspace manifests/contracts and omit backend code, Python, secrets, and local state.
 
-Set the public build variable `VITE_API_ORIGIN=https://api.sort.fm`. This is the name read by the frontend. No provider credential, shared secret, database URL, or owner identifier belongs in a `VITE_` variable. Bun install and build explicitly use version `1.4.3` through `npx --yes bun@1.4.3`. The prior `bunx` bootstrap exited before dependency installation on Vercel; the pinned npm bootstrap passed a clean local production upload-context build. Verify the actual Vercel deployment before declaring this platform workaround complete.
+Set the public build variable `VITE_API_ORIGIN=https://api.sort.fm`. This is the name read by the frontend. No provider credential, shared secret, database URL, or owner identifier belongs in a `VITE_` variable. Bun install and build explicitly use version `1.4.3` through `npx --yes bun@1.4.3`. The prior `bunx` bootstrap exited before dependency installation on Vercel; the pinned npm bootstrap passed both a clean local production upload-context build and the actual Vercel Linux deployment at `fd154b0`.
 
 ## Railway services
 

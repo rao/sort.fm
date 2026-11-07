@@ -9,6 +9,9 @@ import {demoTracks} from '@sortfm/contracts/fixtures';
 import {createMlClient} from './client';
 import {assembleLibraryCandidates,type MlLibraryRow} from './features';
 import {createRepositoryMl} from './repository';
+import {createMlReadModule} from './reads';
+import {buildApp} from '../app';
+import {loadConfig} from '../config';
 
 test.skipIf(process.env.ML_ADAPTER_INTEGRATION!=='1')('Bun adapter to real C1: metadata cold start, fit, score, immutable explain, revoke',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'sortfm-ts-ml-'));
@@ -51,6 +54,24 @@ test.skipIf(process.env.ML_ADAPTER_INTEGRATION!=='1')('Bun adapter to real C1: m
   const observed=await adapter.observe(event);expect(observed.accepted).toBe(true);
   expect(await adapter.observe(event)).toEqual(observed);
   expect((await adapter.evaluation('demo:adapter')).trainedExamples).toBe(35);
+  const config=loadConfig({NODE_ENV:'test'});
+  const summary={total:60,reviewed:59,remaining:1,kept:29,unliked:30,archived:0,skipped:0};
+  const reads=createMlReadModule({config:{...config,secureCookies:false},ml:adapter,
+   auth:{session:async token=>token==='synthetic-session'?{user:{id:'demo:adapter'}}:null},
+   getSummary:async()=>summary,
+   audioProgress:async()=>({provider:'soundnet',status:'disabled',featuresReady:0,featuresTotal:60,failed:0,
+    missingness:{energy:1},reason:'No audio in this synthetic integration fixture.'}),
+  });
+  const api=await buildApp({config,registerRoutes:reads.registerRoutes});
+  try{
+   const insights=await api.inject({url:'/api/ml/insights',cookies:{sortfm_session:'synthetic-session'}});
+   expect(insights.statusCode).toBe(200);
+   expect(insights.json()).toMatchObject({prediction:null,metrics:{trainedExamples:35,labeledExamples:59},audioFeatures:{featuresTotal:60}});
+   const analytics=await api.inject({url:'/api/analytics/summary',cookies:{sortfm_session:'synthetic-session'}});
+   expect(analytics.statusCode).toBe(200);
+   expect(analytics.json().library).toEqual(summary);
+   expect(analytics.json().metrics).toEqual(insights.json().metrics);
+  }finally{await api.close();}
   await expect(client.score({userId:'demo:other',featureVersion:FEATURE_VERSION,candidates:[],modelVersion:fitted.modelVersion})).rejects.toMatchObject({code:'MODEL_NOT_FOUND'});
  }finally{
   worker.kill('SIGTERM');await worker.exited;await rm(directory,{recursive:true,force:true});

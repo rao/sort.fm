@@ -2,6 +2,8 @@
 
 Server-only bridge from D's repository to the frozen Python C1 API. This directory owns transport, feature assembly, deterministic feedback splits, and snapshot forwarding. A2 owns queue/review routes, exposure persistence and durable feedback delivery; the integration lead owns runtime configuration. No dependencies or shared/public contracts were changed.
 
+The [public reads registrar](READS.md) adds authenticated insights and analytics GETs with actual metrics, library summary and audio progress. Root installs it; no retraining or mutation endpoint is added.
+
 ## Runtime wiring
 
 Import from `./ml` inside the API only. Inject configuration from the server's composition root; this module reads no environment variables and contains no credentials. `createMlClient` requires HTTPS except for HTTP loopback (`localhost`, `127/8`, `::1`). Redirects are refused so bearer credentials cannot follow a redirect. A URL base path is supported. Remote private HTTP is intentionally not accepted by this client; configure HTTPS or co-located loopback.

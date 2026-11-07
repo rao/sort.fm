@@ -9,3 +9,6 @@ export const DATABASE_IMPLEMENTED=true;
 export type {ReviewLeaseIdentity,ReviewWorkLease,MutationSnapshot,ReviewEffectRequest,ReviewEffect} from './review-recovery';
 
 export {PostgresCalibrationStore} from "./calibration";
+
+export {MusicaeQueue,type MusicaeProgress} from './musicae-queue';
+export type {MusicaeOutcome,MusicaeResponse} from './musicae-types';

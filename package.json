@@ -5,7 +5,7 @@
     "dev": "bun run scripts/dev.ts",
     "dev:api": "bun --env-file=.env --watch apps/api/src/index.ts",
     "dev:web": "bun run --filter @sortfm/web dev",
-    "dev:ml": "uv run --directory services/ml uvicorn sortfm_ml.app:app --host 127.0.0.1 --port 8000",
+    "dev:ml": "bun --env-file=.env scripts/dev-ml.ts",
     "typecheck": "tsc --noEmit", "test": "bun test",
     "test:ml": "uv run --directory services/ml pytest",
     "build": "bun run --filter @sortfm/web build && bun build apps/api/src/index.ts --target=bun --outdir apps/api/dist",

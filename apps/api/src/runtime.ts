@@ -1,4 +1,4 @@
-import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
+import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, PostgresPlaybackStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService} from './reviews/queue';
@@ -14,6 +14,7 @@ import {loadSpotifyConfig} from './auth/config';
 import {createSpotifyModule} from './auth/module';
 import type {SpotifyHttp,Fetch} from './spotify/http';
 import {CalibrationQueue,CalibrationService,createCalibrationModule} from './calibration';
+import {createPlaybackModule,PlaybackService,PlaybackControls,type PlaybackTransport} from './playback';
 
 /** Integration bootstrap. Missing external services leave the isolated demo usable. */
 export async function buildRuntime(options: {
@@ -21,6 +22,7 @@ export async function buildRuntime(options: {
  logger?: boolean;
  spotifyHttp?: SpotifyHttp;
  spotifyMutationFetch?: Fetch;
+ playbackTransport?: PlaybackTransport;
 } = {}) {
  const env=options.env??process.env;
  const config=loadConfig(env);
@@ -50,18 +52,52 @@ export async function buildRuntime(options: {
   }
  } else startupIssues.push('DATABASE_URL_REQUIRED');
 
+ // Playback is optional: an unapplied 014 must not disable library or feedback.
+ let playbackDatabaseReady=false;
+ if(database) {
+  try {
+   await database.transaction(async tx=>{
+    await tx`SELECT user_id,purpose,payload,updated_at FROM playback_grants LIMIT 0`;
+    await tx`SELECT state_hash,user_id,purpose,payload,expires_at,consumed_at,completed_at FROM playback_oauth_attempts LIMIT 0`;
+   });
+   playbackDatabaseReady=true;
+  } catch {startupIssues.push('PLAYBACK_DATABASE_UNAVAILABLE');}
+ }
+
+ const repository=database?new Repository(database):null;
  let spotify:ReturnType<typeof createSpotifyModule>|null=null;
+ let playback:ReturnType<typeof createPlaybackModule>|null=null;
  const a1Store=database?new PostgresA1Store(database):null;
  const required=['SPOTIFY_CLIENT_ID','SPOTIFY_ALLOWED_USER_IDS','TOKEN_ENCRYPTION_KEY','SESSION_SECRET'] as const;
  const missing=required.filter(key=>!env[key]?.trim());
  startupIssues.push(...missing.map(key=>`${key}_REQUIRED`));
  if(a1Store&&missing.length===0) {
   try {
-   spotify=createSpotifyModule({config:loadSpotifyConfig(env),store:a1Store,...(options.spotifyHttp?{http:options.spotifyHttp}:{})});
-  } catch {startupIssues.push('SPOTIFY_CONFIG_INVALID');}
+   const spotifyConfig=loadSpotifyConfig(env);
+   spotify=createSpotifyModule({config:spotifyConfig,store:a1Store,...(options.spotifyHttp?{http:options.spotifyHttp}:{}),
+    ...(playbackDatabaseReady?{playbackCallback:(...args:Parameters<ReturnType<typeof createPlaybackModule>['callback']>)=>playback!.callback(...args)}:{}),
+   });
+   if(playbackDatabaseReady&&database&&repository) {
+    const service=new PlaybackService({config:spotifyConfig,store:new PostgresPlaybackStore(database),auth:spotify.auth,
+     ...(options.playbackTransport?{transport:options.playbackTransport}:{}),
+    });
+    const controls=new PlaybackControls(service,{
+     // Playback requires a completed import and current membership. The shared
+     // repository intentionally retains its pre-import history fallback elsewhere.
+     track:(ownerId,trackId)=>database!.transaction(async tx=>{
+      const [saved]=await tx`SELECT t.card,s.original_added_at FROM library_state l
+       JOIN library_membership m ON m.user_id=l.user_id
+       JOIN saved_tracks s ON s.user_id=m.user_id AND s.track_id=m.track_id
+       JOIN tracks t ON t.track_id=s.track_id
+       WHERE l.user_id=${ownerId} AND m.track_id=${trackId}`;
+      return saved?{...saved.card,originalAddedAt:new Date(saved.original_added_at).toISOString()}:null;
+     }),
+    });
+    playback=createPlaybackModule({config:spotifyConfig,service,controls});
+   }
+  } catch {spotify=null;playback=null;startupIssues.push('SPOTIFY_CONFIG_INVALID');}
  }
 
- const repository=database?new Repository(database):null;
  let ml:RepositoryMl|null=null;
  if(repository&&env.ML_SERVICE_URL&&env.ML_SERVICE_SHARED_SECRET) {
   try {ml=createRepositoryMl({repository,client:createMlClient({serviceUrl:env.ML_SERVICE_URL,sharedSecret:env.ML_SERVICE_SHARED_SECRET,allowRailwayPrivateHttp:env.ML_ALLOW_RAILWAY_PRIVATE_HTTP==='true'})});}
@@ -110,7 +146,7 @@ export async function buildRuntime(options: {
  try {
   const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
    if(feedback){app.addHook('onReady',async()=>{feedback.start();});app.addHook('onClose',async()=>{await feedback.close();});}
-   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);await modelReads?.registerRoutes(app);await modelRetrain?.registerRoutes(app);await calibration?.registerRoutes(app);}
+   if(spotify) {await spotify.registerRoutes(app);await playback?.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);await modelReads?.registerRoutes(app);await modelRetrain?.registerRoutes(app);await calibration?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));
    }

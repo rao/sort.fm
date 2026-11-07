@@ -55,6 +55,61 @@ def test_valid_requests_round_trip_without_renaming_or_inventing_fields(name: st
     canonical(name).validate(result)
 
 
+@pytest.mark.parametrize(("name", "collection", "factory"), [
+    ("ScoreRequest", "candidates", score_payload),
+    ("FitRequest", "examples", fit_payload),
+])
+@pytest.mark.parametrize("provenance", ["synthetic", "licensed", "spotify", "soundnet", "musicae"])
+def test_readers_preserve_partial_features_for_supported_provenance(name: str, collection: str, factory: Any, provenance: str) -> None:
+    payload = factory()
+    features = payload[collection][0]["features"]
+    features.update({
+        "provenance": provenance,
+        "values": {"energy": 0, "tempo_bpm": 123.5, "loudness_db": -8, "mode_major": 0},
+    })
+
+    canonical(name).validate(payload)
+    parsed = dto(name).model_validate(payload)
+    result = getattr(parsed, collection)[0].features
+    assert result.provenance == provenance
+    assert result.featureVersion == "sortfm.features.v1"
+    assert result.values.energy == 0
+    assert result.values.mode_major == 0
+    assert result.values.happiness is None
+    assert result.values.soundnet_popularity is None
+    assert result.model_dump(exclude_unset=True) == features
+    canonical(name).validate(parsed.model_dump(exclude_unset=True))
+
+
+@pytest.mark.parametrize(("name", "collection", "factory"), [
+    ("ScoreRequest", "candidates", score_payload),
+    ("FitRequest", "examples", fit_payload),
+])
+@pytest.mark.parametrize(("field", "value"), [
+    ("valence", 0.5), ("energy", 57), ("tempo_bpm", 0),
+    ("loudness_db", -101), ("unknown_audio_feature", 0.5),
+])
+def test_musicae_readers_reject_aliases_unknown_features_and_invalid_units(name: str, collection: str, factory: Any, field: str, value: Any) -> None:
+    payload = factory()
+    payload[collection][0]["features"].update({"provenance": "musicae", "values": {field: value}})
+    assert not canonical(name).is_valid(payload)
+    with pytest.raises(ValidationError) as error:
+        dto(name).model_validate(payload)
+    assert (collection, 0, "features", "values", field) in [entry["loc"] for entry in error.value.errors()]
+
+
+@pytest.mark.parametrize(("name", "collection", "factory"), [
+    ("ScoreRequest", "candidates", score_payload),
+    ("FitRequest", "examples", fit_payload),
+])
+def test_readers_still_reject_unknown_provenance(name: str, collection: str, factory: Any) -> None:
+    payload = factory()
+    payload[collection][0]["features"]["provenance"] = "unknown-provider"
+    assert not canonical(name).is_valid(payload)
+    with pytest.raises(ValidationError):
+        dto(name).model_validate(payload)
+
+
 @pytest.mark.parametrize(("field", "value", "accepted"), [
     ("energy", 0, True), ("energy", 1, True), ("energy", None, True),
     ("energy", -0.01, False), ("energy", 1.01, False), ("energy", True, False),

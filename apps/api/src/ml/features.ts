@@ -75,7 +75,7 @@ export function assembleLibraryCandidates(rows:readonly MlLibraryRow[],options:F
       const parsed=AudioHeaderSchema.safeParse(header);
       const compatible=parsed.success&&(track.source==='synthetic'
         ? parsed.data.provenance==='synthetic'
-        : ['soundnet','licensed'].includes(parsed.data.provenance));
+        : ['soundnet','licensed','musicae'].includes(parsed.data.provenance));
       if(compatible&&parsed.success&&parsed.data.permittedForTraining&&audioValues&&typeof audioValues==='object'){
         let observed=false;
         for(const key of AUDIO_KEYS){

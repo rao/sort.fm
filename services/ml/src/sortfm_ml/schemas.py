@@ -76,7 +76,7 @@ class FeatureValues(WireModel):
 class FeatureVector(WireModel):
     featureVersion: FeatureVersion
     values: FeatureValues
-    provenance: Literal["synthetic", "licensed", "spotify", "soundnet"]
+    provenance: Literal["synthetic", "licensed", "spotify", "soundnet", "musicae"]
     permittedForTraining: bool
     # Optional, but an explicitly supplied null is invalid in the TS schema.
     rightsBasis: NonEmptyString = Field(default=None)  # type: ignore[assignment]

@@ -120,7 +120,7 @@ export const LibraryImportStatusSchema = z.strictObject({jobId: UuidSchema.nulla
 export type LibraryImportStatus = z.infer<typeof LibraryImportStatusSchema>;
 export const ImportProgressSchema = LibraryImportStatusSchema;
 export type ImportProgress = LibraryImportStatus;
-export const AudioFeatureStatusSchema = z.strictObject({provider: z.literal("soundnet"), status: z.enum(["disabled", "pending", "running", "complete", "failed"]), featuresReady: CountSchema, featuresTotal: CountSchema, failed: CountSchema, missingness: z.record(z.string(), ProbabilitySchema), reason: z.string().nullable()});
+export const AudioFeatureStatusSchema = z.strictObject({provider: z.enum(["soundnet", "musicae"]), status: z.enum(["disabled", "pending", "running", "complete", "failed"]), featuresReady: CountSchema, featuresTotal: CountSchema, failed: CountSchema, missingness: z.record(z.string(), ProbabilitySchema), reason: z.string().nullable()});
 export type AudioFeatureStatus = z.infer<typeof AudioFeatureStatusSchema>;
 const CapabilitiesSchema = z.strictObject({spotifyRead: z.boolean(), spotifyWrite: z.boolean(), playback: z.boolean()});
 export const AccountSessionSchema = z.strictObject({mode: z.enum(["anonymous", "demo", "spotify"]), user: z.strictObject({id: IdSchema, spotifyId: IdSchema.nullable(), displayName: z.string(), avatarUrl: HttpUrlSchema.nullable()}).nullable(), capabilities: CapabilitiesSchema}).superRefine((s, ctx) => {

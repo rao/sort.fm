@@ -233,3 +233,61 @@ validation failures. A failed smoke gate leaves bulk work unapproved and reports
 metadata fallback through `AudioFeatureStatus.reason`; private vendor diagnostics are
 not exposed publicly. Keep the initial failed samples when recording any diagnostic
 retry—later individual successes do not by themselves establish five-sample acceptance.
+
+### Guarded alternate title/artist lookup (migration 011)
+
+`SOUNDNET_LOOKUP_MODE` defaults to `spotify_id`. The explicit `title_artist` mode uses
+SoundNet's documented `/pktx/analysis?song=...&artist=...` endpoint with URL-encoded
+full title and complete ordered artist list. It is an alternate mode, not a hidden
+second request after every Spotify-ID failure. Every job attempt uses one global
+rate permit and at most one provider request. Existing concurrency, 90-second timeout,
+five-attempt cap, exponential backoff, 429 cooldown, cancellation and recovery apply.
+Worst-case provider waiting is five times 90 seconds per track, plus rate-limit waits,
+backoff and lease recovery. An interrupted attempt still consumes its existing budget.
+
+The verifier checks a canonical base64 provider fingerprint matching every title,
+version and ordered artist word, plus duration within 1,000 ms of Spotify metadata.
+It rejects conflicting supplied title/name, artist(s), album, Spotify ID or type,
+malformed encodings, unsupported non-ASCII metadata, missing fingerprints and duration.
+No fuzzy title matching, version stripping, or duration-only verification is permitted.
+Structured title/artist fields are optional because observed provider responses omit
+them. The private verification method is
+`canonical_title_artist_fingerprint_and_duration`; it is **not proof of a unique
+recording**. The concatenated slug loses title/artist boundaries (for example, title
+“Song Live” / artist “Artist” collides with “Song” / “Live Artist”), and versions with
+identical names/durations can remain indistinguishable. Tests preserve this limitation.
+The bounded acceptance rejects duplicate fingerprints among its five actual candidates
+and requires operator review. No catalog-wide resolver or automatic Spotify action is
+introduced. This narrower assurance was explicitly accepted by the integration lead.
+
+Migration `011_soundnet_attempts.sql` adds private evidence per lease token: endpoint,
+expected metadata snapshot, raw JSON, outcome and start/finish times. A `started` row
+without a finish remains visible after a crash; timestamps include dispatch waiting
+and are not claimed as provider network latency. Success/failure evidence settles
+atomically with the existing fenced queue/cache writes. A repeated call under the
+same token cannot start another request. Failed-job resets get fresh lease tokens.
+
+Bounded validation preserves the original `soundnet-review.report.samples` and
+appends a separate versioned acceptance attempt. It reuses exactly those five IDs,
+marks cached replays explicitly, makes at most five calls with no automatic retries,
+and persists each result before continuing. It does not populate new caches or approve
+bulk work. A valid attempt needs five distinct primary artists, all identities verified,
+at least one actual title-endpoint call, and a creation time within the past 24 hours.
+
+```sh
+# Validate only, from the D worktree; no bulk worker starts.
+bun --env-file=../sort.fm/.env apps/api/src/jobs/soundnet/cli.ts smoke-title
+
+# Only after reviewing a successful, explicitly identified acceptance attempt:
+bun --env-file=../sort.fm/.env apps/api/src/jobs/soundnet/cli.ts approve-smoke --attempt ACCEPTANCE_ID
+
+# Start/resume the approved alternate mode; the same command after restart.
+SOUNDNET_LOOKUP_MODE=title_artist bun --env-file=../sort.fm/.env apps/api/src/jobs/soundnet/cli.ts run
+```
+
+Approval re-verifies every raw response against current repository metadata and
+atomically promotes verified samples without overwriting caches. The saved approval
+names the exact acceptance ID, lookup mode and verifier version. An old Spotify-ID
+approval cannot enable title mode; title approval cannot enable Spotify-ID mode.
+Diagnostic arrays never satisfy either gate. Credentials and raw diagnostics remain
+server-side. Run migration 011 before using the updated worker in either mode.

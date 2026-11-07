@@ -1,4 +1,5 @@
 import {test,expect} from 'bun:test';
+import {demoTracks} from '@sortfm/contracts/fixtures';
 import {SoundNetClient,ProviderError,retryDelay} from './provider';import {SoundNetWorker} from './worker';
 import type {ClaimedJob,SoundNetQueue} from '../../../../../packages/db/src/soundnet-queue';
 const id='a'.repeat(22);
@@ -15,7 +16,7 @@ test('slow provider times out and permanent failures do not retry',async()=>{
 });
 test('worker persists retry scheduling and global cooldown then caches normalized success',async()=>{
  const failures:unknown[][]=[];let cached:any;let paused=0;let count=0;
- const queue={maxAttempts:5,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),complete:async(_j:unknown,v:unknown)=>{cached=v;return true;},fail:async(...v:unknown[])=>{failures.push(v);return true;},cooldown:async(ms:number)=>{paused=ms;}} as unknown as SoundNetQueue;
+ const queue={maxAttempts:5,beginAttempt:async()=>demoTracks[0]!,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),complete:async(_j:unknown,v:unknown)=>{cached=v;return true;},fail:async(...v:unknown[])=>{failures.push(v);return true;},cooldown:async(ms:number)=>{paused=ms;}} as unknown as SoundNetQueue;
  const client=new SoundNetClient('secret',{fetch:async()=>++count===1?new Response('',{status:429,headers:{'Retry-After':'2'}}):Response.json({energy:42})});
  const worker=new SoundNetWorker(queue,client,{concurrency:3,maxConcurrency:5,random:()=>0});
  const job:ClaimedJob={trackId:id,featureVersion:'sortfm.features.v1',token:crypto.randomUUID(),attempts:1};
@@ -24,7 +25,7 @@ test('worker persists retry scheduling and global cooldown then caches normalize
 });
 test('bounded concurrent requests do not await slow audio on caller launch',async()=>{
  let claimed=0,active=0,maxActive=0,completed=0;const releases:(()=>void)[]=[];
- const queue={maxAttempts:5,claim:async()=>claimed<6?{trackId:id,featureVersion:'sortfm.features.v1',token:String(++claimed),attempts:1}:null,unfinished:async()=>6-completed,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),complete:async()=>{completed++;return true;}} as unknown as SoundNetQueue;
+ const queue={maxAttempts:5,beginAttempt:async()=>demoTracks[0]!,claim:async()=>claimed<6?{trackId:id,featureVersion:'sortfm.features.v1',token:String(++claimed),attempts:1}:null,unfinished:async()=>6-completed,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),complete:async()=>{completed++;return true;}} as unknown as SoundNetQueue;
  const client=new SoundNetClient('secret',{fetch:async()=>{active++;maxActive=Math.max(maxActive,active);await new Promise<void>(r=>releases.push(r));active--;return Response.json({energy:50});}});
  const worker=new SoundNetWorker(queue,client,{concurrency:3,maxConcurrency:3});const work=worker.run();
  await Bun.sleep(20);expect(active).toBe(3);expect(completed).toBe(0);
@@ -35,15 +36,22 @@ test('SoundNet HTTP 200 pull failures retry within the existing attempt budget',
  const client=new SoundNetClient('secret',{fetch:async()=>Response.json({error:'Failed to pull track data'})});
  await expect(client.fetch(id)).rejects.toMatchObject({code:'PROVIDER_TRACK_UNAVAILABLE',retryable:true});
  const failures:unknown[][]=[],events:Record<string,unknown>[]=[];
- const queue={maxAttempts:5,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),fail:async(...args:unknown[])=>{failures.push(args);return true;}} as unknown as SoundNetQueue;
+ const queue={maxAttempts:5,beginAttempt:async()=>demoTracks[0]!,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),fail:async(...args:unknown[])=>{failures.push(args);return true;}} as unknown as SoundNetQueue;
  const worker=new SoundNetWorker(queue,client,{concurrency:3,maxConcurrency:3,random:()=>0,log:e=>events.push(e)});
  await worker.process({trackId:id,featureVersion:'sortfm.features.v1',token:crypto.randomUUID(),attempts:5});
  expect(failures[0]!.slice(1,3)).toEqual(['PROVIDER_TRACK_UNAVAILABLE',true]);expect(failures[0]![4]).toEqual({error:'Failed to pull track data'});expect(events[0]!.retryInMs).toBeNull();expect(worker.concurrency).toBe(2);
 });
 test('literal JSON null from the provider is retained in failed-feature diagnostics',async()=>{
  const failures:unknown[][]=[];
- const queue={maxAttempts:5,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),fail:async(...args:unknown[])=>{failures.push(args);return true;}} as unknown as SoundNetQueue;
+ const queue={maxAttempts:5,beginAttempt:async()=>demoTracks[0]!,renew:async()=>true,dispatch:async(f:()=>Promise<unknown>)=>f(),fail:async(...args:unknown[])=>{failures.push(args);return true;}} as unknown as SoundNetQueue;
  const client=new SoundNetClient('secret',{fetch:async()=>Response.json(null)});
  await new SoundNetWorker(queue,client).process({trackId:id,featureVersion:'sortfm.features.v1',token:crypto.randomUUID(),attempts:1});
  expect(failures[0]!.slice(1,3)).toEqual(['INVALID_FEATURES',false]);expect(failures[0]![4]).toBeNull();
+});
+test('title lookup encodes query values without changing authority, retains timeout/cancellation',async()=>{
+ let called='';const client=new SoundNetClient('secret',{fetch:async url=>{called=url;return Response.json({energy:50});}});
+ await client.fetch(id,undefined,{title:'A & B? #1',artists:['Artist / One','Artist Two']});
+ const url=new URL(called);expect(url.pathname).toBe('/pktx/analysis');expect(url.searchParams.get('song')).toBe('A & B? #1');expect(url.searchParams.get('artist')).toBe('Artist / One, Artist Two');expect(url.hostname).toBe('track-analysis.p.rapidapi.com');expect(url.toString()).not.toContain('secret');
+ const cancelled=new AbortController();cancelled.abort();let requests=0;
+ await expect(new SoundNetClient('secret',{fetch:async()=>{requests++;return Response.json({energy:1});}}).fetch(id,cancelled.signal,{title:'Song',artists:['Artist']})).rejects.toThrow();expect(requests).toBe(0);
 });

@@ -251,6 +251,8 @@ export function ConnectedLibrary({
 					</div>
 					{status?.total != null ? (
 						<Progress
+							key={status.jobId}
+							smooth
 							value={status.processed}
 							max={status.total || 1}
 							label="Spotify import progress"

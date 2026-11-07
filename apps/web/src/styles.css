@@ -305,6 +305,32 @@ progress::-webkit-progress-value {
 progress::-moz-progress-bar {
 	background: var(--mint);
 }
+.smooth-progress {
+	position: relative;
+	display: block;
+	width: 100%;
+	height: 3px;
+	margin-block: 8px 20px;
+	overflow: hidden;
+	border-radius: 5px;
+	background: #30372f;
+}
+.smooth-progress > progress {
+	position: absolute;
+	inset: 0;
+	margin: 0;
+	opacity: 0;
+}
+.smooth-progress-fill {
+	display: block;
+	width: 100%;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--mint);
+	transform-origin: left;
+	/* Span the 1.5s import polling interval, interpolating confirmed progress only. */
+	transition: transform 1.6s linear;
+}
 .skip-link {
 	position: fixed;
 	z-index: 100;

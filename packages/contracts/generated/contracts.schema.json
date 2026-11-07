@@ -6679,6 +6679,275 @@
       ],
       "additionalProperties": false
     },
+    "PlaybackConnectRequestSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "returnTo": {
+          "type": "string",
+          "enum": [
+            "review",
+            "calibration"
+          ]
+        }
+      },
+      "required": [
+        "returnTo"
+      ],
+      "additionalProperties": false
+    },
+    "PlaybackConnectResponseSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "authorizationUrl": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "required": [
+        "authorizationUrl"
+      ],
+      "additionalProperties": false
+    },
+    "PlaybackConnectionStatusSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "reconnect_required",
+            "premium_required",
+            "unavailable"
+          ]
+        },
+        "sdkReady": {
+          "type": "boolean"
+        },
+        "controlReady": {
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "sdkReady",
+        "controlReady",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "PlaybackControlScopeSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "enum": [
+        "user-read-playback-state",
+        "user-modify-playback-state",
+        "user-read-private"
+      ]
+    },
+    "PlaybackControlScopesSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "minItems": 3,
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "user-read-playback-state",
+          "user-modify-playback-state",
+          "user-read-private"
+        ]
+      }
+    },
+    "PlaybackDeviceIdSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[\\x21-\\x7e]+$"
+    },
+    "PlaybackEmptyRequestSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "PlaybackErrorCodeSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "enum": [
+        "PLAYBACK_PREMIUM_REQUIRED",
+        "PLAYBACK_RECONNECT_REQUIRED",
+        "PLAYBACK_UNAVAILABLE",
+        "PLAYBACK_SCOPE_REJECTED",
+        "PLAYBACK_DEVICE_UNAVAILABLE",
+        "PLAYBACK_DEVICE_RESTRICTED",
+        "PLAYBACK_TRACK_UNAVAILABLE",
+        "PLAYBACK_RATE_LIMITED",
+        "PLAYBACK_OUTCOME_UNKNOWN"
+      ]
+    },
+    "PlaybackErrorEnvelopeSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "PLAYBACK_PREMIUM_REQUIRED",
+            "PLAYBACK_RECONNECT_REQUIRED",
+            "PLAYBACK_UNAVAILABLE",
+            "PLAYBACK_SCOPE_REJECTED",
+            "PLAYBACK_DEVICE_UNAVAILABLE",
+            "PLAYBACK_DEVICE_RESTRICTED",
+            "PLAYBACK_TRACK_UNAVAILABLE",
+            "PLAYBACK_RATE_LIMITED",
+            "PLAYBACK_OUTCOME_UNKNOWN"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "PlaybackPlayRequestSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "trackUri": {
+          "type": "string",
+          "pattern": "^spotify:track:[a-zA-Z0-9]{22}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[\\x21-\\x7e]+$"
+        }
+      },
+      "required": [
+        "trackUri",
+        "deviceId"
+      ],
+      "additionalProperties": false
+    },
+    "PlaybackReturnToSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "enum": [
+        "review",
+        "calibration"
+      ]
+    },
+    "PlaybackSdkScopeSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "string",
+      "enum": [
+        "streaming",
+        "user-read-email",
+        "user-read-private"
+      ]
+    },
+    "PlaybackSdkScopesSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "minItems": 3,
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "streaming",
+          "user-read-email",
+          "user-read-private"
+        ]
+      }
+    },
+    "PlaybackSdkTokenSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9:_.-]+$"
+        },
+        "accessToken": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "^[\\x21-\\x7e]+$"
+        },
+        "tokenType": {
+          "type": "string",
+          "const": "Bearer"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "scopes": {
+          "minItems": 3,
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "streaming",
+              "user-read-email",
+              "user-read-private"
+            ]
+          }
+        }
+      },
+      "required": [
+        "ownerId",
+        "accessToken",
+        "tokenType",
+        "expiresAt",
+        "scopes"
+      ],
+      "additionalProperties": false
+    },
+    "PlaybackTransferRequestSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[\\x21-\\x7e]+$"
+        }
+      },
+      "required": [
+        "deviceId"
+      ],
+      "additionalProperties": false
+    },
     "PlayerStatusSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
@@ -13089,6 +13358,226 @@
         },
         "required": [
           "trackUri"
+        ],
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "playbackConnection": {
+      "method": "GET",
+      "path": "/api/player/connection",
+      "auth": "owner",
+      "query": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "reconnect_required",
+              "premium_required",
+              "unavailable"
+            ]
+          },
+          "sdkReady": {
+            "type": "boolean"
+          },
+          "controlReady": {
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "sdkReady",
+          "controlReady",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "playbackConnect": {
+      "method": "POST",
+      "path": "/api/player/connect",
+      "auth": "owner",
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "returnTo": {
+            "type": "string",
+            "enum": [
+              "review",
+              "calibration"
+            ]
+          }
+        },
+        "required": [
+          "returnTo"
+        ],
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "authorizationUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "authorizationUrl"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "playbackToken": {
+      "method": "POST",
+      "path": "/api/player/token",
+      "auth": "owner",
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ownerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9:_.-]+$"
+          },
+          "accessToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": "^[\\x21-\\x7e]+$"
+          },
+          "tokenType": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "scopes": {
+            "minItems": 3,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "streaming",
+                "user-read-email",
+                "user-read-private"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ownerId",
+          "accessToken",
+          "tokenType",
+          "expiresAt",
+          "scopes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "playbackPlay": {
+      "method": "POST",
+      "path": "/api/player/sdk/play",
+      "auth": "owner",
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "trackUri": {
+            "type": "string",
+            "pattern": "^spotify:track:[a-zA-Z0-9]{22}$"
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[\\x21-\\x7e]+$"
+          }
+        },
+        "required": [
+          "trackUri",
+          "deviceId"
+        ],
+        "additionalProperties": false
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "playbackTransfer": {
+      "method": "POST",
+      "path": "/api/player/transfer",
+      "auth": "owner",
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[\\x21-\\x7e]+$"
+          }
+        },
+        "required": [
+          "deviceId"
         ],
         "additionalProperties": false
       },

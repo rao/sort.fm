@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createIdempotencyKey } from "@sortfm/contracts/client";
 
-import { pendingJournal } from "./live-client";
+import { createLiveApi, pendingJournal } from "./live-client";
 import { ReviewStore } from "../state/review";
 
 import {
@@ -9,6 +9,79 @@ import {
 	partialAudioFeatures,
 	liveFixture,
 } from "../test-support/live-fixture";
+
+test.each(["token", "play"] as const)(
+	"a playback-only reconnect 401 on %s preserves the primary session",
+	async (operation) => {
+		let unauthorized = 0;
+		let requests = 0;
+		const api = createLiveApi({
+			onUnauthorized: () => {
+				unauthorized++;
+			},
+			fetch: (async (_input: Parameters<typeof fetch>[0]) => {
+				requests++;
+				return Response.json(
+					{
+						code: "PLAYBACK_RECONNECT_REQUIRED",
+						message: "provider-private-detail",
+						retryable: false,
+					},
+					{ status: 401 },
+				);
+			}) as typeof fetch,
+		});
+		await expect(
+			operation === "token"
+				? api.playbackToken("owner")
+				: api.playOnDevice({
+						trackUri: `spotify:track:${"0".repeat(22)}`,
+						deviceId: "browser",
+					}),
+		).rejects.toThrow();
+		expect(unauthorized).toBe(0);
+		expect(requests).toBe(1);
+	},
+);
+
+test.each(["AUTHENTICATION_REQUIRED", "PLAYBACK_RECONNECT_REQUIRED"])(
+	"primary session 401 %s still invalidates login",
+	async (code) => {
+		let unauthorized = 0;
+		const api = createLiveApi({
+			onUnauthorized: () => {
+				unauthorized++;
+			},
+			fetch: (async (_input: Parameters<typeof fetch>[0]) =>
+				Response.json(
+					{ code, message: "Expired", retryable: false },
+					{ status: 401 },
+				)) as typeof fetch,
+		});
+		await expect(api.session()).rejects.toThrow();
+		expect(unauthorized).toBe(1);
+	},
+);
+
+test("primary authentication failure on a playback endpoint still invalidates login", async () => {
+	let unauthorized = 0;
+	const api = createLiveApi({
+		onUnauthorized: () => {
+			unauthorized++;
+		},
+		fetch: (async (_input: Parameters<typeof fetch>[0]) =>
+			Response.json(
+				{
+					code: "AUTHENTICATION_REQUIRED",
+					message: "Expired",
+					retryable: false,
+				},
+				{ status: 401 },
+			)) as typeof fetch,
+	});
+	await expect(api.playbackToken("owner")).rejects.toThrow();
+	expect(unauthorized).toBe(1);
+});
 
 describe("live adapter and command lifecycle", () => {
 	test("only credentialed live routes are used; totals are not derived from history", async () => {

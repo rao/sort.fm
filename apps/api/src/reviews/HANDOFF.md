@@ -101,3 +101,51 @@ Consistency boundary: automatic feedback training is asynchronous. Queue reads u
 - `bun run typecheck`, `bun run build`, standalone reviews module Bun bundle and `git diff --check`:passed. Independent read-only review found no actionable defects.
 
 No module blocker remains. Runtime callback wiring and canonical integration belong to the lead. C2 exploration and production latency/provider smoke remain outside this change.
+## A2 follow-up verification and archive safety hardening — November 7, 2026
+
+Branch `a2-cleanup-hardening`, isolated worktree `sort.fm-a2`, based on approved integrated foundation `d6d55b4`. The complete mutation workflow above already existed in that foundation. This follow-up audits and tests that implementation and fixes a concrete reconciliation gap; it does not replace the module or change shared contracts. Integration lead owns merging and deployment. No frontend, persistence implementation, shared DTO, or root runtime files changed.
+
+### Fix and changed files
+
+- `apps/api/src/spotify/mutations.ts`: verify that a playlist response identifies the requested playlist. Validate item IDs, URI/type agreement and supplied relinked identity fields before interpreting membership. Reject bare IDs with no resolved item type, empty identities and contradictory metadata. Episodes never confirm a track backup. Malformed state remains retryable instead of becoming evidence of absence or successful archive insertion.
+- `apps/api/src/spotify/mutations.test.ts`: regressions for these failures plus valid URI-only, current/legacy, relinked, null and local items. The safety regressions were observed failing before the corresponding fixes.
+- `apps/api/src/reviews/worker.test.ts`: archive create/add rejection, ambiguous create/delete/restore, missing archive visibility, rate-limit deadline persistence, database settlement interruption, and Keep/Skip Undo coverage.
+- `apps/api/src/reviews/module.test.ts`: all three public review endpoints reject invalid/expired/duplicate sessions, cross-site mutation requests and forged identity fields; pending replay stays HTTP 202 and cross-account history/Undo remain isolated.
+- `apps/api/src/reviews/A2-VERIFICATION-PLAN.md`: scoped acceptance and review record.
+- `apps/api/src/reviews/HANDOFF.md`: this integration evidence and limitations.
+
+Spotify reference checks: [playlist item identities](https://developer.spotify.com/documentation/web-api/reference/get-playlists-items), [archive insertion](https://developer.spotify.com/documentation/web-api/reference/add-items-to-playlist), [library removal](https://developer.spotify.com/documentation/web-api/reference/remove-library-items). These documentation checks are not live transaction proof.
+
+### Verified behavior
+
+| Command | Confirmed behavior |
+| --- | --- |
+| KEEP | No Spotify write; active removal-preference label 0. Undo clears review state and revokes feedback. |
+| ARCHIVE | Private owner archive verified; insertion must be observable before unlike. Only confirmed unlike activates label 1. Failed/uncertain archive work never removes the like. |
+| SKIP | Deferred; no strong label. Undo clears deferral without Spotify writes or an opposite label. |
+| UNLIKE | Explicit command removes directly without archive. Ambiguous completion reconciles saved state before activating label 1. |
+| Undo | Original completed decision/label remains until restoration is confirmed. Then local membership is restored and the original label is revoked with a new feedback revision; no opposite example is added. |
+
+Retry keys preserve command identity. Exposure consumption, current-decision guards, owner leases and immutable playlist intents prevent duplicate requests from causing duplicate actions. The feedback outbox delivers authoritative revision-consistent snapshots to C1, including zero labels after Undo. Original exposure predictions remain immutable. Imported saved timestamps remain stored; Spotify's saved ordering cannot be restored exactly. Archive Undo retains the playlist copy, as specified by the shared P0 contract.
+
+### Fresh verification in this worktree
+
+- `bun install --frozen-lockfile`: pass, no lockfile changes.
+- `bun run test`: **281 pass, 56 opt-in skips, 0 failures; 1,451 assertions**.
+- `bun run typecheck`, `bun run build`, `git diff --check`: pass. Build retains two existing upstream Zod annotation warnings.
+- `bun run test:ml`: **228 passed**.
+- `bun run smoke`: pass, controlled local HTTP only.
+- Targeted adapter/worker/mutation-route tests: **36 pass, 165 assertions**.
+- Actual Tiger Data, isolated synthetic schemas: queue snapshot persistence and authenticated workflow both pass (7 and 49 assertions). Workflow covers all actions, archive-success/unlike-failure/restart, repeated commands, destructive Undo and events. Spotify transport was mocked throughout.
+- Actual Tiger Data plus local C1 process and durable recovery: **6 pass, 184 assertions** across the full backend HTTP flow, four repository lease/journal recovery cases, and feedback outbox reconstruction/Undo. This includes automatic workers, all four actions and all four Undo actions, model acknowledgement, unchanged exposure predictions, and ML outage fallback.
+- Final-code full backend replay plus Tiger decision guards, feedback outbox and settlement atomicity: **7 pass, 168 assertions**. Concurrent distinct request keys consume one exposure once; membership/count settlement is idempotent; stale acknowledgements cannot clear newer feedback; failed settlement rolls back the feedback job and revision together.
+
+An initial new-worktree ML readiness attempt failed before the local service became available. After `uv sync --locked --directory services/ml`, the feedback and full backend checks passed. Initial sandboxed baseline HTTP tests could not bind loopback sockets; those passed when rerun with socket access. Neither failure was hidden or disabled.
+
+Independent read-only review identified remaining bare-ID and contradictory `linked_from` cases. Three additional reproductions failed before the fix and passed afterward; the final full suite passed. No review findings remain deferred.
+
+### Remaining integration gates and recovery limits
+
+This A2 follow-up used controlled provider transports and did not perform live Spotify writes or verify production/frontend behavior. Subsequent integration separately verified the owner-authorized Thriller Archive→Unlike→Undo transaction; see REAL_SPOTIFY_ACCEPTANCE.md. Production browser acceptance and the remaining action-specific live checks are still separate gates.
+
+An ambiguous non-idempotent playlist POST with no subsequently observable effect deliberately remains unresolved and retryable. Spotify supplies no request idempotency key for that POST, so replaying it blindly could create duplicates. Operator reconciliation may be needed; do not clear durable intents or force a successful result. This is an existing documented recovery limitation, not a new wire-contract change.

@@ -57,3 +57,82 @@ test('SKIP replacing a prior strong decision advances revision while emitting no
   const s=setup('SKIP');s.repo.trainingExamples=async()=>({feedbackRevision:4,examples:[{trackId:s.lease.result.trackId,decisionId:crypto.randomUUID(),label:0,split:'train',labeledAt:new Date().toISOString(),features:{featureVersion:'sortfm.features.v1',values:{},provenance:'synthetic',permittedForTraining:true}}]});
   await s.worker.runOnce();expect(s.lease.result).toMatchObject({status:'COMPLETE',feedbackRevision:5,label:null,labelState:'inactive'});expect(s.calls).toEqual([]);
 });
+
+test('failed archive creation or insertion never removes the like or activates feedback',async()=>{
+  for(const stage of ['createArchive','addArchive'] as const) {
+    const s=setup();s.spotify[stage]=async()=>{throw new MutationRequestError('SPOTIFY_WRITE_REJECTED','Rejected',403,false,'rejected');};
+    await s.worker.runOnce();
+    expect(s.liked()).toBe(true);expect(s.calls).not.toContain('unlike');
+    expect(s.lease.result).toMatchObject({status:'FAILED_RETRYABLE',label:null,labelState:'inactive',canUndo:false,feedbackRevision:0});
+  }
+});
+
+test('ambiguous playlist creation reconciles its marker without issuing a duplicate create',async()=>{
+  const s=setup();let remotePlaylist:string|null=null;
+  s.spotify.findArchive=async()=>remotePlaylist;
+  s.spotify.createArchive=async()=>{s.calls.push('create');remotePlaylist='0000000000000000000002';throw new MutationRequestError('SPOTIFY_WRITE_UNCONFIRMED','Timeout',503,true,'unknown');};
+  await s.worker.runOnce();expect(s.liked()).toBe(true);expect(s.calls).not.toContain('unlike');
+  s.retry();await new ReviewWorker(s.repo,s.spotify,s.options).runOnce();
+  expect(s.lease.result).toMatchObject({status:'COMPLETE',liked:false,archived:true,label:1});
+  expect(s.calls.filter(call=>call==='create')).toHaveLength(1);
+});
+
+test('unresolved playlist creation never repeats POST even across workers',async()=>{
+  const s=setup();s.spotify.createArchive=async()=>{s.calls.push('create');throw new MutationRequestError('SPOTIFY_WRITE_UNCONFIRMED','Timeout',503,true,'unknown');};
+  await s.worker.runOnce();s.retry();await new ReviewWorker(s.repo,s.spotify,s.options).runOnce();
+  expect(s.calls.filter(call=>call==='create')).toHaveLength(1);expect(s.calls).not.toContain('add');expect(s.calls).not.toContain('unlike');expect(s.liked()).toBe(true);
+});
+
+test('a rejected insertion retries only after its persisted provider deadline',async()=>{
+  const s=setup(),add=s.spotify.addArchive;let calls=0,retryAt=0;
+  s.repo.retryReviewWork=async(_user,_lease,at)=>{retryAt=at;return true;};
+  s.spotify.addArchive=async(...args)=>{if(++calls===1)throw new MutationRequestError('SPOTIFY_RATE_LIMITED','Wait',429,true,'rejected',Date.now()+120000);await add(...args);};
+  const started=Date.now();await s.worker.runOnce();
+  expect(retryAt).toBeGreaterThanOrEqual(started+120000);expect(s.liked()).toBe(true);expect(s.lease.result.label).toBeNull();
+  // The repository controls eligibility. Explicitly release the test claim to
+  // represent a later eligible run, without sleeping or bypassing production DB time.
+  s.retry();await new ReviewWorker(s.repo,s.spotify,s.options).runOnce();
+  expect(s.lease.result.status).toBe('COMPLETE');expect(s.calls.filter(call=>call==='add')).toHaveLength(1);
+});
+
+test('acknowledged insertion must be observable and still present immediately before unlike',async()=>{
+  for(const visibility of [[false,false],[false,true,false]]) {
+    const s=setup();let reads=0;s.spotify.archiveContains=async()=>visibility[Math.min(reads++,visibility.length-1)]!;
+    await s.worker.runOnce();expect(s.liked()).toBe(true);expect(s.calls).not.toContain('unlike');
+    expect(s.lease.result).toMatchObject({status:'FAILED_RETRYABLE',label:null,canUndo:false});
+  }
+});
+
+test('unlike success without confirmed absence stays incomplete and unlabeled',async()=>{
+  const s=setup('UNLIKE');s.spotify.setLiked=async()=>{s.calls.push('unlike');};
+  await s.worker.runOnce();expect(s.lease.result).toMatchObject({status:'FAILED_RETRYABLE',label:null,canUndo:false});expect(s.liked()).toBe(true);
+});
+
+test('ambiguous unlike and restore reconcile after restart without repeating a committed write',async()=>{
+  const s=setup('UNLIKE'),write=s.spotify.setLiked;
+  s.spotify.setLiked=async(...args)=>{await write(...args);throw new MutationRequestError('SPOTIFY_WRITE_UNCONFIRMED','Timeout',503,true,'unknown');};
+  await s.worker.runOnce();expect(s.liked()).toBe(false);expect(s.lease.result.label).toBeNull();
+  s.retry();await new ReviewWorker(s.repo,s.spotify,s.options).runOnce();
+  expect(s.lease.result).toMatchObject({status:'COMPLETE',label:1,feedbackRevision:1});
+  s.lease.operation='undo';s.lease.commandId=crypto.randomUUID();s.retry();await s.worker.runOnce();
+  expect(s.liked()).toBe(true);expect(s.lease.result).toMatchObject({status:'COMPLETE',label:1,feedbackRevision:1});
+  s.retry();await new ReviewWorker(s.repo,s.spotify,s.options).runOnce();
+  expect(s.lease.result).toMatchObject({status:'UNDONE',label:null,labelState:'revoked',feedbackRevision:2});
+  expect(s.calls).toEqual(['unlike','restore']);
+});
+
+test('a database settlement interruption after unlike reconciles without duplicate writes or labels',async()=>{
+  const s=setup(),settle=s.repo.settleDecision;let fail=true;
+  s.repo.settleDecision=async(...args)=>{if(args[1].status==='COMPLETE'&&fail){fail=false;throw new Error('database unavailable');}return settle(...args);};
+  await s.worker.runOnce();expect(s.liked()).toBe(false);expect(s.lease.result.label).toBeNull();
+  s.retry();await new ReviewWorker(s.repo,s.spotify,s.options).runOnce();
+  expect(s.lease.result).toMatchObject({status:'COMPLETE',label:1,feedbackRevision:1});
+  expect(s.calls.filter(call=>call==='add')).toHaveLength(1);expect(s.calls.filter(call=>call==='unlike')).toHaveLength(1);
+});
+
+test('Keep and Skip Undo clear review state without any Spotify calls or opposite label',async()=>{
+  for(const action of ['KEEP','SKIP'] as const) {
+    const s=setup(action);await s.worker.runOnce();s.lease.operation='undo';s.lease.commandId=crypto.randomUUID();s.retry();await s.worker.runOnce();
+    expect(s.lease.result).toMatchObject({status:'UNDONE',mutationStep:'NONE',label:null,labelState:'revoked',canUndo:false});expect(s.calls).toEqual([]);
+  }
+});

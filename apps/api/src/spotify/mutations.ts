@@ -16,6 +16,31 @@ const invalid=()=>new SpotifyError('SPOTIFY_INVALID_RESPONSE','Spotify returned 
 const id=SpotifyTrackIdSchema;
 const playlistSchema=z.object({id,public:z.boolean().nullable(),owner:z.object({id:z.string()}),description:z.string().nullable().optional()});
 const pageSchema=z.object({offset:z.number().int().nonnegative(),total:z.number().int().nonnegative(),items:z.array(z.unknown()).max(50)});
+const playlistItemSchema=z.object({
+  id:id.nullable().optional(),
+  uri:z.string().min(1).optional(),
+  type:z.enum(['track','episode']).optional(),
+  linked_from:z.object({id,type:z.literal('track').optional(),uri:z.string().optional()})
+    .refine(value=>value.uri===undefined || value.uri===`spotify:track:${value.id}`).optional(),
+});
+
+function playlistTrackMatches(item:unknown,trackId:string):boolean {
+  const parsed=playlistItemSchema.safeParse(item);
+  if(!parsed.success)throw invalid();
+  const value=parsed.data;
+  // Local tracks cannot back up a catalog URI. An empty object, however, is
+  // unknown state, not evidence that the requested catalog track is absent.
+  if(value.uri?.startsWith('spotify:local:')) {
+    if(value.id || value.type==='episode')throw invalid();
+    return false;
+  }
+  const uri=value.uri?.match(/^spotify:(track|episode):([A-Za-z0-9]{22})$/);
+  if((value.uri && !uri) || (!value.id && !uri))throw invalid();
+  if(uri && ((value.id && value.id!==uri[2]) || (value.type && value.type!==uri[1])))throw invalid();
+  if(!value.type && !uri)throw invalid();
+  if((value.type??uri?.[1])==='episode')return false;
+  return (value.id??uri?.[2])===trackId || value.linked_from?.id===trackId;
+}
 export {WRITE_SCOPES} from './scopes';
 export type WriteGuard=()=>Promise<void>;
 
@@ -93,7 +118,7 @@ export class SpotifyMutations {
   async verifyArchive(userId:string,playlistId:string):Promise<void> {
     await this.auth.requireScopes(userId,['playlist-read-private']);
     const result=playlistSchema.safeParse(await this.read(userId,`/playlists/${id.parse(playlistId)}`));
-    if(!result.success)throw invalid();
+    if(!result.success || result.data.id!==playlistId)throw invalid();
     if(result.data.owner.id!==userId.slice(8) || result.data.public!==false) throw new SpotifyError('ARCHIVE_NOT_PRIVATE','The archive must be a private playlist owned by this account.',409);
   }
   async findArchive(userId:string):Promise<string|null> {
@@ -118,9 +143,7 @@ export class SpotifyMutations {
       const item='item' in entry.data?entry.data.item:entry.data.track;
       if(item===null)return false;
       if(item===undefined)throw invalid();
-      const track=z.object({id:z.string().nullable().optional(),uri:z.string().optional(),linked_from:z.object({id:z.string()}).optional()}).safeParse(item);
-      if(!track.success)throw invalid();
-      return track.data.id===trackId || track.data.linked_from?.id===trackId || track.data.uri===`spotify:track:${trackId}`;
+      return playlistTrackMatches(item,trackId);
     });
   }
   async addArchive(userId:string,playlistId:string,trackId:string,guard?:WriteGuard):Promise<void> {

@@ -51,12 +51,19 @@ export class Repository extends ReviewRecoveryRepository {
   const [old]=await tx`SELECT * FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
   if(old){if(old.request_fingerprint!==v.requestFingerprint || json(old.request)!==json(v.request)){
    const [same]=await tx`SELECT 1 FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey} AND request_fingerprint=${v.requestFingerprint} AND request=${json(v.request)}::jsonb`;if(!same)fail('IDEMPOTENCY_CONFLICT');}return old.result;}
+  const [exposure]=await tx`SELECT track_id,served_at FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`;
+  if(!exposure)fail('EXPOSURE_NOT_FOUND');if(exposure.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
+  if((await tx`SELECT 1 FROM exposure_consumptions WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`).length)fail('EXPOSURE_ALREADY_CONSUMED');
   const [current]=await tx`SELECT d.result FROM current_decisions c JOIN review_decisions d USING(user_id,decision_id) WHERE c.user_id=${v.userId} AND c.track_id=${v.request.trackId}`;
   if(current && !['COMPLETE','UNDONE','FAILED_TERMINAL'].includes(current.result.status))fail('MUTATION_PENDING');
   const [undoing]=await tx`SELECT 1 FROM undo_commands u JOIN review_decisions d USING(user_id,decision_id) WHERE u.user_id=${v.userId} AND d.track_id=${v.request.trackId} AND u.settled_at IS NULL`;if(undoing)fail('MUTATION_PENDING');
   const [track]=await tx`SELECT t.card FROM saved_tracks s JOIN tracks t USING(track_id) WHERE s.user_id=${v.userId} AND s.track_id=${v.request.trackId}`;if(!track)fail('TRACK_NOT_OWNED');
+  const [membership]=await tx`SELECT 1 FROM library_state s WHERE s.user_id=${v.userId} AND NOT EXISTS(SELECT 1 FROM library_membership m WHERE m.user_id=s.user_id AND m.track_id=${v.request.trackId})`;
+  if(membership)fail('TRACK_NOT_IN_LIBRARY');
+  if(current&&new Date(exposure.served_at).getTime()<=Date.parse(current.result.updatedAt))fail('STALE_EXPOSURE');
   const result=ReviewResultSchema.parse({decisionId:v.decisionId,...v.request,status:'PENDING',mutationStep:'PENDING',mode:track.card.source==='synthetic'?'demo':'spotify',liked:null,archived:null,canUndo:false,label:null,labelState:'inactive',feedbackRevision:owner.feedback_revision,error:null,createdAt:v.createdAt,updatedAt:v.createdAt});
   await tx`INSERT INTO review_decisions(decision_id,user_id,track_id,exposure_id,idempotency_key,request_fingerprint,request,result,created_at) VALUES(${v.decisionId},${v.userId},${v.request.trackId},${v.request.exposureId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${json(result)}::jsonb,${v.createdAt})`;
+  await tx`INSERT INTO exposure_consumptions(user_id,exposure_id,decision_id) VALUES(${v.userId},${v.request.exposureId},${v.decisionId})`;
   await tx`INSERT INTO current_decisions(user_id,track_id,decision_id) VALUES(${v.userId},${v.request.trackId},${v.decisionId}) ON CONFLICT(user_id,track_id) DO UPDATE SET decision_id=excluded.decision_id`;
   await tx`INSERT INTO review_work(command_id,user_id,decision_id,operation) VALUES(${v.decisionId},${v.userId},${v.decisionId},'review')`;
   return result;

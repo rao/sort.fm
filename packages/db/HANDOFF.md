@@ -52,3 +52,14 @@ in README. Local PostgreSQL tests exercise crash reclamation, caller-clock spoof
 expired/cross-user/legacy fencing, ambiguous intent reconciliation, immutable facts,
 explicit retry scheduling and Undo completion safety. Integration lead owns applying
 008 to shared Tiger; no concurrent cloud migration/test was run for this follow-up.
+
+## Exposure safety follow-up
+
+Migration009 and command guards preserve same-key retries after destructive removal,
+serialize exposure consumption, reject stale exposures after settlement/Undo, and check
+confirmed membership under the owner lock. Integration lead explicitly approved this
+stricter internal behavior. API must map sanitized conflict codes and fetch fresh queue
+exposures after Undo; timestamps originate on the server. Targeted local tests cover
+concurrent distinct keys, owner/track mismatch, removed membership, exact-time staleness,
+fresh post-Undo decisions and historical idempotency reads. Tiger application remains
+with the integration lead.

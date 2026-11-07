@@ -3,6 +3,7 @@ import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService} from './reviews/queue';
 import {createReviewQueueModule} from './reviews/module';
+import {FeedbackWorker} from './reviews/feedback';
 import {assembleLibraryCandidates,createMlClient,createRepositoryMl,type RepositoryMl} from './ml';
 import {buildApp} from './app';
 import {loadConfig} from './config';
@@ -61,9 +62,14 @@ export async function buildRuntime(options: {
   config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
   ...(config.demoEnabled?{demoQueue:(query:Parameters<QueueService['get']>[1])=>createDemoQueue({...query,servedAt:new Date().toISOString(),exposureId:()=>crypto.randomUUID()})}:{}),
  }):null;
+ const feedback=repository&&ml?new FeedbackWorker(repository,ml,{onError:code=>{
+  // Codes are fixed worker diagnostics; never log model payloads or account credentials.
+  if(options.logger)console.warn(code);
+ }}):null;
 
  try {
   const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
+   if(feedback){app.addHook('onReady',async()=>{feedback.start();});app.addHook('onClose',async()=>{await feedback.close();});}
    if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));
@@ -72,5 +78,5 @@ export async function buildRuntime(options: {
   let closing:Promise<void>|undefined;
   const close=()=>closing??=(async()=>{try{await app.close();}finally{await database?.close();}})();
   return {app,config,startupIssues,close};
- } catch(error) {await database?.close();throw error;}
+ } catch(error) {await feedback?.close();await database?.close();throw error;}
 }

@@ -3,15 +3,15 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {createMlClient} from '../src/ml';
+import {createMlClient,feedbackSplit} from '../src/ml';
 import {Database,migrate,Repository} from '@sortfm/db';
-import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema} from '@sortfm/contracts';
+import {QueueResultSchema,AccountSessionSchema,LibraryImportStatusSchema,ReviewRequestSchema,type ReviewResult} from '@sortfm/contracts';
 import {buildRuntime} from '../src/runtime';
 import {SpotifyHttp} from '../src/spotify/http';
 
 const databaseUrl=process.env.TEST_DATABASE_URL;
 
-test.skipIf(!databaseUrl)('HTTP OAuth/import reach Tiger and real C1 scoring with missing-audio and ML outage fallback',async()=>{
+test.skipIf(!databaseUrl)('HTTP import reaches Tiger/C1 queue and runtime feedback reconciles Keep/Undo with outage fallback',async()=>{
  const schema=`test_backend_${crypto.randomUUID().replaceAll('-','')}`;
  const db=new Database(databaseUrl!,schema);
  const artifactDir=await mkdtemp(join(tmpdir(),'sortfm-backend-ml-'));
@@ -81,6 +81,26 @@ test.skipIf(!databaseUrl)('HTTP OAuth/import reach Tiger and real C1 scoring wit
   expect(demo.items[0]?.track.source).toBe('synthetic');
   expect((await(await fetch(`${base}/api/health`)).json() as {capabilities:{ml:boolean}}).capabilities.ml).toBe(true);
   expect((await ml.evaluation({userId:session.user!.id})).status).toBe('insufficient_data');
+  // Exercise the actual runtime lifecycle: no manual worker kick or direct fit.
+  const userId=session.user!.id,item=queue.items[0]!;
+  const request=ReviewRequestSchema.parse({trackId:item.track.trackId,action:'KEEP',exposureId:item.exposure.exposureId,idempotencyKey:crypto.randomUUID()});
+  const pending=await repository.createDecision({userId,decisionId:crypto.randomUUID(),request,requestFingerprint:'runtime-keep',createdAt:new Date().toISOString()});
+  const complete:ReviewResult={...pending,status:'COMPLETE',mutationStep:'NONE',label:0,labelState:'active',feedbackRevision:1,canUndo:true,updatedAt:new Date().toISOString()};
+  const awaitFeedback=async(revision:number,labels:number)=>{
+   const until=Date.now()+15_000;let acknowledged=false;
+   while(Date.now()<until){
+    const rows=await db.transaction(tx=>tx`SELECT acknowledged_revision FROM feedback_sync_jobs WHERE user_id=${userId}`);
+    if(Number(rows[0]?.acknowledged_revision)===revision){acknowledged=true;break;}
+    await Bun.sleep(100);
+   }
+   expect(acknowledged).toBe(true);
+   expect((await ml.evaluation({userId})).labeledExamples).toBe(labels);
+  };
+  await repository.settleDecision(userId,complete,'PENDING',feedbackSplit(userId,item.track.trackId));
+  await awaitFeedback(1,1);
+  await repository.createUndo({userId,commandId:crypto.randomUUID(),decisionId:pending.decisionId,request:{idempotencyKey:crypto.randomUUID() as typeof request.idempotencyKey},requestFingerprint:'runtime-undo',createdAt:new Date().toISOString()});
+  await repository.settleDecision(userId,{...complete,status:'UNDONE',label:null,labelState:'revoked',feedbackRevision:2,canUndo:false,updatedAt:new Date().toISOString()},'COMPLETE',feedbackSplit(userId,item.track.trackId));
+  await awaitFeedback(2,0);
   worker.kill('SIGTERM');await worker.exited;
   const fallback=QueueResultSchema.parse(await(await fetch(`${base}/api/queue?limit=1`,{headers:{cookie:sessionCookie}})).json());
   expect(fallback.items[0]?.prediction.modelVersion).toBe('queue:metadata:v1');

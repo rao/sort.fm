@@ -2,20 +2,24 @@ import {connectDatabase, PostgresA1Store, Repository, type Database} from '@sort
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService} from './reviews/queue';
-import {createReviewQueueModule} from './reviews/module';
+import {createReviewQueueModule,createReviewMutationModule} from './reviews/module';
 import {FeedbackWorker} from './reviews/feedback';
+import {ReviewService} from './reviews/service';
+import {ReviewWorker} from './reviews/worker';
+import {SpotifyMutations} from './spotify/mutations';
 import {assembleLibraryCandidates,createMlClient,createRepositoryMl,type RepositoryMl} from './ml';
 import {buildApp} from './app';
 import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
 import {createSpotifyModule} from './auth/module';
-import type {SpotifyHttp} from './spotify/http';
+import type {SpotifyHttp,Fetch} from './spotify/http';
 
 /** Integration bootstrap. Missing external services leave the isolated demo usable. */
 export async function buildRuntime(options: {
  env?: Record<string,string|undefined>;
  logger?: boolean;
  spotifyHttp?: SpotifyHttp;
+ spotifyMutationFetch?: Fetch;
 } = {}) {
  const env=options.env??process.env;
  const config=loadConfig(env);
@@ -29,6 +33,7 @@ export async function buildRuntime(options: {
     await tx`SELECT id FROM users LIMIT 0`;
     await tx`SELECT user_id FROM library_membership LIMIT 0`;
     await tx`SELECT feedback_revision FROM users LIMIT 0`;
+    await tx`SELECT membership_revision FROM users LIMIT 0`;
    });
   } catch {
    await database?.close().catch(()=>{});
@@ -66,11 +71,19 @@ export async function buildRuntime(options: {
   // Codes are fixed worker diagnostics; never log model payloads or account credentials.
   if(options.logger)console.warn(code);
  }}):null;
+ const reviewWorker=spotify&&repository?new ReviewWorker(repository,
+  new SpotifyMutations(spotify.auth,spotify.auth.http,options.spotifyMutationFetch?{fetch:options.spotifyMutationFetch}:{}),
+  {auth:spotify.auth,...(feedback?{feedback}:{}),onError:code=>{if(options.logger)console.warn(code);}}):null;
+ const mutations=spotify&&repository&&reviewWorker?createReviewMutationModule({
+  auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
+  service:new ReviewService(repository,{auth:spotify.auth,worker:reviewWorker}),worker:reviewWorker,
+  enableWrites:()=>spotify!.auth.enableReviewWrites(),
+ }):null;
 
  try {
   const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
    if(feedback){app.addHook('onReady',async()=>{feedback.start();});app.addHook('onClose',async()=>{await feedback.close();});}
-   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);}
+   if(spotify) {await spotify.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));
    }
@@ -78,5 +91,5 @@ export async function buildRuntime(options: {
   let closing:Promise<void>|undefined;
   const close=()=>closing??=(async()=>{try{await app.close();}finally{await database?.close();}})();
   return {app,config,startupIssues,close};
- } catch(error) {await feedback?.close();await database?.close();throw error;}
+ } catch(error) {await reviewWorker?.close();await feedback?.close();await database?.close();throw error;}
 }

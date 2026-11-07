@@ -25,14 +25,48 @@ async function setup(production = false, wrongUser = false) {
   const app = await buildApp({config, registerRoutes:module.registerRoutes}); apps.push(app);
   return {app, module, store, paths, config};
 }
-async function connect(app: FastifyInstance) {
+async function connect(app: FastifyInstance, extraQuery = '') {
   const start = await app.inject({method:'GET', url:'/api/auth/spotify/start'});
   expect(start.statusCode).toBe(302);
   const state = new URL(start.headers.location!).searchParams.get('state')!;
   const cookie = start.cookies[0]!;
-  const callback = await app.inject({method:'GET', url:`/api/auth/spotify/callback?state=${state}&code=code`, cookies:{[cookie.name]:cookie.value}});
+  const callback = await app.inject({method:'GET', url:`/api/auth/spotify/callback?state=${state}&code=code${extraQuery}`, cookies:{[cookie.name]:cookie.value}});
   return {start, callback};
 }
+
+test('callback ignores provider metadata without letting it choose the redirect or account', async () => {
+  const {app, config} = await setup();
+  const {callback} = await connect(app, '&ubi=synthetic%2Bmetadata%3D&future_parameter=value&redirect_uri=https%3A%2F%2Fevil.test&userId=intruder');
+  expect(callback.statusCode).toBe(302);
+  expect(callback.headers.location).toBe(config.webOrigin);
+  const session = callback.cookies.find(c => c.name === 'sortfm_session' && c.value)!;
+  expect(session).toBeDefined();
+  const me = await app.inject({url:'/api/me', cookies:{[session.name]:session.value}});
+  expect(me.json()).toMatchObject({mode:'spotify', user:{spotifyId:'owner'}});
+});
+
+test('provider metadata does not bypass callback state, cookie or scalar-field validation', async () => {
+  const {app, paths} = await setup();
+  for (const query of ['code=code&state=invalid', 'code=code&state=' + 'a'.repeat(43), 'code=first&code=second', 'state=first&state=second', 'error=first&error=second']) {
+    const response = await app.inject(`/api/auth/spotify/callback?${query}&ubi=synthetic`);
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe(query.includes('second') ? 'VALIDATION_ERROR' : 'OAUTH_STATE_INVALID');
+    expect(response.cookies.some(c => c.name === 'sortfm_session' && c.value)).toBe(false);
+  }
+  expect(paths).toEqual([]);
+});
+
+test('callback with provider error metadata preserves the safe denial response', async () => {
+  const {app, paths} = await setup();
+  const start = await app.inject('/api/auth/spotify/start');
+  const state = new URL(start.headers.location!).searchParams.get('state')!;
+  const cookie = start.cookies[0]!;
+  const response = await app.inject({url:`/api/auth/spotify/callback?state=${state}&error=access_denied&error_description=provider-detail&ubi=synthetic`, cookies:{[cookie.name]:cookie.value}});
+  expect(response.statusCode).toBe(400);
+  expect(response.json().code).toBe('OAUTH_ACCESS_DENIED');
+  expect(response.body).not.toContain('provider-detail');
+  expect(paths).toEqual([]);
+});
 
 test('OAuth redirect requests planned user permissions without Open Access service scopes', async () => {
   const {app} = await setup();

@@ -95,6 +95,13 @@ export default function App({
 			}),
 		};
 	});
+	const [playbackStopped, setPlaybackStopped] = useState(false);
+	function signOut() {
+		// Local audio and SDK callbacks stop before a slow or failed server logout.
+		playback?.store.dispose();
+		setPlaybackStopped(true);
+		onLogout?.();
+	}
 	const calibrationState = useSyncExternalStore(
 		calibration?.subscribe ?? emptySubscribe,
 		calibration?.getSnapshot ?? emptySnapshot,
@@ -246,7 +253,7 @@ export default function App({
 							>
 								Reconnect Spotify
 							</button>
-							<button className="button ghost" type="button" onClick={onLogout}>
+							<button className="button ghost" type="button" onClick={signOut}>
 								Sign out
 							</button>
 							<a className="button secondary" href="#/library">
@@ -711,18 +718,25 @@ export default function App({
 				)}
 			{playback ? (
 				<footer className="player-bar" ref={footerRef}>
-					<BrowserPlayback
-						store={playback.store}
-						gateway={playback.gateway}
-						track={
-							route === "calibrate"
-								? (calibrationState?.queue[0]?.track ?? null)
-								: route === "review"
-									? (current?.track ?? null)
-									: null
-						}
-						returnTo={route === "calibrate" ? "calibration" : "review"}
-					/>
+					{playbackStopped ? (
+						<output aria-live="polite">
+							Playback stopped for sign-out. Retry sign out or reconnect Spotify
+							to listen again.
+						</output>
+					) : (
+						<BrowserPlayback
+							store={playback.store}
+							gateway={playback.gateway}
+							track={
+								route === "calibrate"
+									? (calibrationState?.queue[0]?.track ?? null)
+									: route === "review"
+										? (current?.track ?? null)
+										: null
+							}
+							returnTo={route === "calibrate" ? "calibration" : "review"}
+						/>
+					)}
 				</footer>
 			) : (
 				route !== "calibrate" && (

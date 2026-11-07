@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { BrowserPlayerStore } from "./browser-player";
 import type {
 	SpotifySdkEvents,
@@ -460,5 +461,150 @@ test.each(["selection", "dispose"])(
 		await action;
 		expect(f.calls).not.toContain("resume");
 		f.store.dispose();
+	},
+);
+
+test.each(["reject", "resolve"] as const)(
+	"Sign out stops SDK audio before the server can %s and fences late credentials",
+	async (outcome) => {
+		// Execute the actual UI event and server handler without mounting a browser.
+		// SDK work uses the real store, including its asynchronous token/lifecycle guards.
+		const appSource = readFileSync(
+			new URL("../App.tsx", import.meta.url),
+			"utf8",
+		);
+		const connectedSource = readFileSync(
+			new URL("../components/Connected.tsx", import.meta.url),
+			"utf8",
+		);
+		const eventName = appSource.match(
+			/<button[^>]*onClick=\{(\w+)\}[^>]*>\s*Sign out/,
+		)?.[1];
+		expect(eventName).toBeDefined();
+		const eventSource =
+			eventName === "onLogout"
+				? "onLogout"
+				: appSource.match(
+						new RegExp(`function ${eventName}\\(\\) \\{[\\s\\S]*?\\n\\t\\}`),
+					)?.[0];
+		const serverSource = connectedSource.match(
+			/const logout = (async \(\) => \{[\s\S]*?\n\t\});/,
+		)?.[1];
+		expect(eventSource).toBeDefined();
+		expect(serverSource).toBeDefined();
+		const f = fixture();
+		const unmount = f.store.retain();
+		f.store.select(uri, true);
+		await f.store.enable();
+		f.confirm(uri);
+		let finishToken!: (token: string) => void;
+		let tokenRequests = 0;
+		const pendingToken = new Promise<string>((resolve) => {
+			finishToken = resolve;
+		});
+		f.gateway.token = () => {
+			tokenRequests++;
+			return pendingToken;
+		};
+		const credentials: string[] = [];
+		f.options().getOAuthToken((token) => credentials.push(token));
+		let finishLogout!: () => void;
+		let rejectLogout!: (cause: Error) => void;
+		const pendingLogout = new Promise<void>((resolve, reject) => {
+			finishLogout = resolve;
+			rejectLogout = reject;
+		});
+		let disconnectedAtRequest = 0;
+		let session: object | null = { user: "owner" };
+		const originalSession = session;
+		let reportedError: string | null = null;
+		let stopped = false;
+		let serverCompletion: Promise<void> | undefined;
+		const serverLogout = new Function(
+			"api",
+			"setSession",
+			"setError",
+			"window",
+			"errorMessage",
+			`return (${serverSource});`,
+		)(
+			{
+				logout: () => {
+					disconnectedAtRequest = f.calls.filter(
+						(call) => call === "disconnect",
+					).length;
+					return pendingLogout;
+				},
+			},
+			(value: null) => {
+				session = value;
+				unmount();
+			},
+			(value: string | null) => {
+				reportedError = value;
+			},
+			{ location: { hash: "/review" } },
+			(cause: Error) => cause.message,
+		);
+		const clickSignOut = new Function(
+			"playback",
+			"setPlaybackStopped",
+			"onLogout",
+			`return (${eventSource});`,
+		)(
+			{ store: f.store },
+			(value: boolean) => {
+				stopped = value;
+			},
+			() => {
+				serverCompletion = serverLogout();
+			},
+		);
+		try {
+			clickSignOut();
+			const duringLogout = f.store.getSnapshot();
+			const callCount = f.calls.length;
+			finishToken("late-test-only-sdk-credential");
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			f.options().getOAuthToken((token) => credentials.push(token));
+			await f.store.play();
+			await f.store.togglePause();
+			await f.store.seek(90000);
+			await f.store.toggleMute();
+			await f.store.enable();
+			const callsWhilePending = f.calls.slice(callCount);
+			if (outcome === "reject")
+				rejectLogout(new Error("Logout request failed"));
+			else finishLogout();
+			await serverCompletion;
+			f.options().getOAuthToken((token) => credentials.push(token));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			await f.store.play();
+			await f.store.togglePause();
+			await f.store.seek(90000);
+			await f.store.toggleMute();
+			expect(disconnectedAtRequest).toBe(1);
+			expect(duringLogout.connection).toBe("idle");
+			expect(duringLogout.paused).toBe(true);
+			expect(duringLogout.actualUri).toBeNull();
+			expect(stopped).toBe(true);
+			expect(callsWhilePending).toEqual([]);
+			expect(f.calls.slice(callCount)).toEqual([]);
+			expect(tokenRequests).toBe(1);
+			expect(credentials).toEqual([]);
+			expect(JSON.stringify(f.store.getSnapshot())).not.toContain(
+				"late-test-only-sdk-credential",
+			);
+			expect(session as object | null).toBe(
+				outcome === "reject" ? originalSession : null,
+			);
+			expect(reportedError as string | null).toBe(
+				outcome === "reject" ? "Logout request failed" : null,
+			);
+		} finally {
+			finishToken("late-test-only-sdk-credential");
+			finishLogout();
+			f.store.dispose();
+		}
 	},
 );

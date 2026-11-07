@@ -16,16 +16,17 @@ Recovery corrections cover:
 - Scoped playback reconnect responses preserve the primary login. Genuine primary authentication failures still invalidate it.
 - Consent recovery stays visible while existing SDK audio retains local pause/mute/seek controls.
 - Late connection checks and consent completions cannot update or redirect an unmounted owner session.
+- Sign out synchronously disposes the shared player before invoking server logout. Pending token completion and further SDK/control requests are fenced even if logout hangs or rejects. The player footer is replaced with a stopped message; a rejected server logout retains the primary session and displays its error as before.
 
 ## Verification
 
-- `bun test apps/web/src`: **142 passed, 0 failed, 529 assertions**, 14 files.
-- `bun test` with DB/ML integration environment flags unset: **640 passed, 78 skipped, 0 failed, 3391 assertions**, 66 files. Integration skips are explicit; no DB was used.
+- `bun test apps/web/src`: **144 passed, 0 failed, 559 assertions**, 14 files.
+- `bun test` with DB/ML integration environment flags unset: **642 passed, 78 skipped, 0 failed, 3421 assertions**, 66 files. Integration skips are explicit; no DB was used.
 - `bun run typecheck`: passed.
 - `bun run --filter @sortfm/web lint`: passed, 41 files.
 - `bun run --filter @sortfm/web build`: passed. Only upstream Zod/Rollup annotation warnings.
 - `bun run smoke`: passed against an in-process synthetic foundation server, no Spotify calls.
-- Independent source/fixture review: no remaining P0/P1/P2 findings; 73 focused tests and 223 assertions passed at review.
+- Independent source/fixture review: no remaining P0/P1/P2 findings. The logout follow-up review independently reran all 144 frontend tests / 559 assertions and cleared the narrow correction. Its regressions execute the actual App sign-out event and ConnectedRoot logout handler source against the real store and fake SDK; they are not mounted React/browser tests.
 
 Browser acceptance was **not performed**: CUA focus/CDP is unavailable. Tests use fake SDK and HTTP fixtures, so they do not establish audible audio, Premium authorization, DRM or provider support. Backend availability remains a separate integration gate governed by `docs/integration/playback.md`.
 

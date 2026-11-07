@@ -34,4 +34,6 @@
 
 ## Recovery completion — 2026-11-07
 
-Implementation and independent source/fixture review are complete. The root test suite passed 640 tests with 78 integration skips; the frontend passed 142 tests. Typecheck, web lint/build and no-provider foundation smoke passed. Task 4 remains unchecked because browser acceptance could not be performed while CUA focus/CDP is unavailable; real Premium OAuth, DRM and audible audio are separate acceptance gates. See B2-sdk-playback-handoff.md for the recovery fixes, verification and remaining acceptance steps.
+Implementation and independent source/fixture review are complete. The root test suite passed 642 tests with 78 integration skips; the frontend passed 144 tests. Typecheck, web lint/build and no-provider foundation smoke passed. Task 4 remains unchecked because browser acceptance could not be performed while CUA focus/CDP is unavailable; real Premium OAuth, DRM and audible audio are separate acceptance gates. See B2-sdk-playback-handoff.md for the recovery fixes, verification and remaining acceptance steps.
+
+Logout follow-up: clicking Sign out now disposes the shared SDK store before the server request, and removes the player UI for the rest of that App lifetime. Pending/rejected logout regressions verify late-token suppression, disabled audio operations and unchanged primary-session/error semantics. Fresh source review, frontend/root tests, typecheck, lint and build passed.

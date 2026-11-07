@@ -113,3 +113,39 @@ test('logout and allowlist removal invalidate access independently of access tok
   await ctx.auth.logout(result.sessionToken);
   expect(await ctx.auth.session(result.sessionToken)).toBeNull();
 });
+
+test('an expired refresh worker cannot revoke a newer worker lease or its sessions', async () => {
+  let firstStarted!: () => void, secondStarted!: () => void, failFirst!: () => void, finishSecond!: () => void;
+  const firstBegan = new Promise<void>(r => {firstStarted = r;}), secondBegan = new Promise<void>(r => {secondStarted = r;});
+  const firstGate = new Promise<void>(r => {failFirst = r;}), secondGate = new Promise<void>(r => {finishSecond = r;});
+  let refreshes = 0;
+  const ctx = setup({fetch:async (url, init) => {
+    if (!url.includes('/api/token')) return Response.json(profile);
+    if (new URLSearchParams(init!.body as URLSearchParams).get('grant_type') !== 'refresh_token') return Response.json(token);
+    refreshes++;
+    if (refreshes === 1) {firstStarted(); await firstGate; return Response.json({error:'invalid_grant'}, {status:400});}
+    secondStarted(); await secondGate; return Response.json({...token, access_token:'new-owner-token', refresh_token:'new-refresh'});
+  }});
+  const result = await login(ctx.auth); ctx.advance(3_600_000);
+  const first = ctx.auth.accessToken(result.account.user.id).catch(error => error);
+  await firstBegan; ctx.advance(120_001);
+  const second = new AuthService(testConfig(), ctx.store, ctx.http).accessToken(result.account.user.id);
+  await secondBegan; failFirst(); await first;
+  const interim = ctx.store.data.accounts.get(result.account.user.id)!;
+  expect(interim.revoked).toBe(false); expect(interim.refreshLease).not.toBeNull();
+  expect(await ctx.auth.session(result.sessionToken)).not.toBeNull();
+  finishSecond(); expect((await second).token).toBe('new-owner-token');
+});
+
+test('refresh retries are bounded to fit inside the durable lease', async () => {
+  let refreshes = 0;
+  const ctx = setup({fetch:async (url, init) => {
+    if (!url.includes('/api/token')) return Response.json(profile);
+    if (new URLSearchParams(init!.body as URLSearchParams).get('grant_type') === 'refresh_token') {refreshes++; return new Response('', {status:503});}
+    return Response.json(token);
+  }});
+  const result = await login(ctx.auth); ctx.advance(3_600_000);
+  await expect(ctx.auth.accessToken(result.account.user.id)).rejects.toMatchObject({code:'SPOTIFY_UNAVAILABLE'});
+  expect(refreshes).toBe(2);
+  expect(ctx.store.data.accounts.get(result.account.user.id)?.refreshLease).toBeNull();
+});

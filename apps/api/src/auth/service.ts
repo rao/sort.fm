@@ -72,12 +72,13 @@ export class AuthService {
   publicSession(account: Account | null): AccountSession {
     return {mode:account ? 'spotify' : 'anonymous', user:account?.user ?? null, capabilities:{spotifyRead:!!account && account.scopes.includes('user-library-read'), spotifyWrite:false, playback:false}};
   }
-  async revoke(userId: string, version: string) {
-    await this.store.transaction(async tx => {
+  async revoke(userId: string, version: string, refreshLeaseId?: string) {
+    return this.store.transaction(async tx => {
       const account = await tx.getAccount(userId);
-      if (!account || account.credentialVersion !== version) return;
+      if (!account || account.credentialVersion !== version || (refreshLeaseId !== undefined && account.refreshLease?.id !== refreshLeaseId)) return false;
       await tx.putAccount({...account, accessToken:'', refreshToken:'', revoked:true, refreshLease:null});
       await tx.deleteSessions(userId);
+      return true;
     });
   }
   /** Fenced, durable refresh lease prevents concurrent rotation across API replicas. */
@@ -102,7 +103,7 @@ export class AuthService {
       if (!claim.refresh) return {token:this.cipher.open(claim.account.accessToken, `${userId}:access`), version:claim.account.credentialVersion};
       try {
         const refreshToken = this.cipher.open(claim.account.refreshToken, `${userId}:refresh`);
-        const tokens = this.parseTokens(await this.http.json('https://accounts.spotify.com/api/token', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({grant_type:'refresh_token', client_id:this.config.clientId, refresh_token:refreshToken})}, {token:true}));
+        const tokens = this.parseTokens(await this.http.json('https://accounts.spotify.com/api/token', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({grant_type:'refresh_token', client_id:this.config.clientId, refresh_token:refreshToken})}, {token:true, attempts:2}));
         const scopes = tokens.scope?.split(/\s+/).filter(Boolean) ?? claim.account.scopes;
         this.requireReadScope(scopes);
         const saved = await this.store.transaction(async tx => {
@@ -114,7 +115,10 @@ export class AuthService {
         if (!saved) continue; // Concurrent reauthorization won. Never overwrite its credentials.
         return {token:tokens.access_token, version:saved.credentialVersion};
       } catch (error) {
-        if (error instanceof SpotifyError && ['SPOTIFY_REAUTH_REQUIRED', 'SPOTIFY_SCOPE_REQUIRED'].includes(error.code)) await this.revoke(userId, claim.account.credentialVersion);
+        if (error instanceof SpotifyError && ['SPOTIFY_REAUTH_REQUIRED', 'SPOTIFY_SCOPE_REQUIRED'].includes(error.code)) {
+          const revoked = await this.revoke(userId, claim.account.credentialVersion, leaseId);
+          if (!revoked) throw new SpotifyError('REFRESH_SUPERSEDED', 'A newer Spotify authorization is in progress. Retry shortly.', 503, true);
+        }
         await this.store.transaction(async tx => {
           const account = await tx.getAccount(userId);
           if (account?.refreshLease?.id === leaseId) await tx.putAccount({...account, refreshLease:null});

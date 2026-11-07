@@ -77,9 +77,31 @@ const queue = new SoundNetQueue(db);
 - `upsertSavedTracks` batches validated inputs in two SQL statements and preserves original timestamps/status. `library(userId)` returns current confirmed membership, or partial snapshots before the first complete sync. Each item includes `track`, `currentStatus`, nullable `audioFeatures`, and nullable `currentDecision` (including pending workflows). `library(userId,true)` explicitly reads all historical snapshots. API queue owners must filter review status and playability and avoid currently pending decisions.
 - `insertExposure`/`getExposure` retain immutable predictions and feature vectors. `createDecision` persists/deduplicates the command before side effects. Reused keys with different payloads conflict. `createUndo` reserves a settled current decision and blocks competing commands while restoration runs. `transitionMutation` is a CAS journal for the caller's remote workflow; `setArchivePlaylist` and archive records persist successful insertion facts.
 - `settleDecision(userId,result,expectedStatus,split)` validates the result and atomically changes decision state, current membership/count, feedback revision, and genuine swipe telemetry. A2 must confirm remote state first, supply the correct next revision, and persist undo before restoration. The repository never performs or guesses a Spotify mutation. Pending/failed replacement reviews preserve effective training feedback. SKIP replacing an active label writes a revised null tombstone. Fixed split membership survives subsequent reviews/undo. Pending undo commands remain reserved until reconciliation completes; do not start a fresh review to bypass an ambiguous restore.
-- `trainingExamples(userId)` returns a revision-consistent `{feedbackRevision, examples}` snapshot, including immutable feature-at-exposure vectors and stable train/holdout splits. Pass these to Python using the frozen `/fit` contract; for `/score`, combine library metadata with nullable audio using C's feature assembly. For `/observe`, A2 still owns transport/outbox delivery. No model training occurs here. SQL view `sortfm.ml_training_examples` supports a separately provisioned restricted read role; all queries must filter authenticated `user_id`.
+- `trainingExamples(userId)` returns a revision-consistent `{feedbackRevision, examples}` snapshot, including immutable feature-at-exposure vectors and stable train/holdout splits. Pass these to Python using the frozen `/fit` contract; for `/score`, combine library metadata with nullable audio using C's feature assembly. A2 owns ML transport; the durable revision queue below schedules full `/fit` reconciliation atomically with feedback. No model training occurs here. SQL view `sortfm.ml_training_examples` supports a separately provisioned restricted read role; all queries must filter authenticated `user_id`.
 - `recordModelRun` and `latestModel` preserve immutable versions and validated evaluation metrics. `recordTelemetry` deduplicates event IDs outside the hypertable, then writes both event and time-series row atomically. `analytics(userId,from,to)` returns minute buckets by event type/model, observed score/uncertainty/latency means and action counts. No fabricated model metrics. `queue.progress(userId)` matches `AudioFeatureStatus`, including missingness across all current tracks, not just successful ones.
 - `saveImportProgress` is a separate summary record and cannot overwrite A1's lease/checkpoint payload. `importProgress` reads A1's authoritative progress preferentially. DB inputs retain the shared names; no public DTO fields were renamed.
+
+## Durable feedback reconciliation
+
+Migration `007_feedback_sync.sql` adds one coalescing job per user and backfills existing nonzero feedback revisions. `settleDecision` updates this row in the same transaction as feedback, including SKIP replacement and Undo. No ML request runs in the database transaction.
+
+The A-owned worker uses these `Repository` methods (`now`/`retryAt` are epoch milliseconds):
+
+```ts
+const claim = await repository.claimFeedbackSync(workerId, Date.now(), 120_000);
+if (claim) {
+  const snapshot = await repository.trainingExamples(claim.userId);
+  // A sends /fit with snapshot.examples + snapshot.feedbackRevision and validates success.
+  // Only after that successful response:
+  await repository.acknowledgeFeedbackSync(
+    claim.userId, claim.leaseId, snapshot.feedbackRevision,
+  );
+  // On retryable transport failure, instead call:
+  // await repository.retryFeedbackSync(claim.userId, claim.leaseId, retryAt);
+}
+```
+
+`claimFeedbackSync` returns `{userId,feedbackRevision,leaseId}` or null. The fitted snapshot may be newer than the revision observed at claim time. Acknowledgement only advances the delivered revision; newer target revisions stay pending. A stale/expired lease or a revision beyond the pending target returns false and cannot erase work. Failed/abandoned workers recover through lease expiry; retry times persist. Duplicate settlement does not enqueue again. All clients must use this queue for durable delivery rather than claiming a fire-and-forget `/observe` succeeded. Choose a bounded ML request timeout shorter than the lease (maximum permitted lease ten minutes). A owns retry policy, `/fit` authorization/transport and success validation; D owns persistence only.
 
 ## Analytics proof and recovery
 

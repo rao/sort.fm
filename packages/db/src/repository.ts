@@ -6,6 +6,7 @@ import {
 } from '@sortfm/contracts';
 import type {z} from 'zod';
 import {Database,PersistenceError,json,type Transaction} from './client';
+export type FeedbackSyncLease={userId:string;feedbackRevision:number;leaseId:string};
 const fail=(code:string):never=>{throw new PersistenceError(code);};
 const iso=(v:Date|string)=>new Date(v).toISOString();
 export async function upsertSavedTracks(tx:Transaction,inputs:SavedTrackInput[]) {
@@ -89,6 +90,7 @@ export class Repository {
    await tx`UPDATE review_decisions SET result=${json(v)}::jsonb WHERE user_id=${userId} AND decision_id=${v.decisionId}`;
    if(v.status==='UNDONE')await tx`UPDATE undo_commands SET settled_at=${v.updatedAt} WHERE user_id=${userId} AND decision_id=${v.decisionId} AND settled_at IS NULL`;
    if(changedLabel){await tx`UPDATE users SET feedback_revision=${revision} WHERE id=${userId}`;
+    await tx`INSERT INTO feedback_sync_jobs(user_id,target_revision) VALUES(${userId},${revision}) ON CONFLICT(user_id) DO UPDATE SET target_revision=GREATEST(feedback_sync_jobs.target_revision,excluded.target_revision),available_at=LEAST(feedback_sync_jobs.available_at,clock_timestamp()),updated_at=clock_timestamp()`;
     await tx`INSERT INTO feedback(user_id,decision_id,revision,label,revoked,split,occurred_at) VALUES(${userId},${v.decisionId},${revision},${v.label},${v.labelState==='revoked'},${prior?.split??split},${v.updatedAt}) ON CONFLICT(user_id,decision_id) DO UPDATE SET revision=excluded.revision,label=excluded.label,revoked=excluded.revoked,occurred_at=excluded.occurred_at`;
    }
    if(v.status==='COMPLETE'||v.status==='UNDONE'){
@@ -128,6 +130,25 @@ export class Repository {
   const owner=await lockUser(tx,userId);const rows=await tx`SELECT * FROM ml_training_examples WHERE user_id=${userId} ORDER BY labeled_at,decision_id`;
   return {feedbackRevision:owner.feedback_revision,examples:rows.map((r:any)=>({decisionId:r.decision_id,trackId:r.track_id,label:r.label,split:r.split,labeledAt:iso(r.labeled_at),features:r.features}))};
  });}
+ /** Claim one user's latest pending revision. DB time is authoritative for lease expiry. */
+ async claimFeedbackSync(workerId:string,now:number,leaseMs:number):Promise<FeedbackSyncLease|null>{
+  if(!workerId||workerId.length>128||!Number.isFinite(now)||!Number.isInteger(leaseMs)||leaseMs<1||leaseMs>600000)fail('INVALID_FEEDBACK_LEASE');
+  return this.db.transaction(async tx=>{
+   const [job]=await tx`SELECT user_id,target_revision FROM feedback_sync_jobs WHERE target_revision>acknowledged_revision AND available_at<=clock_timestamp() AND (lease_id IS NULL OR lease_until<=clock_timestamp()) ORDER BY available_at,user_id FOR UPDATE SKIP LOCKED LIMIT 1`;
+   if(!job)return null;const leaseId=crypto.randomUUID();
+   await tx`UPDATE feedback_sync_jobs SET lease_id=${leaseId},lease_until=clock_timestamp()+${leaseMs}*interval '1 millisecond',worker_id=${workerId},updated_at=clock_timestamp() WHERE user_id=${job.user_id}`;
+   return {userId:job.user_id,feedbackRevision:job.target_revision,leaseId};
+  });
+ }
+ /** Ack the actual successfully fitted snapshot, possibly newer than the claimed revision. */
+ async acknowledgeFeedbackSync(userId:string,leaseId:string,revision:number):Promise<boolean>{
+  if(!Number.isInteger(revision)||revision<0)fail('INVALID_FEEDBACK_REVISION');
+  return this.db.transaction(async tx=>(await tx`UPDATE feedback_sync_jobs SET acknowledged_revision=${revision},lease_id=NULL,lease_until=NULL,worker_id=NULL,updated_at=clock_timestamp() WHERE user_id=${userId} AND lease_id=${leaseId} AND lease_until>clock_timestamp() AND acknowledged_revision<=${revision} AND target_revision>=${revision} RETURNING user_id`).length>0);
+ }
+ async retryFeedbackSync(userId:string,leaseId:string,retryAt:number):Promise<void>{
+  if(!Number.isFinite(retryAt))fail('INVALID_RETRY_TIME');
+  await this.db.transaction(async tx=>{await tx`UPDATE feedback_sync_jobs SET available_at=${new Date(retryAt).toISOString()},lease_id=NULL,lease_until=NULL,worker_id=NULL,updated_at=clock_timestamp() WHERE user_id=${userId} AND lease_id=${leaseId} AND lease_until>clock_timestamp()`;});
+ }
  recordTelemetry(input:TelemetryInput){return this.db.transaction(tx=>telemetry(tx,TelemetryInputSchema.parse(input)));}
  async analytics(userId:string,from:string,to:string):Promise<{bucket:string;eventType:string;modelVersion:string|null;events:number;predictionScore:number|null;uncertainty:number|null;latencyMs:number;kept:number;archived:number;unliked:number;skipped:number}[]>{
   if(!Number.isFinite(Date.parse(from))||!Number.isFinite(Date.parse(to))||Date.parse(from)>=Date.parse(to))fail('INVALID_TIME_RANGE');

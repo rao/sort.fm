@@ -20,7 +20,13 @@ import {
 } from "./data/calibration-client";
 import { ConnectedLibrary } from "./components/Connected";
 import { History } from "./components/History";
-import { PlaybackControls } from "./components/PlaybackControls";
+import { BrowserPlayback } from "./components/BrowserPlayback";
+import { BrowserPlayerStore } from "./state/browser-player";
+import { createBrowserPlaybackClient } from "./data/browser-playback-client";
+import {
+	createSpotifySdkPlayer,
+	supportsBrowserVolume,
+} from "./data/spotify-sdk";
 import { Insights } from "./components/Insights";
 import { Dashboard } from "./components/Dashboard";
 import { ModelPanel } from "./components/ModelPanel";
@@ -40,6 +46,9 @@ function currentRoute(): Route {
 		? (path as Route)
 		: "landing";
 }
+
+const emptySubscribe = () => () => {};
+const emptySnapshot = () => null;
 
 export default function App({
 	client,
@@ -72,6 +81,24 @@ export default function App({
 					),
 				)
 			: null,
+	);
+	const [playback] = useState(() => {
+		if (!client.live) return null;
+		const gateway = createBrowserPlaybackClient(
+			client.live.api,
+			client.live.session,
+		);
+		return {
+			gateway,
+			store: new BrowserPlayerStore(gateway, createSpotifySdkPlayer, {
+				volumeSupported: supportsBrowserVolume(),
+			}),
+		};
+	});
+	const calibrationState = useSyncExternalStore(
+		calibration?.subscribe ?? emptySubscribe,
+		calibration?.getSnapshot ?? emptySnapshot,
+		calibration?.getSnapshot ?? emptySnapshot,
 	);
 	const state = useSyncExternalStore(
 		store.subscribe,
@@ -682,25 +709,35 @@ export default function App({
 						</button>
 					</output>
 				)}
-			{route !== "calibrate" && (
+			{playback ? (
 				<footer className="player-bar" ref={footerRef}>
-					<div className="player-track">
-						{current && <Cover track={current.track} />}
-						<div>
-							<strong>{current?.track.title ?? "A little more room."}</strong>
-							<span>
-								{current?.track.artists[0]?.name ??
-									"Your next favorite is out there."}
-							</span>
+					<BrowserPlayback
+						store={playback.store}
+						gateway={playback.gateway}
+						track={
+							route === "calibrate"
+								? (calibrationState?.queue[0]?.track ?? null)
+								: route === "review"
+									? (current?.track ?? null)
+									: null
+						}
+						returnTo={route === "calibrate" ? "calibration" : "review"}
+					/>
+				</footer>
+			) : (
+				route !== "calibrate" && (
+					<footer className="player-bar" ref={footerRef}>
+						<div className="player-track">
+							{current && <Cover track={current.track} />}
+							<div>
+								<strong>{current?.track.title ?? "A little more room."}</strong>
+								<span>
+									{current?.track.artists[0]?.name ??
+										"Your next favorite is out there."}
+								</span>
+							</div>
 						</div>
-					</div>
-					{current?.track.spotifyUri && client.live ? (
-						<PlaybackControls
-							gateway={client.live}
-							trackUri={current.track.spotifyUri}
-							playable={current.track.isPlayable}
-						/>
-					) : (
+
 						<button
 							type="button"
 							className="player-status"
@@ -716,30 +753,30 @@ export default function App({
 							</span>
 							<Icon name="info" size={14} />
 						</button>
-					)}
-					<div className="player-end">
-						{current?.track.spotifyUri ? (
-							<a
-								className="text-link"
-								href={`https://open.spotify.com/track/${current.track.trackId}`}
-								target="_blank"
-								rel="noreferrer"
+						<div className="player-end">
+							{current?.track.spotifyUri ? (
+								<a
+									className="text-link"
+									href={`https://open.spotify.com/track/${current.track.trackId}`}
+									target="_blank"
+									rel="noreferrer"
+								>
+									Open in Spotify <Icon name="external" size={14} />
+								</a>
+							) : (
+								<span>Made for the love of music.</span>
+							)}
+							<button
+								type="button"
+								className="icon-button"
+								onClick={() => setModal("shortcuts")}
+								aria-label="Keyboard shortcuts"
 							>
-								Open in Spotify <Icon name="external" size={14} />
-							</a>
-						) : (
-							<span>Made for the love of music.</span>
-						)}
-						<button
-							type="button"
-							className="icon-button"
-							onClick={() => setModal("shortcuts")}
-							aria-label="Keyboard shortcuts"
-						>
-							<span className="keyboard-symbol">⌘</span>
-						</button>
-					</div>
-				</footer>
+								<span className="keyboard-symbol">⌘</span>
+							</button>
+						</div>
+					</footer>
+				)
 			)}
 			{dialog}
 		</div>

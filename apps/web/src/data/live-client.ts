@@ -145,8 +145,24 @@ export function createLiveApi(
 				...init,
 				signal: controller.signal,
 			});
-			if (response.status === 401) options.onUnauthorized?.();
 			const body = await response.arrayBuffer();
+			if (response.status === 401) {
+				let playbackReconnect = false;
+				if (String(input).startsWith(`${base}/api/player/`)) {
+					try {
+						const error = ErrorEnvelopeSchema.safeParse(
+							JSON.parse(new TextDecoder().decode(body)),
+						);
+						playbackReconnect =
+							error.success &&
+							error.data.code === "PLAYBACK_RECONNECT_REQUIRED";
+					} catch {
+						/* An unreadable 401 still invalidates the primary session. */
+					}
+				}
+				// A separate playback grant can expire while the library login is valid.
+				if (!playbackReconnect) options.onUnauthorized?.();
+			}
 			return new Response(response.status === 204 ? null : body, {
 				status: response.status,
 				statusText: response.statusText,

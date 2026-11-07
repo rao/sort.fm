@@ -3,7 +3,7 @@ import type {A1Store, A1Transaction, Account, Session, OAuthAttempt, ImportJob, 
 
 /** Transactional dependency double, never used by a production entry point. */
 export class TestStore implements A1Store {
-  data = {accounts:new Map<string, Account>(), sessions:new Map<string, Session>(), oauth:new Map<string, OAuthAttempt>(), jobs:new Map<string, ImportJob>(), saved:new Map<string, SavedTrackInput>(), observations:new Map<string, ImportObservation>(), taste:new Map<string, TasteContext>(), membership:new Map<string, ImportMembership>()};
+  data = {accounts:new Map<string, Account>(), sessions:new Map<string, Session>(), oauth:new Map<string, OAuthAttempt>(), jobs:new Map<string, ImportJob>(), saved:new Map<string, SavedTrackInput>(), observations:new Map<string, ImportObservation>(), taste:new Map<string, TasteContext>(), membership:new Map<string, ImportMembership>(), membershipRevisions:new Map<string, number>()};
   private tail: Promise<unknown> = Promise.resolve();
   failNextPage = false;
   async transaction<T>(work: (tx: A1Transaction) => Promise<T>): Promise<T> {
@@ -14,6 +14,7 @@ export class TestStore implements A1Store {
         getSession:async id => d.sessions.get(id) ?? null, putSession:async s => {d.sessions.set(s.hash, s);},
         deleteSession:async id => {d.sessions.delete(id);}, deleteSessions:async user => {for (const [id, s] of d.sessions) if (s.userId === user) d.sessions.delete(id);},
         getOAuth:async id => d.oauth.get(id) ?? null, putOAuth:async o => {d.oauth.set(o.stateHash, o);}, deleteOAuth:async id => {d.oauth.delete(id);},
+        getMembershipRevision:async id => d.membershipRevisions.get(id) ?? 0,
         getJob:async id => d.jobs.get(id) ?? null, putJob:async j => {d.jobs.set(j.userId, j);},
         upsertSavedTracks:async rows => {
           for (const row of rows) {
@@ -23,7 +24,7 @@ export class TestStore implements A1Store {
           if (this.failNextPage) {this.failNextPage = false; throw new Error('simulated commit failure');}
         },
         putObservations:async rows => {for (const r of rows) d.observations.set(`${r.userId}/${r.jobId}/${r.pass}/${r.offset}`, r);},
-        completeImportMembership:async input => {d.membership.set(input.userId, input);},
+        completeImportMembership:async input => {if(input.expectedMembershipRevision !== (d.membershipRevisions.get(input.userId) ?? 0))throw Object.assign(new Error('Membership changed'),{code:'IMPORT_MEMBERSHIP_CHANGED'}); d.membership.set(input.userId, input);d.membershipRevisions.set(input.userId,input.expectedMembershipRevision+1);},
         getSummary:async user => {
           const rows = [...d.saved.values()].filter(x => x.userId === user);
           const count = (s: string) => rows.filter(x => x.currentStatus === s).length;

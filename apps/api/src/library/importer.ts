@@ -32,7 +32,7 @@ export class LibraryImporter {
         existing.lease = null; existing.retryAt = null; existing.restarts = 0;
         await tx.putJob(existing); return existing.progress;
       }
-      const job: ImportJob = {userId, progress:{...idle(), jobId:crypto.randomUUID(), status:'pending', updatedAt:this.timestamp()}, lease:null, retryAt:null, restart:false, restarts:0, pass:0, seenIds:[], rejected:0, duplicates:0, firstPageHash:null, sourceTotal:null};
+      const job: ImportJob = {userId, progress:{...idle(), jobId:crypto.randomUUID(), status:'pending', updatedAt:this.timestamp()}, lease:null, retryAt:null, restart:false, restarts:0, pass:0, seenIds:[], rejected:0, duplicates:0, firstPageHash:null, sourceTotal:null, membershipRevision:null};
       await tx.putJob(job); return job.progress;
     });
   }
@@ -63,6 +63,15 @@ export class LibraryImporter {
       const row = await tx.getJob(userId);
       if (!row || row.progress.status === 'complete' || (row.retryAt ?? 0) > this.now() || (row.lease && row.lease.until > this.now()) || (row.progress.status === 'failed' && !row.progress.error?.retryable)) return null;
       if (row.progress.status === 'failed') row.restarts = 0;
+      const revision = await tx.getMembershipRevision(userId);
+      // A resumed scan cannot reuse pages collected before a review/Undo changed
+      // membership. Legacy jobs have no baseline and must discard partial pages.
+      if (row.membershipRevision !== revision && (row.membershipRevision != null || row.progress.nextOffset > 0 || row.seenIds.length > 0)) {
+        row.pass++; row.seenIds=[]; row.rejected=0; row.duplicates=0;
+        row.firstPageHash=null; row.sourceTotal=null; row.restart=false;
+        row.progress={...row.progress,processed:0,failed:0,nextOffset:0,total:null};
+      }
+      row.membershipRevision = revision;
       row.lease = {id:leaseId, until:this.now() + this.leaseMs};
       row.progress = {...row.progress, status:'running', error:null, updatedAt:this.timestamp()};
       await tx.putJob(row); return row;
@@ -118,17 +127,19 @@ export class LibraryImporter {
         // Context is optional and explicitly limited to the available recent 50 events.
         const context = await this.recentContext(userId);
         const complete: ImportJob = {...job, lease:null, retryAt:null, progress:{...job.progress, status:'complete', updatedAt:this.timestamp(), error:null}};
-        await this.store.transaction(async tx => {this.fence(await tx.getJob(userId), job!, leaseId); await tx.completeImportMembership({userId, jobId:job!.progress.jobId!, pass:job!.pass, trackIds:job!.seenIds, sourceTotal:page.total, observedAt:this.timestamp()}); await tx.putTasteContext(context); await tx.putJob(complete);});
+        await this.store.transaction(async tx => {this.fence(await tx.getJob(userId), job!, leaseId); await tx.completeImportMembership({userId, jobId:job!.progress.jobId!, pass:job!.pass, trackIds:job!.seenIds, sourceTotal:page.total, observedAt:this.timestamp(), expectedMembershipRevision:job!.membershipRevision!}); await tx.putTasteContext(context); await tx.putJob(complete);});
         return;
       }
     } catch (error) {
-      const safe = safeError(error);
+      const code=error && typeof error==='object' && 'code' in error ? String(error.code) : '';
+      const membershipChanged=['IMPORT_MEMBERSHIP_CHANGED','MEMBERSHIP_MUTATION_PENDING'].includes(code);
+      const safe = membershipChanged ? new SpotifyError(code, 'Library membership changed during this import. A fresh scan will retry after pending reviews settle.', 409, true) : safeError(error);
       if (safe.code === 'IMPORT_LEASE_LOST') return;
       await this.store.transaction(async tx => {
         const current = await tx.getJob(userId);
         if (!current || current.lease?.id !== leaseId) return;
         current.lease = null;
-        current.restart = current.restart || safe.code === 'LIBRARY_CHANGED';
+        current.restart = current.restart || safe.code === 'LIBRARY_CHANGED' || membershipChanged;
         current.retryAt = safe.retryable ? safe.retryAt ?? this.now() + 30_000 : null;
         current.progress = {...current.progress, status:'failed', updatedAt:this.timestamp(), error:safe.envelope()};
         await tx.putJob(current);
@@ -144,7 +155,7 @@ export class LibraryImporter {
   private async restart(job: ImportJob, leaseId: string): Promise<ImportJob> {
     if (job.restarts >= 2) throw changed();
     const next: ImportJob = {...job, restart:false, restarts:job.restarts+1, pass:job.pass+1, seenIds:[], rejected:0, duplicates:0, sourceTotal:null, firstPageHash:null, lease:{id:leaseId, until:this.now() + this.leaseMs}, progress:{...job.progress, processed:0, failed:0, nextOffset:0, total:null, updatedAt:this.timestamp()}};
-    await this.store.transaction(async tx => {this.fence(await tx.getJob(job.userId), job, leaseId); await tx.putJob(next);});
+    await this.store.transaction(async tx => {this.fence(await tx.getJob(job.userId), job, leaseId); next.membershipRevision = await tx.getMembershipRevision(job.userId); await tx.putJob(next);});
     return next;
   }
   private async page(userId: string, offset: number) {

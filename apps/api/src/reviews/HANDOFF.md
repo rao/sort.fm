@@ -30,9 +30,9 @@ Selection is honestly `deterministic_baseline` for all requested policies until 
 
 Independent code review found and verified the late-scoring identity fix; no outstanding findings.
 
-## Remaining A2 work
+## Live verification gate
 
-Decision/history/Undo routes and Spotify mutation reconciliation are the next slice. D is adding a transactional, revision-keyed full-fit outbox; A owns delivery, C1 owns typed ML transport. Do not claim mutations or durable feedback delivery from this queue commit. Live owner OAuth and controlled real-track mutation checks still require the user's allowlisted Spotify account.
+Decision/history/Undo and durable feedback delivery are implemented below. Controlled real-track Spotify mutation checks remain unperformed; the integration lead coordinates the owner account smoke.
 
 ## Durable feedback transport
 
@@ -42,7 +42,7 @@ Validated with an isolated live Tiger schema plus a real FastAPI process: Keep s
 
 Queue feature assembly now uses the full distinct current Spotify library before page selection, preserving artist counts across kept/deferred/unplayable tracks. Ten queue tests / 42 assertions pass.
 
-## Mutation workflow (enable only after import/review membership fence)
+## Mutation workflow
 
 ```ts
 const spotifyWrites = new SpotifyMutations(spotify.auth, spotify.auth.http);
@@ -61,7 +61,7 @@ const mutationRoutes = createReviewMutationModule({
 await mutationRoutes.registerRoutes(app);
 ```
 
-Requires D recovery `641b7ad` and exposure guards `bd39926` (migrations008–009), plus the forthcoming membership revision fence. Root owns fallback ordering and health capabilities. Registrar owns decision/history/Undo routes and worker lifecycle. It enables write consent only when installed; existing read-only sessions stay `spotifyWrite:false` until reconnect. Required new scopes are user-library-modify, playlist-modify-private, playlist-read-private.
+Requires D recovery `641b7ad` and exposure guards `bd39926` (migrations008–009), plus root shared fence `3143ef4`, D fence `8ba63f7` / migration010, and the A1 importer fence in this branch. Root owns fallback ordering and health capabilities. Registrar owns decision/history/Undo routes and worker lifecycle. It enables write consent only when installed; existing read-only sessions stay `spotifyWrite:false` until reconnect. Required new scopes are user-library-modify, playlist-modify-private, playlist-read-private.
 
 Decision POST returns persisted PENDING with202, never optimistic completion. The per-user durable lease serializes initial/recovery execution. Keep emits0; Skip emits no strong label; confirmed Archive/Unlike emit1. Archive creates/reuses a private owner playlist, confirms insertion before unlike, and journals non-idempotent POST intents. Timeout/5xx remains uncertain; recovery reads state and never blindly repeats the POST. A definitive429 permits retry after its deadline. Ambiguous absent playlist effects remain pending reconciliation, possibly requiring operator resolution; duplicate writes are not traded for liveness.
 
@@ -71,4 +71,6 @@ Authorization loss after possible remote effects remains FAILED_RETRYABLE so rec
 
 Current Spotify references verified Nov7,2026: [library save](https://developer.spotify.com/documentation/web-api/reference/save-library-items), [library remove](https://developer.spotify.com/documentation/web-api/reference/remove-library-items), [contains](https://developer.spotify.com/documentation/web-api/reference/check-library-contains), [playlist creation](https://developer.spotify.com/documentation/web-api/reference/create-playlist), [playlist items](https://developer.spotify.com/documentation/web-api/reference/add-items-to-playlist).
 
-Validation: live Tiger HTTP workflow49assertions covers Keep/Skip, archive-success/unlike-failure/restart without duplicate insert, unlike, same-key repeated decisions/Undo, labels and events. Three live integration tests together passed66assertions (queue,feedback,workflow). Provider is controlled synthetic HTTP; no real Spotify mutation or real-user smoke is claimed. Independent review found and verified malformed reconciliation and authorization-recovery fixes. One integration race remains before enablement: stale A1 import publication must be fenced against concurrent review/Undo; root/D/A1 are coordinating that patch.
+Validation: live Tiger HTTP workflow49assertions covers Keep/Skip, archive-success/unlike-failure/restart without duplicate insert, unlike, same-key repeated decisions/Undo, labels and events. Three live integration tests together passed66assertions (queue,feedback,workflow). Provider is controlled synthetic HTTP; no real Spotify mutation or real-user smoke is claimed. Independent review found and verified malformed reconciliation and authorization-recovery fixes. The discovered stale-import race is addressed by the membership revision fence: importer captures before scanning, discards stale/legacy partial scans, and final DB publication compares revisions while blocking pending destructive review/Undo. Enable this workflow only with all fence components installed together.
+
+Final fence validation passed on live Tiger Data:14 assertions reproduce concurrent unlike and Undo during final import verification/context, reject stale publication, preserve membership/counts and finish a fresh rescan. Existing A1 database workflow13 assertions passed too. Full Bun suite235pass/55opt-in skips/0fail (1230 assertions), typecheck, full build and independent module bundles pass. Real provider smoke remains the external verification gate; all live DB tests used synthetic fixtures in isolated schemas cleaned afterward.

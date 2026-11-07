@@ -205,3 +205,42 @@ test('heartbeat retains ownership through slow pages, verification and optional 
   expect(await importer.status(userId)).toMatchObject({status:'complete', processed:1});
   expect(store.data.jobs.get(userId)?.lease).toBeNull();
 });
+
+test('membership revision prevents a verified import overwriting a concurrently confirmed unlike',async()=>{
+  const store=new TestStore();let now=0,removed=false;
+  const api={offsets:[] as number[],get:async(_user:string,path:string)=>{
+    if(path.includes('recently-played')) {
+      if(!removed){removed=true;store.data.membershipRevisions.set(userId,1);store.data.membership.set(userId,{userId,jobId:crypto.randomUUID(),pass:0,trackIds:[],sourceTotal:0,observedAt:new Date(now).toISOString(),expectedMembershipRevision:0});}
+      return {items:[]};
+    }
+    api.offsets.push(0);return {offset:0,limit:50,total:removed?0:1,items:removed?[]:[item(1)],next:null};
+  }};
+  const importer=worker(store,api,{now:()=>now});await importer.requestSync(userId);await importer.run(userId);
+  expect(await importer.status(userId)).toMatchObject({status:'failed',error:{code:'IMPORT_MEMBERSHIP_CHANGED',retryable:true}});
+  expect((await importer.summary(userId)).total).toBe(0);
+  now=30001;await importer.run(userId);expect(await importer.status(userId)).toMatchObject({status:'complete',total:0,processed:0});
+  expect(store.data.jobs.get(userId)!.pass).toBeGreaterThan(0);
+});
+
+test('changed or legacy revision baseline resets partial scan before reading any more provider pages',async()=>{
+  for(const legacy of [false,true]) {
+    const store=new TestStore();let now=0,fail=true;
+    const api=source(55,{page:offset=>{if(offset===50&&fail){fail=false;throw new SpotifyError('TEMP','Retry',503,true);}return {offset,limit:50,total:55,items:Array.from({length:Math.min(50,55-offset)},(_,i)=>item(offset+i)),next:offset===0?'next':null};}});
+    const importer=worker(store,api,{now:()=>now});await importer.requestSync(userId);await importer.run(userId);
+    expect((await importer.status(userId)).nextOffset).toBe(50);const oldPass=store.data.jobs.get(userId)!.pass;
+    if(legacy)store.data.jobs.get(userId)!.membershipRevision=null;else store.data.membershipRevisions.set(userId,1);
+    api.offsets.length=0;now=30001;await importer.run(userId);
+    expect(store.data.jobs.get(userId)!.pass).toBe(oldPass+1);expect(api.offsets).toEqual([0,50,0]);expect((await importer.status(userId)).status).toBe('complete');
+  }
+});
+
+test('pending destructive membership blocks publication and retries a fresh pass without losing the last set',async()=>{
+  const store=new TestStore();let now=0,blocked=false;
+  const guarded={resumableUserIds:()=>store.resumableUserIds(),transaction:<T>(work:(tx:import('../auth/store').A1Transaction)=>Promise<T>)=>store.transaction(tx=>{
+    const publish=tx.completeImportMembership.bind(tx);tx.completeImportMembership=async input=>{if(blocked)throw Object.assign(new Error('Pending mutation'),{code:'MEMBERSHIP_MUTATION_PENDING'});await publish(input);};return work(tx);
+  })};
+  const api=source(1),importer=new LibraryImporter(guarded,api,{now:()=>now});await importer.requestSync(userId);await importer.run(userId);
+  blocked=true;await importer.requestSync(userId);await importer.run(userId);
+  expect(await importer.status(userId)).toMatchObject({status:'failed',error:{code:'MEMBERSHIP_MUTATION_PENDING',retryable:true}});expect((await importer.summary(userId)).total).toBe(1);
+  const before=store.data.jobs.get(userId)!.pass;blocked=false;now=30001;await importer.run(userId);expect((await importer.status(userId)).status).toBe('complete');expect(store.data.jobs.get(userId)!.pass).toBe(before+1);
+});

@@ -40,3 +40,10 @@ The real DB test proved: encrypted OAuth persistence; transaction rollback after
 To repeat the isolated DB test, set `TEST_DATABASE_URL` securely and `A1_DATABASE_ADAPTER_ROOT` to the integrated checkout, then run `bun test apps/api/src/auth/database.integration.test.ts`. No schema installation is performed by normal A1 startup; D's migration/deployment process owns it.
 
 Known provider limit: offset pagination is not an immutable snapshot. A1 detects head/total/duplicate/count drift and retries; same-count edits outside the checked head can evade detection. Stop concurrent edits and resync for a stable confirmed view. Null/local entries remain raw observations because the frozen TrackCard requires a Spotify ID. Review history is retained independently of current membership, so summary counters are not a partition of total. A2 must explicitly authorize and implement write capabilities; A1 exposes none.
+
+
+## A2 concurrency amendment
+
+A1 imports now use root contract3143ef4 and D8ba63f7/migration010 membership revision fencing. Before provider reads, a new scan captures the user membership revision; resumes retain it, but changed or missing legacy baselines discard partial pages. Every full rescan recaptures it. Final publication supplies expectedMembershipRevision and atomically fails if a review/Undo changed membership or a destructive command is still pending. Both stable DB conflict codes are retryable and force a fresh scan after backoff. This prevents stale import completion from restoring an unliked track or hiding a restored one.
+
+Fence verification: 21 importer unit tests /384 assertions; live Tiger combined importer/review race test14 assertions covers both concurrent unlike and Undo plus fresh rescan recovery. Existing A1 live DB integration13 assertions also passes against the amended adapter. Full Bun suite235pass/55 opt-in skips/0fail,1230 assertions; typecheck, web/API build and independent importer/review module bundles pass. The independent review found no remaining importer-side defects.

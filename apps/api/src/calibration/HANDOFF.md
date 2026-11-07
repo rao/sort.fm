@@ -63,4 +63,20 @@ Runtime activation, real browser acceptance and deployment remain root/B respons
 
 The API commit passes 544 Bun tests (68 environment-gated skips), 2,928 assertions, root TypeScript checking, web/API build, standalone calibration bundling and diff checks. Independent read-only review found no remaining actionable runtime defect. Build output retains the existing Zod annotation warnings. Changes outside this directory are limited to adding `EXPOSURE_PURPOSE_MISMATCH` to the existing review-route 409 mapping, with a focused regression here.
 
-The opt-in acceptance test described above is prepared as a separate follow-up pending D's committed adapter. It is not included or claimed passing in the standalone API commit. Until that integration runs, database/C1 calibration acceptance remains unverified and live activation must wait.
+## Disposable Tiger / real C1 acceptance
+
+The follow-up integration test ran successfully on 2026-11-07 after merging D adapter commit `ec51bdd`: **1 pass, 162 assertions, 58.6 seconds**. It created/dropped its own Tiger schema, started/stopped an isolated C1 process and removed its temporary artifacts. The application schema and serving ML were untouched.
+
+Evidence from generated fixtures:
+
+- 80 tracks seeded through normal saved-track and published-membership APIs; 40 preferences submitted through authenticated calibration HTTP routes.
+- Exact exposure-time features reached 40 unique training examples with both classes: 30 train / 10 holdout. These are synthetic test preferences, not human data, and the holdout count is below the meaningful evaluation threshold.
+- Same-key HTTP replay returned the committed label; history restored it. Automatic durable feedback and explicit HTTP retraining fit the same revision/model version. A later queue returned actual logistic predictions.
+- Wrong-purpose exposures failed in both directions before any cleanup command was created.
+- Calibration Undo advanced revision to 41 and reduced active examples to 39. Same-key original-label replay reported revoked. Relabeling through a fresh calibration exposure advanced to 42, restored 40 examples and preserved that track's original split. Other splits remained unchanged.
+- The feedback worker acknowledged revision 42. The original keyed explanation remained byte-for-structure identical after fitting, Undo and relabeling.
+- The final database audit found zero review decisions, review work or Spotify mutation rows, all 80 memberships, and unchanged library projection, saved status and original save dates. The external-network guard recorded zero forbidden calls.
+
+Post-merge regression: 544 Bun tests passed, 78 explicitly gated tests skipped, 0 failed (2,928 assertions). Root typecheck, web/API build, independent module bundle and diff checks pass. Independent read-only review found no blockers. D's own disposable persistence tests cover concurrency, rollback, cleanup supersession and no resurrection; see `packages/db/CALIBRATION-PLAN.md`.
+
+Integration verification now passes for the API/persistence/C1 seam. Runtime registration, application-schema migration, browser acceptance and production activation remain integration-lead responsibilities; none were performed by this acceptance test.

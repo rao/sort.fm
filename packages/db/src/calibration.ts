@@ -3,7 +3,7 @@ import {z} from 'zod';
 import {CalibrationLabelRequestSchema,CalibrationLabelResultSchema,CalibrationHistorySchema,ExposureInputSchema,IdSchema,UuidSchema,TimestampSchema,UndoRequestSchema,type CalibrationStore,type CalibrationCandidateSnapshot,type CalibrationHistory,type CalibrationLabelInput,type CalibrationLabelResult,type CalibrationUndoInput,type ExposureInput} from '@sortfm/contracts';
 import {Database,PersistenceError,json,type Transaction} from './client';
 import {lockUser,readLibrary} from './repository';
-import {assertNotBatchReserved,batchExposure,reservedCalibrationTrackIds} from './calibration-reservations';
+import {assertBatchCollecting,assertNotBatchReserved,batchExposure,reservedCalibrationTrackIds} from './calibration-reservations';
 const labelInput=z.strictObject({userId:IdSchema,labelId:UuidSchema,request:CalibrationLabelRequestSchema,requestFingerprint:z.string().min(1),createdAt:TimestampSchema});
 const undoInput=z.strictObject({userId:IdSchema,commandId:UuidSchema,labelId:UuidSchema,request:UndoRequestSchema,requestFingerprint:z.string().min(1),createdAt:TimestampSchema});
 const fail=(code:string):never=>{throw new PersistenceError(code);};
@@ -52,7 +52,7 @@ export class PostgresCalibrationStore implements CalibrationStore {
   if(!e)fail('EXPOSURE_NOT_FOUND');if(e.purpose!=='calibration')fail('EXPOSURE_PURPOSE_MISMATCH');if(e.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
   if((await tx`SELECT 1 FROM calibration_labels WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`).length)fail('EXPOSURE_ALREADY_CONSUMED');
   const batch=await batchExposure(tx,v.userId,v.request.exposureId);
-  if(batch){if(batch.exposure_id!==v.request.exposureId||!['pending','revoked'].includes(batch.status))fail('BATCH_ITEM_NOT_PENDING');}else await assertNotBatchReserved(tx,v.userId,v.request.trackId);
+  if(batch){await assertBatchCollecting(tx,v.userId,batch.batch_id);if(batch.exposure_id!==v.request.exposureId||!['pending','revoked'].includes(batch.status))fail('BATCH_ITEM_NOT_PENDING');}else await assertNotBatchReserved(tx,v.userId,v.request.trackId);
   const winner=await eligible(tx,v.userId,v.request.trackId,iso(e.served_at));if(Date.parse(v.createdAt)<new Date(e.served_at).getTime())fail('STALE_EXPOSURE');
   const revision=Number(owner.feedback_revision)+1,split=batch?(batch.assignment==='train'?'train':'holdout'):winner?.split??calibrationSplit(v.userId,v.request.trackId);
   await tx`INSERT INTO calibration_labels(label_id,user_id,track_id,exposure_id,idempotency_key,request_fingerprint,request,submitted_label,label,revision,split,created_at,updated_at) VALUES(${v.labelId},${v.userId},${v.request.trackId},${v.request.exposureId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${v.request.label},${v.request.label},${revision},${split},${v.createdAt},${v.createdAt})`;
@@ -63,7 +63,7 @@ export class PostgresCalibrationStore implements CalibrationStore {
   const owner=await lockUser(tx,v.userId);
   const [old]=await tx`SELECT label_id,request_fingerprint=${v.requestFingerprint} AND label_id=${v.labelId} AND request=${json(v.request)}::jsonb AS same FROM calibration_undos WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
   if(old){if(!old.same)fail('IDEMPOTENCY_CONFLICT');return project(tx,v.userId,old.label_id);}
-  const result=await project(tx,v.userId,v.labelId);if(result.state!=='active')fail('STALE_CALIBRATION_LABEL');if(!result.canUndo)fail('MUTATION_PENDING');if(Date.parse(v.createdAt)<Date.parse(result.updatedAt))fail('STALE_CALIBRATION_LABEL');
+  const result=await project(tx,v.userId,v.labelId);const assigned=await batchExposure(tx,v.userId,result.exposureId);if(assigned)await assertBatchCollecting(tx,v.userId,assigned.batch_id);if(result.state!=='active')fail('STALE_CALIBRATION_LABEL');if(!result.canUndo)fail('MUTATION_PENDING');if(Date.parse(v.createdAt)<Date.parse(result.updatedAt))fail('STALE_CALIBRATION_LABEL');
   const revision=Number(owner.feedback_revision)+1;
   await tx`INSERT INTO calibration_undos(command_id,user_id,label_id,idempotency_key,request_fingerprint,request,created_at) VALUES(${v.commandId},${v.userId},${v.labelId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${v.createdAt})`;
   await tx`UPDATE calibration_labels SET label=NULL,revoked=true,revision=${revision},updated_at=${v.createdAt} WHERE user_id=${v.userId} AND label_id=${v.labelId}`;

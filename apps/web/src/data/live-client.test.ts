@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createIdempotencyKey } from "@sortfm/contracts/client";
 
-import { createLiveApi, pendingJournal } from "./live-client";
+import { createLiveApi, createLiveClient, pendingJournal } from "./live-client";
 import { ReviewStore } from "../state/review";
 
 import {
@@ -618,4 +618,36 @@ test("computed synthetic evaluation remains quarantined while independent audio 
 		partialAudioFeatures,
 	);
 	expect(store.getSnapshot().warnings.join(" ")).toContain("synthetic");
+});
+
+
+test.each(["KEEP", "SKIP"] as const)("read-only session can undo %s without requesting Spotify write access", async action => {
+ const f=liveFixture(); f.session.capabilities.spotifyWrite=false;
+ const store=new ReviewStore(f.client); await store.load(); await store.decide(action);
+ const id=store.getSnapshot().history[0]!.result.decisionId;
+ await store.undo(id);
+ const result=store.getSnapshot().history.find(entry=>entry.result.decisionId===id)!.result;
+ expect(result.status).toBe("UNDONE"); expect(result.mutationStep).toBe("NONE");
+ expect(store.getSnapshot().queue).toHaveLength(2); expect(f.journal.read()).toBeNull();
+ expect(f.calls.filter(call=>call.url.endsWith("/undo"))).toHaveLength(1);
+});
+
+test("server refusal of a write-requiring Undo remains authoritative in a read-only session", async()=>{
+ const f=liveFixture();
+ const api=createLiveApi({fetch:(async(input,init)=> String(input).endsWith("/undo") ? Response.json({code:"CAPABILITY_REQUIRED",message:"Library write access is required to restore this like.",retryable:false},{status:403}) : f.transport(input,init)) as typeof fetch});
+ const store=new ReviewStore(createLiveClient(api,f.session,f.journal));
+ await store.load(); await store.decide("ARCHIVE"); f.session.capabilities.spotifyWrite=false;
+ const id=store.getSnapshot().history[0]!.result.decisionId; await store.undo(id);
+ expect(store.getSnapshot().history[0]!.result.status).toBe("COMPLETE");
+ expect(store.getSnapshot().history[0]!.result.labelState).toBe("active");
+ expect(store.getSnapshot().error).toContain("Library write access is required");
+ expect(f.journal.read()?.kind).toBe("undo");
+});
+
+test("Undo still rejects an account switch before issuing a command", async()=>{
+ const f=liveFixture(); const store=new ReviewStore(f.client);await store.load();await store.decide("KEEP");
+ f.session.user!.id="different-owner";
+ await store.undo(store.getSnapshot().history[0]!.result.decisionId);
+ expect(f.calls.filter(call=>call.url.endsWith("/undo"))).toHaveLength(0);
+ expect(store.getSnapshot().history[0]!.result.status).toBe("COMPLETE");
 });

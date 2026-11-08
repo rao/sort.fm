@@ -348,7 +348,9 @@ export function createLiveClient(
 			return result;
 		},
 		async undo(id, request) {
-			await assertOwner(true);
+			// Keep/Skip Undo needs no Spotify write. The server checks the persisted
+			// decision and authorizes any restoration; never infer its action locally.
+			await assertOwner();
 			const result = await api.undo(id, request);
 			if (result.mode !== "spotify")
 				throw new Error("The live restoration returned a demo result.");

@@ -3,17 +3,17 @@
 !package.json
 !bun.lock
 !tsconfig.json
-!apps/
-!apps/web/
+!apps
+!apps/web
 !apps/web/**
-!apps/api/
+!apps/api
 !apps/api/package.json
-!packages/
-!packages/contracts/
+!packages
+!packages/contracts
 !packages/contracts/package.json
-!packages/contracts/src/
+!packages/contracts/src
 !packages/contracts/src/**
-!packages/db/
+!packages/db
 !packages/db/package.json
 
 # Keep local state and credentials out even if placed beneath allowed paths.

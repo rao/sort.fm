@@ -505,3 +505,37 @@ test.each(["/api/me", "/api/decisions/history"])(
 		expect(f.store.getSnapshot().history).toHaveLength(0);
 	},
 );
+
+test("the default settlement window accepts a confirmed command completing after twenty seconds", async () => {
+	const f = fixture({ settleAfter: 80, settlement: { timeoutMs: undefined } });
+	await f.store.load();
+	await f.store.decide("ARCHIVE");
+	expect(f.store.getSnapshot().error).toBeNull();
+	expect(f.store.getSnapshot().history[0]?.result.status).toBe("COMPLETE");
+	expect(f.journal.read()).toBeNull();
+	expect(posts(f)).toHaveLength(1);
+});
+
+test("the default settlement window stops after thirty seconds with the original command preserved", async () => {
+	let elapsed = 0;
+	const f = fixture({
+		settleAfter: Infinity,
+		settlement: {
+			timeoutMs: undefined,
+			now: () => elapsed,
+			wait: async (ms) => {
+				elapsed += ms;
+			},
+		},
+	});
+	await f.store.load();
+	await f.store.decide("ARCHIVE");
+	expect(elapsed).toBe(30_000);
+	expect(f.store.getSnapshot().error).toContain("still settling");
+	expect(f.store.getSnapshot().retry?.request.idempotencyKey).toBe(
+		f.journal.read()?.request.idempotencyKey,
+	);
+	expect(f.journal.read()?.kind).toBe("decide");
+	expect(queueReads(f)).toBe(1);
+	expect(posts(f)).toHaveLength(1);
+});

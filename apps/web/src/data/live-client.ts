@@ -327,7 +327,7 @@ export function createLiveClient(
 		const wait =
 			settlement.wait ??
 			((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-		const timeoutMs = settlement.timeoutMs ?? 10_000;
+		const timeoutMs = settlement.timeoutMs ?? 30_000;
 		const intervalMs = settlement.intervalMs ?? 250;
 		const deadline = now() + timeoutMs;
 		let active = true;

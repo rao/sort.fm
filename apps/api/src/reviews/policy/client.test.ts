@@ -131,7 +131,7 @@ test('release preserves stable identity and rejects foreign acknowledgement',asy
   const request={userId:owner,requestId:crypto.randomUUID(),exposureId,reason:'prefetch_discarded' as const};
   const result={userId:owner,requestId:request.requestId,exposureId,trackId:'0000000000000000000001',outcome:'released' as const,
     recordedAt:at,expiresAt:'2026-11-07T12:05:00Z',effectiveClosedAt:at};
-  for(const value of [result,{...result,requestId:crypto.randomUUID()},{...result,exposureId:crypto.randomUUID()},{...result,userId:'spotify:other'}]) {
+  for(const value of [result,{...result,requestId:crypto.randomUUID()},{...result,exposureId:crypto.randomUUID()},{...result,userId:'spotify:other'},{...result,recordedAt:'2026-11-07T11:59:00Z'}]) {
     const client=createPolicyClient({serviceUrl:'https://ml.example.test',sharedSecret:'test-private-secret',fetch:async(input,init)=>{
       expect(String(input)).toBe('https://ml.example.test/policy/release');expect(JSON.parse(String(init?.body))).toEqual(request);
       return Response.json(value);
@@ -154,5 +154,15 @@ test('policy error codes remain classifiable without exposing upstream text',asy
   for(const [status,code,retryable] of [[404,'POLICY_EXPOSURE_NOT_FOUND',false],[409,'NO_ELIGIBLE_CANDIDATES',false],[409,'STALE_FIT_RECEIPT',false],[503,'POLICY_STATE_UNAVAILABLE',true]] as const) {
     const client=createPolicyClient({serviceUrl:'https://ml.example.test',sharedSecret:'test-private-secret',fetch:async()=>Response.json({code,message:'test-private-secret',retryable},{status})});
     await expect(client.associate(association)).rejects.toMatchObject({code,status,retryable});
+  }
+});
+
+test('release replay preserves a terminal closure observed before a backward wall-clock jump',async()=>{
+  const request={userId:owner,requestId:crypto.randomUUID(),exposureId,reason:'abandoned' as const};
+  for(const effectiveClosedAt of [at,'2026-11-07T12:05:00Z']) {
+  const response={userId:owner,requestId:request.requestId,exposureId,trackId:'0000000000000000000001',outcome:'already_closed' as const,
+    recordedAt:'2026-11-07T11:59:00Z',effectiveClosedAt,expiresAt:'2026-11-07T12:05:00Z'};
+  const client=createPolicyClient({serviceUrl:'https://ml.example.test',sharedSecret:'test-private-secret',fetch:async()=>Response.json(response)});
+  expect(await client.release(request)).toEqual(response);
   }
 });

@@ -278,7 +278,7 @@ export function createPolicyClient(options: MlClientOptions): PolicyClient {
       if (response.userId !== request.userId || response.requestId !== request.requestId
         || response.exposureId !== request.exposureId
         || Date.parse(response.effectiveClosedAt) > Date.parse(response.expiresAt)
-        || Date.parse(response.effectiveClosedAt) > Date.parse(response.recordedAt)) throw invalidResponse();
+        || (response.outcome === 'released' && Date.parse(response.effectiveClosedAt) > Date.parse(response.recordedAt))) throw invalidResponse();
       return response;
     },
     async associate(input) {

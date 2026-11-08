@@ -1,16 +1,42 @@
 import { useState } from "react";
+import type { ReviewResult } from "@sortfm/contracts";
+import { Button } from "#ui/components/base/buttons/button";
+import {
+	correctionLocked,
+	latestSkipDecisions,
+	type CorrectionState,
+} from "../state/corrections";
 import type { ReviewState } from "../state/review";
-import { actionPast } from "../state/review";
+import { actionLabels, actionPast } from "../state/review";
 import { Cover, EmptyState, Icon } from "./ui";
 export function History({
 	state,
 	onUndo,
+	corrections,
 }: {
 	state: ReviewState;
 	onUndo: (id: string) => void;
+	corrections?: {
+		state: CorrectionState;
+		onCorrect(decision: ReviewResult): void;
+		onUndo(labelId: string): void;
+		onRetry(): void;
+		onRefresh(): void;
+	};
 }) {
 	const [filter, setFilter] = useState("all");
 	const [search, setSearch] = useState("");
+	const eligibleSkips = latestSkipDecisions(
+		state.history.map(({ result }) => result),
+	);
+	const reviewLocked =
+		state.busy ||
+		state.retraining ||
+		!!state.retry ||
+		state.refreshing ||
+		!!state.refreshError;
+	const labelsLocked =
+		!corrections || correctionLocked(corrections.state) || reviewLocked;
 	const entries = state.history.filter(
 		({ result, item }) =>
 			(filter === "all" || result.action === filter) &&
@@ -31,6 +57,51 @@ export function History({
 				<output className="fine-print">
 					Training is in progress. Undo will be available when it finishes.
 				</output>
+			)}
+			{corrections && (
+				<div className="flex flex-col gap-2 text-body-2-regular">
+					{corrections.state.busy && <output>Saving preference change…</output>}
+					{corrections.state.refreshing && (
+						<output>Checking preference history…</output>
+					)}
+					{corrections.state.notice && (
+						<output>{corrections.state.notice}</output>
+					)}
+					{corrections.state.error && (
+						<p role="alert">{corrections.state.error}</p>
+					)}
+					{corrections.state.pending && !corrections.state.busy && (
+						<p>
+							A preference command needs recovery. Check the saved outcome or
+							retry the same request.
+						</p>
+					)}
+					{!corrections.state.busy &&
+						(corrections.state.error || corrections.state.pending) && (
+							<div className="flex flex-wrap gap-2">
+								<Button
+									variant="secondary"
+									disabled={
+										corrections.state.busy || corrections.state.refreshing
+									}
+									onClick={corrections.onRefresh}
+								>
+									Check preference history
+								</Button>
+								{corrections.state.pending && (
+									<Button
+										variant="secondary"
+										disabled={
+											corrections.state.busy || corrections.state.refreshing
+										}
+										onClick={corrections.onRetry}
+									>
+										Retry saved preference request
+									</Button>
+								)}
+							</div>
+						)}
+				</div>
 			)}
 			<div className="history-toolbar">
 				<fieldset className="filter-tabs" aria-label="Filter history">
@@ -88,12 +159,71 @@ export function History({
 										.map((artist) => artist.name)
 										.join(", ") ?? result.trackId}
 								</p>
+								{corrections &&
+									eligibleSkips.has(result.decisionId) &&
+									(() => {
+										const label =
+											corrections.state.labels.find(
+												(candidate) =>
+													candidate.trackId === result.trackId &&
+													candidate.state === "active",
+											) ??
+											corrections.state.labels.find(
+												(candidate) => candidate.trackId === result.trackId,
+											);
+										return (
+											<div className="flex flex-col gap-2 pt-3 text-body-2-regular">
+												{label && (
+													<p>
+														Preference label:{" "}
+														{label.state === "active"
+															? `${label.label === 1 ? "Remove" : "Keep"} active`
+															: label.state}
+														. Original Skip is unchanged.
+													</p>
+												)}
+												{label?.state === "active" ? (
+													label.canUndo && (
+														<Button
+															variant="secondary"
+															disabled={labelsLocked}
+															onClick={() => corrections.onUndo(label.labelId)}
+														>
+															Undo preference label
+														</Button>
+													)
+												) : (
+													<details>
+														<summary className="cursor-pointer text-text-primary">
+															Label Remove only
+														</summary>
+														<div className="flex flex-col gap-2 pt-2">
+															<p>
+																Save a Remove preference only. Spotify will not
+																change. Original Skip stays in history; this is
+																not a C2 reward.
+															</p>
+															<Button
+																variant="secondary"
+																disabled={labelsLocked}
+																onClick={() => corrections.onCorrect(result)}
+															>
+																Confirm Remove preference
+															</Button>
+														</div>
+													</details>
+												)}
+											</div>
+										);
+									})()}
 							</div>
 							<span
 								className={`decision-tag ${result.status === "UNDONE" ? "restored" : result.action.toLowerCase()}`}
 							>
 								{result.status === "UNDONE"
-									? "Restored"
+									? result.action === "KEEP" || result.action === "SKIP"
+										? `${actionLabels[result.action]} undone`
+										: "Restored"
 									: result.status === "COMPLETE"
 										? actionPast[result.action]
 										: result.status.toLowerCase().replaceAll("_", " ")}
@@ -113,12 +243,18 @@ export function History({
 									state.retraining ||
 									!!state.retry ||
 									state.refreshing ||
-									!!state.refreshError
+									!!state.refreshError ||
+									!!corrections?.state.busy ||
+									!!corrections?.state.pending
 								}
 								onClick={() => onUndo(result.decisionId)}
 							>
 								<Icon name="undo" size={15} />
-								{result.status === "UNDONE" ? "Restored" : "Undo"}
+								{result.status === "UNDONE"
+									? result.action === "KEEP" || result.action === "SKIP"
+										? "Undone"
+										: "Restored"
+									: "Undo"}
 							</button>
 						</article>
 					))}
@@ -152,9 +288,10 @@ export function History({
 				<Icon name="info" size={18} />
 				<p>
 					{state.bootstrap?.session.mode === "spotify"
-						? "These are persisted server decisions. Song details may be unavailable for previously reviewed tracks. Archive saves a private playlist copy before unliking. Undo "
-						: "Demo history lives in this tab and resets on reload. In a connected library, Archive saves a private playlist copy before unliking. Undo "}
-					restores the like, but Spotify may change its saved order.
+						? "These are persisted server decisions. Song details may be unavailable for previously reviewed tracks. "
+						: "Demo history lives in this tab and resets on reload. "}
+					For Archive or Unlike, Undo restores the like; Spotify may change its
+					saved order. Undo for Keep or Skip changes only the review state.
 				</p>
 			</div>
 		</div>

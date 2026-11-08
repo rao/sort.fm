@@ -7,6 +7,11 @@ import { Landing } from "./components/Landing";
 import { Library } from "./components/Library";
 import { CalibrationWorkspace } from "./components/Calibration";
 import { CalibrationStore } from "./state/calibration";
+import { CorrectionStore } from "./state/corrections";
+import {
+	correctionJournal,
+	createCorrectionClient,
+} from "./data/correction-client";
 import {
 	calibrationJournal,
 	createCalibrationClient,
@@ -59,6 +64,25 @@ export default function App({
 	const shellRef = useRef<HTMLDivElement>(null);
 	const footerRef = useRef<HTMLElement>(null);
 	const [store] = useState(() => new ReviewStore(client, 240));
+	const [corrections] = useState(() =>
+		client.live
+			? new CorrectionStore(
+					createCorrectionClient(
+						client.live.api,
+						client.live.session,
+						correctionJournal(
+							{
+								getItem: (key) => window.sessionStorage.getItem(key),
+								setItem: (key, value) =>
+									window.sessionStorage.setItem(key, value),
+								removeItem: (key) => window.sessionStorage.removeItem(key),
+							},
+							client.live.session.user!.id,
+						),
+					),
+				)
+			: null,
+	);
 	const [calibration] = useState(() =>
 		client.live
 			? new CalibrationStore(
@@ -107,6 +131,11 @@ export default function App({
 		store.subscribe,
 		store.getSnapshot,
 		store.getSnapshot,
+	);
+	const correctionState = useSyncExternalStore(
+		corrections?.subscribe ?? emptySubscribe,
+		corrections?.getSnapshot ?? emptySnapshot,
+		corrections?.getSnapshot ?? emptySnapshot,
 	);
 	const [route, setRoute] = useState<Route>(() =>
 		live && currentRoute() === "landing" ? "library" : currentRoute(),
@@ -169,6 +198,9 @@ export default function App({
 	useEffect(() => {
 		document.title = `${route === "landing" ? "Make room for what moves you" : route === "calibrate" ? "Taste calibration" : route[0]!.toUpperCase() + route.slice(1)} · sort.fm`;
 	}, [route]);
+	useEffect(() => {
+		if (route === "history") void corrections?.refresh();
+	}, [route, corrections]);
 	useEffect(() => {
 		function keydown(event: KeyboardEvent) {
 			const target = event.target as HTMLElement | null;
@@ -427,7 +459,21 @@ export default function App({
 				) : route === "library" || !state.bootstrap ? (
 					<Library state={state} onRetry={() => void store.load()} />
 				) : route === "history" ? (
-					<History state={state} onUndo={(id) => void store.undo(id)} />
+					<History
+						state={state}
+						onUndo={(id) => void store.undo(id)}
+						corrections={
+							corrections && correctionState
+								? {
+										state: correctionState,
+										onCorrect: (decision) => void corrections.correct(decision),
+										onUndo: (id) => void corrections.undo(id),
+										onRetry: () => void corrections.retry(),
+										onRefresh: () => void corrections.refresh(),
+									}
+								: undefined
+						}
+					/>
 				) : route === "model" ? (
 					<ModelLab
 						state={state}

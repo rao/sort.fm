@@ -491,21 +491,27 @@ export class ReviewStore {
 				}
 			}
 		} catch (error) {
-			// Batch reservation is checked under the owner lock before inserting a
-			// decision. Only a fresh attempt can be discarded on this exact rejection;
+			// Batch reservation and exposure closure are checked under the owner lock
+			// before inserting a decision. Only a fresh attempt can be discarded;
 			// a retry must retain any earlier ambiguous outcome until history settles it.
 			if (
 				!recovering && command.kind === "decide" && this.client.live &&
 				error instanceof ApiError && error.status === 409 &&
-				error.error.code === "BATCH_TRACK_RESERVED" && error.error.retryable === false
+				(error.error.code === "BATCH_TRACK_RESERVED" || error.error.code === "POLICY_EXPOSURE_CLOSED") &&
+				error.error.retryable === false
 			) {
 				try {
 					this.client.live.journal.clear();
 				} catch {
-					this.update({ retry: command, terminal: true, error: "This song is reserved for calibration, but its local recovery record could not be cleared. Review remains paused." });
+					this.update({ retry: command, terminal: true, error: "This action was rejected, but its local recovery record could not be cleared. Review remains paused." });
 					return;
 				}
-				this.update({ retry: null, terminal: false, queue: [], error: errorMessage(error), refreshError: "Refreshing the queue after a calibration reservation." });
+				this.update({
+					retry: null, terminal: false, queue: [], error: null,
+					notice: "This card is no longer available. Your action was not applied.",
+					noticeRevision: this.state.noticeRevision + 1,
+					refreshError: "Refreshing the queue after the rejected action.",
+				});
 				try {
 					this.applySnapshot(await this.client.live.snapshot());
 				} catch (refreshError) {

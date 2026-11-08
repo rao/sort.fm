@@ -1,76 +1,10 @@
-import { z } from "zod";
+import type { z } from "zod";
+import { TasteConstellationSchema } from "@sortfm/contracts";
 
 export { audioFields, type AudioKey } from "./audio";
 import { audioFields, type AudioKey } from "./audio";
-const unit = z.number().finite().min(0).max(1).nullable().optional();
-const audioSchema = z.strictObject({
-	energy: unit,
-	danceability: unit,
-	happiness: unit,
-	acousticness: unit,
-	instrumentalness: unit,
-	liveness: unit,
-	speechiness: unit,
-	tempo_bpm: z.number().finite().positive().max(400).nullable().optional(),
-	loudness_db: z.number().finite().min(-100).max(10).nullable().optional(),
-});
-const predictionSchema = z.strictObject({
-	modelVersion: z.string().min(1).max(128),
-	scoredAt: z.iso.datetime({ offset: true }),
-	removalProbability: z.number().finite().min(0).max(1),
-	calibrated: z.boolean(),
-	explanations: z
-		.array(
-			z.strictObject({
-				feature: z.string().min(1).max(100),
-				contribution: z.number().finite().nullable(),
-				description: z.string().max(600),
-			}),
-		)
-		.max(50),
-});
-// Presentation proposal only; no public route or shared DTO is changed here.
-// A server MUST exclude evaluation identities before serializing this payload.
-// Client validation cannot prove the server's exclusion guarantee.
-export const librarySchema = z
-	.strictObject({
-		schema: z.literal("sortfm.constellation.v1"),
-		mode: z.enum(["live", "synthetic"]),
-		privacy: z.literal("evaluation-excluded"),
-		generatedAt: z.iso.datetime({ offset: true }),
-		modelVersion: z.string().min(1).max(128).nullable(),
-		tracks: z
-			.array(
-				z.strictObject({
-					id: z.string().min(1).max(128),
-					title: z.string().min(1).max(200),
-					artist: z.string().min(1).max(300),
-					imageUrl: z.url({ protocol: /^https$/ }).nullable(),
-					label: z.enum(["keep", "remove"]).nullable(),
-					audio: audioSchema,
-					prediction: predictionSchema.nullable(),
-				}),
-			)
-			.max(5000),
-	})
-	.superRefine((data, ctx) => {
-		if (
-			new Set(data.tracks.map((t) => t.id)).size !== data.tracks.length ||
-			data.tracks.some((t) =>
-				data.mode === "live"
-					? !/^[a-zA-Z0-9]{22}$/.test(t.id)
-					: !/^demo:constellation:\d+$/.test(t.id) ||
-						t.prediction !== null ||
-						t.imageUrl !== null,
-			) ||
-			(data.mode === "synthetic" && data.modelVersion !== null)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				message: "Invalid constellation provenance or identity",
-			});
-		}
-	});
+// The HTTP and presentation paths share the integration-owned contract.
+export const librarySchema = TasteConstellationSchema;
 export type Library = z.infer<typeof librarySchema>;
 export type Track = Library["tracks"][number];
 export type Audio = Track["audio"];

@@ -27,7 +27,9 @@ export function reviewRouteSecurity({config,auth}:ReviewRouteOptions) {
         if(req.headers.origin && ![config.webOrigin,config.apiOrigin].includes(req.headers.origin)) throw new SpotifyError('ORIGIN_NOT_ALLOWED','Origin is not allowed.',403);
         return await handler(req,reply);
       } catch(error) {
-        const conflicts=['BATCH_TRACK_RESERVED','IDEMPOTENCY_CONFLICT','MUTATION_PENDING','STATE_CONFLICT','STALE_DECISION','STALE_EXPOSURE','EXPOSURE_ALREADY_CONSUMED','EXPOSURE_TRACK_MISMATCH','EXPOSURE_PURPOSE_MISMATCH','EXPOSURE_NOT_FOUND','REVIEW_LEASE_REQUIRED','REVIEW_LEASE_LOST','TRACK_NOT_OWNED','TRACK_NOT_IN_LIBRARY'];
+        // D checks closed policy exposure admission only after journal replay lookup.
+        // This proves a new command was rejected; ambiguous failures still use 503.
+        const conflicts=['POLICY_EXPOSURE_CLOSED','BATCH_TRACK_RESERVED','IDEMPOTENCY_CONFLICT','MUTATION_PENDING','STATE_CONFLICT','STALE_DECISION','STALE_EXPOSURE','EXPOSURE_ALREADY_CONSUMED','EXPOSURE_TRACK_MISMATCH','EXPOSURE_PURPOSE_MISMATCH','EXPOSURE_NOT_FOUND','REVIEW_LEASE_REQUIRED','REVIEW_LEASE_LOST','TRACK_NOT_OWNED','TRACK_NOT_IN_LIBRARY'];
         const code=error && typeof error==='object' && 'code' in error ? String(error.code) : '';
         const safe=error instanceof ZodError?new SpotifyError('VALIDATION_ERROR','Request does not match the shared contract.',400):conflicts.includes(code)?new SpotifyError(code,'The action conflicts with current review state. Refresh the queue.',409):safeError(error);
         if(safe.retryAt)reply.header('Retry-After',String(Math.max(1,Math.ceil((safe.retryAt-Date.now())/1000))));

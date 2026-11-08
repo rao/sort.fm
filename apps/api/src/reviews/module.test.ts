@@ -1,5 +1,6 @@
 import {expect,test} from 'bun:test';
 import Fastify from 'fastify';
+import {PersistenceError} from '@sortfm/db';
 import {ReviewRequestSchema,type ReviewResult} from '@sortfm/contracts';
 import {createReviewMutationModule} from './module';
 import {ReviewService} from './service';
@@ -9,13 +10,14 @@ const origin='http://127.0.0.1:5173';
 const request=ReviewRequestSchema.parse({trackId:'0000000000000000000001',action:'UNLIKE',exposureId:crypto.randomUUID(),idempotencyKey:crypto.randomUUID()});
 const decision:ReviewResult={...request,decisionId:crypto.randomUUID(),status:'PENDING',mutationStep:'PENDING',mode:'spotify',liked:null,archived:null,canUndo:false,label:null,labelState:'inactive',feedbackRevision:0,error:null,createdAt:'2026-11-07T00:00:00Z',updatedAt:'2026-11-07T00:00:00Z'};
 
-async function setup() {
+async function setup(overrides:Partial<ReviewRepository>={}) {
   const app=Fastify();let reads=0,kicks=0;
   const repo={
     getDecisionByIdempotencyKey:async(user:string)=>{reads++;return user==='spotify:owner'?decision:null;},
     getDecision:async(user:string)=>{reads++;return user==='spotify:owner'?decision:null;},
     getUndoByIdempotencyKey:async()=>null,
     history:async(user:string)=>{reads++;return user==='spotify:owner'?[decision]:[];},
+    ...overrides,
   } as unknown as ReviewRepository;
   const service=new ReviewService(repo,{auth:{requireScopes:async()=>{}},worker:{kick:()=>{kicks++;}}});
   await createReviewMutationModule({
@@ -69,4 +71,45 @@ test('pending replay remains 202 and owner-scoped history and Undo cannot expose
     const undo=await s.app.inject({method:'POST',url:`/api/decisions/${decision.decisionId}/undo`,headers:foreign,payload:{idempotencyKey:crypto.randomUUID()}});
     expect(undo.statusCode).toBe(404);expect(undo.json().code).toBe('DECISION_NOT_FOUND');expect(s.kicks()).toBe(1);
   } finally {await s.app.close();}
+});
+
+
+test('authoritative closed exposure rejects an unaccepted command with terminal 409',async()=>{
+ let admissions=0;
+ const s=await setup({
+  getDecisionByIdempotencyKey:async()=>null,
+  getExposure:async()=>({exposure:{trackId:request.trackId}} as never),
+  library:async()=>[{track:{trackId:request.trackId,source:'spotify',isPlayable:true},currentStatus:'saved',currentDecision:null} as never],
+  createDecision:async()=>{admissions++;throw new PersistenceError('POLICY_EXPOSURE_CLOSED');},
+ });
+ try{
+  const response=await s.app.inject({method:'POST',url:'/api/decisions',headers:{origin,cookie:'sortfm_session=valid'},payload:request});
+  expect(response.statusCode).toBe(409);expect(response.json()).toEqual({code:'POLICY_EXPOSURE_CLOSED',message:'The action conflicts with current review state. Refresh the queue.',retryable:false});
+  expect(admissions).toBe(1);expect(s.kicks()).toBe(0);expect(response.headers['retry-after']).toBeUndefined();
+ }finally{await s.app.close();}
+});
+
+test.each(['PENDING','FAILED_RETRYABLE'] as const)('accepted %s journal replays before closed exposure admission',async status=>{
+ let exposureReads=0,admissions=0;
+ const saved:ReviewResult={...decision,status,error:status==='FAILED_RETRYABLE'?{code:'SPOTIFY_WRITE_UNCONFIRMED',message:'Awaiting confirmation.',retryable:true}:null};
+ const s=await setup({getDecisionByIdempotencyKey:async()=>saved,
+  getExposure:async()=>{exposureReads++;throw new PersistenceError('POLICY_EXPOSURE_CLOSED');},
+  createDecision:async()=>{admissions++;throw new PersistenceError('POLICY_EXPOSURE_CLOSED');},
+ });
+ try{
+  const response=await s.app.inject({method:'POST',url:'/api/decisions',headers:{origin,cookie:'sortfm_session=valid'},payload:request});
+  expect(response.statusCode).toBe(202);expect(response.json()).toEqual(saved);expect(exposureReads).toBe(0);expect(admissions).toBe(0);expect(s.kicks()).toBe(1);
+ }finally{await s.app.close();}
+});
+
+test('ambiguous admission failure remains retryable and does not claim authoritative rejection',async()=>{
+ const s=await setup({getDecisionByIdempotencyKey:async()=>null,
+  getExposure:async()=>({exposure:{trackId:request.trackId}} as never),
+  library:async()=>[{track:{trackId:request.trackId,source:'spotify',isPlayable:true},currentStatus:'saved',currentDecision:null} as never],
+  createDecision:async()=>{throw Error('connection lost after commit');},
+ });
+ try{
+  const response=await s.app.inject({method:'POST',url:'/api/decisions',headers:{origin,cookie:'sortfm_session=valid'},payload:request});
+  expect(response.statusCode).toBe(503);expect(response.json()).toMatchObject({code:'SERVICE_UNAVAILABLE',retryable:true});expect(s.kicks()).toBe(0);
+ }finally{await s.app.close();}
 });

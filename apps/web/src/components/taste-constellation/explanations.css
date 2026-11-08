@@ -5,6 +5,9 @@
 	border-radius: 12px;
 	background: var(--color-background-secondary-default);
 }
+.model-lab .lx-guide > summary {
+	min-height: 0;
+}
 .lx-guide summary span {
 	margin-inline-start: 12px;
 	color: var(--color-text-secondary);

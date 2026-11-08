@@ -6,6 +6,7 @@ import "@fontsource/vt323";
 import "./draft.css";
 import "./retro.css";
 import "./player-restore.css";
+import "../styles/disclosures.css";
 import "../styles/scrollbars.css";
 import { Draft } from "./Draft";
 

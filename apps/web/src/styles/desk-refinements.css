@@ -617,6 +617,11 @@
 .music-desk > .demo-strip {
 	display: none;
 }
+/* The hidden strip no longer separates these panels from the navigation. */
+.music-desk[data-route="review"] > main:has(> .empty-state, > .completion-page),
+.music-desk:is([data-route="dashboard"], [data-route="library"]) > main {
+	padding-block-start: 16px;
+}
 .music-desk .empty-state .button + .button {
 	margin-inline-start: 12px;
 	margin-block-start: 12px;

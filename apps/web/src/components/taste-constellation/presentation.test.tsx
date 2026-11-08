@@ -24,7 +24,7 @@ test("the expandable map keeps one accessible canvas and a named dialog trigger"
 		audio: track.audio,
 	})));
 	const html = renderToStaticMarkup(
-		<ConstellationExplorer>
+		<ConstellationExplorer source={library.mode}>
 			<ConstellationCanvas
 				graph={graph}
 				visibleGraph={graph}
@@ -47,6 +47,23 @@ test("the expandable map keeps one accessible canvas and a named dialog trigger"
 	expect(html).toContain('aria-label="Taste constellation map"');
 	expect(html).not.toContain('aria-modal="true"');
 });
+
+test.each([
+	["synthetic", "SYNTHETIC DEMO · NOT YOUR LIBRARY", "YOUR LIBRARY · READ ONLY"],
+	["live", "YOUR LIBRARY · READ ONLY", "SYNTHETIC DEMO · NOT YOUR LIBRARY"],
+] as const)(
+	"the expanded map identifies its %s source inside the dialog",
+	(source, label, otherLabel) => {
+		const html = renderToStaticMarkup(
+			<ConstellationExplorer source={source}>
+				<span>Map content</span>
+			</ConstellationExplorer>,
+		);
+		const dialog = html.slice(html.indexOf("<dialog"), html.indexOf("</dialog>"));
+		expect(dialog).toContain(label);
+		expect(dialog).not.toContain(otherLabel);
+	},
+);
 
 test("real data is the initial path and demo requires an explicit choice", () => {
 	const disconnected = renderToStaticMarkup(

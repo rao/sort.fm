@@ -34,7 +34,13 @@ import {
 import type { Graph, GraphNode } from "./graph";
 import "./constellation.css";
 
-export function ConstellationExplorer({ children }: { children: ReactNode }) {
+export function ConstellationExplorer({
+	children,
+	source,
+}: {
+	children: ReactNode;
+	source: Library["mode"];
+}) {
 	const id = useId();
 	const dialog = useRef<HTMLDialogElement>(null);
 	const trigger = useRef<HTMLButtonElement>(null);
@@ -84,6 +90,7 @@ export function ConstellationExplorer({ children }: { children: ReactNode }) {
 				className="tc-explorer"
 				aria-label="Taste constellation map"
 				aria-modal={expanded || undefined}
+				aria-describedby={expanded ? `${id}-source` : undefined}
 				onCancel={(event) => {
 					event.preventDefault();
 					if (expanded) collapse();
@@ -99,8 +106,10 @@ export function ConstellationExplorer({ children }: { children: ReactNode }) {
 				<div className="tc-expanded-header" hidden={!expanded}>
 					<div>
 						<h3 className="text-headline-medium">Taste Constellation</h3>
-						<p className="text-caption-1-regular">
-							More room to follow the connections.
+						<p id={`${id}-source`} className="text-caption-1-semibold">
+							{source === "synthetic"
+								? "SYNTHETIC DEMO · NOT YOUR LIBRARY"
+								: "YOUR LIBRARY · READ ONLY"}
 						</p>
 					</div>
 					<Button
@@ -717,7 +726,7 @@ export function TasteConstellation({
 							)}
 						</div>
 					)}
-					<ConstellationExplorer>
+					<ConstellationExplorer source={currentLibrary.mode}>
 						<div className="tc-layout">
 							{graph.nodes.length ? (
 								<ConstellationCanvas

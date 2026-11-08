@@ -32,3 +32,11 @@ test('configured adaptive policy cannot activate without durable policy storage'
  expect((await runtime.app.inject({url:'/api/health'})).json().capabilities).toEqual({demo:true,spotify:false,database:false,ml:false});
  expect((await runtime.app.inject({url:'/api/demo/bootstrap'})).statusCode).toBe(200);
 });
+
+
+test('unconfigured constellation still requires authentication and never fabricates a graph',async()=>{
+ const runtime=await buildRuntime({env:{NODE_ENV:'test'}});runtimes.push(runtime);
+ const response=await runtime.app.inject('/api/ml/constellation');
+ expect(response.statusCode).toBe(401);expect(response.json().code).toBe('AUTHENTICATION_REQUIRED');
+ expect(response.headers['cache-control']).toBe('no-store');expect(response.json()).not.toHaveProperty('tracks');
+});

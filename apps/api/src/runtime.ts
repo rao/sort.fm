@@ -1,4 +1,4 @@
-import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, PostgresCalibrationBatchStore, PostgresCalibrationExperimentStore, PostgresPlaybackStore, PostgresPolicyStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
+import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, PostgresCalibrationBatchStore, PostgresCalibrationExperimentStore, PostgresConstellationStore, PostgresPlaybackStore, PostgresPolicyStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService,type QueueOptions} from './reviews/queue';
@@ -9,7 +9,7 @@ import {ReviewWorker} from './reviews/worker';
 import {PolicyQueueService,PolicyDeliveryWorker,PolicySelectionRecoveryWorker} from './reviews/policy';
 import {withPolicyFitReceipts} from './policy-fit';
 import {SpotifyMutations} from './spotify/mutations';
-import {assembleLibraryCandidatesWithListeningContext,createMlClient,createPolicyClient,createRepositoryMl,createMlReadModule,createMlRetrainModule,type RepositoryMl,type MlClientOptions,type PolicyClient} from './ml';
+import {assembleLibraryCandidatesWithListeningContext,createMlClient,createPolicyClient,createRepositoryMl,createMlReadModule,createMlRetrainModule,createTasteConstellationModule,type RepositoryMl,type MlClientOptions,type PolicyClient} from './ml';
 import {SpotifyError} from './spotify/errors';
 import {buildApp} from './app';
 import {loadConfig} from './config';
@@ -228,6 +228,12 @@ export async function buildRuntime(options: {
   getSummary:userId=>a1Store.transaction(tx=>tx.getSummary(userId)),
   audioProgress:userId=>audio.audioStatus(userId),latestModel:userId=>repository.latestModel(userId),
  }):null;
+ // A read-only projection owns its privacy readiness independently of ML and
+ // provider availability. Unconfigured sessions remain anonymous, never demo.
+ const constellation=createTasteConstellationModule({
+  auth:spotify?.auth??{session:async()=>null},config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
+  projection:database?new PostgresConstellationStore(database):null,
+ });
  const modelRetrain=spotify?createMlRetrainModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},ml,
  }):null;
@@ -264,6 +270,7 @@ export async function buildRuntime(options: {
    if(feedback){app.addHook('onReady',async()=>{feedback.start();});app.addHook('onClose',async()=>{await feedback.close();});}
    if(policyDelivery){app.addHook('onReady',async()=>{policyDelivery.start();});app.addHook('onClose',async()=>{await policyDelivery.close();});}
    if(policyRecovery){app.addHook('onReady',async()=>{policyRecovery.start();});app.addHook('onClose',async()=>{await policyRecovery.close();});}
+   await constellation.registerRoutes(app);
    if(spotify) {await spotify.registerRoutes(app);await playback?.registerRoutes(app);await reviews?.registerRoutes(app);await mutations?.registerRoutes(app);await modelReads?.registerRoutes(app);await modelRetrain?.registerRoutes(app);await calibration?.registerRoutes(app);}
    else for(const path of [PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]) {
     app.get(path,async(_request,reply)=>reply.code(503).send({code:'SPOTIFY_NOT_CONFIGURED',message:'Spotify connection is unavailable until server configuration and database readiness are complete.',retryable:false}));

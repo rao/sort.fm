@@ -491,6 +491,28 @@ export class ReviewStore {
 				}
 			}
 		} catch (error) {
+			// Batch reservation is checked under the owner lock before inserting a
+			// decision. Only a fresh attempt can be discarded on this exact rejection;
+			// a retry must retain any earlier ambiguous outcome until history settles it.
+			if (
+				!recovering && command.kind === "decide" && this.client.live &&
+				error instanceof ApiError && error.status === 409 &&
+				error.error.code === "BATCH_TRACK_RESERVED" && error.error.retryable === false
+			) {
+				try {
+					this.client.live.journal.clear();
+				} catch {
+					this.update({ retry: command, terminal: true, error: "This song is reserved for calibration, but its local recovery record could not be cleared. Review remains paused." });
+					return;
+				}
+				this.update({ retry: null, terminal: false, queue: [], error: errorMessage(error), refreshError: "Refreshing the queue after a calibration reservation." });
+				try {
+					this.applySnapshot(await this.client.live.snapshot());
+				} catch (refreshError) {
+					this.update({ refreshError: errorMessage(refreshError) });
+				}
+				return;
+			}
 			// The frozen contract stub explicitly rejects before accepting a command.
 			// No other terminal or ambiguous response proves that no mutation occurred.
 			if (

@@ -95,3 +95,13 @@ test('cleanup surface reports D wrong-purpose rejection as a conflict without ex
   expect(response.statusCode).toBe(409);expect(response.json().code).toBe('EXPOSURE_PURPOSE_MISMATCH');expect(response.body).not.toContain('private database detail');
  }finally{await app.close();}
 });
+
+test('Batch2 routes retain owner/CSRF/strict-body/no-store boundary when optional feature is unavailable',async()=>{
+ const f=await appFixture();try{
+  expect((await f.app.inject({url:'/api/calibration/batch2'})).statusCode).toBe(401);
+  expect((await f.app.inject({method:'POST',url:'/api/calibration/batch2',headers:{cookie:headers.cookie},payload:{seed:42}})).statusCode).toBe(403);
+  expect((await f.app.inject({method:'POST',url:'/api/calibration/batch2',headers,payload:{seed:42,userId:'other'}})).statusCode).toBe(400);
+  const unavailable=await f.app.inject({url:'/api/calibration/batch2',headers});expect(unavailable.statusCode).toBe(503);expect(unavailable.json().code).toBe('BATCH_UNAVAILABLE');expect(unavailable.headers['cache-control']).toBe('no-store');
+  expect((await f.app.inject({url:'/api/calibration/queue',headers})).statusCode).toBe(200);
+ }finally{await f.app.close();}
+});

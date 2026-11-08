@@ -58,3 +58,9 @@ test('reusable observe, evaluation, and explanation calls preserve caller event 
  await ml.observe(event);await ml.evaluation('demo:user','v2');await ml.explain('demo:user',event.exposureId);
  expect(calls).toEqual([event,{userId:'demo:user',modelVersion:'v2'},{userId:'demo:user',exposureId:event.exposureId}]);
 });
+
+test('online observe cannot export sealed Batch2 labels',async()=>{
+ let sent=0;
+ const adapter=createRepositoryMl({repository:{trainingExamples:async()=>({feedbackRevision:1,examples:[]}),isSealedCalibrationTrack:async()=>true},client:{observe:async()=>{sent++;return {accepted:true,feedbackRevision:1,modelVersion:'x'};}} as unknown as MlClient});
+ await expect(adapter.observe({userId:'demo:user',trackId:example.trackId,eventId:crypto.randomUUID(),decisionId:example.decisionId,exposureId:crypto.randomUUID(),feedbackRevision:1,operation:'upsert',label:0,features:example.features,occurredAt:example.labeledAt})).rejects.toThrow('SEALED_EVALUATION_EXCLUDED');expect(sent).toBe(0);
+});

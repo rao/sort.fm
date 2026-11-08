@@ -1,3 +1,5 @@
+import {CalibrationBatchCreateSchema,CalibrationBatchSkipSchema,CalibrationBatchSchema,CalibrationBatchReadSchema} from '@sortfm/contracts';
+import type {CalibrationBatchService} from './batch-service';
 import {z,ZodError} from 'zod';
 import type {FastifyInstance,FastifyReply,FastifyRequest} from 'fastify';
 import {CalibrationLabelRequestSchema,CalibrationQueueQuerySchema,PUBLIC_ROUTES,UndoRequestSchema,UuidSchema} from '@sortfm/contracts';
@@ -8,11 +10,12 @@ export interface CalibrationModuleOptions {
  config:{secureCookies:boolean;webOrigin:string;apiOrigin:string};
  /** Existing owner session lookup; write scopes and provider credentials are irrelevant. */
  auth:{session(token?:string):Promise<{user:{id:string}}|null>};
+ batch?:Pick<CalibrationBatchService,'read'|'create'|'skip'>;
  service:Pick<CalibrationService,'label'|'undo'|'history'>;
  queue:Pick<CalibrationQueue,'get'>;
 }
-const missing=new Set(['USER_NOT_FOUND','TRACK_NOT_OWNED','EXPOSURE_NOT_FOUND','CALIBRATION_LABEL_NOT_FOUND']);
-const conflicts=new Set(['TRACK_NOT_IN_LIBRARY','CALIBRATION_NOT_ELIGIBLE','CALIBRATION_LABEL_ACTIVE','STALE_CALIBRATION_LABEL','MUTATION_PENDING','EXPOSURE_TRACK_MISMATCH','EXPOSURE_PURPOSE_MISMATCH','EXPOSURE_ALREADY_CONSUMED','STALE_EXPOSURE','EXPOSURE_CONFLICT','IDEMPOTENCY_CONFLICT']);
+const missing=new Set(['USER_NOT_FOUND','TRACK_NOT_OWNED','EXPOSURE_NOT_FOUND','CALIBRATION_LABEL_NOT_FOUND','BATCH_ITEM_NOT_FOUND']);
+const conflicts=new Set(['TRACK_NOT_IN_LIBRARY','CALIBRATION_NOT_ELIGIBLE','CALIBRATION_LABEL_ACTIVE','STALE_CALIBRATION_LABEL','MUTATION_PENDING','EXPOSURE_TRACK_MISMATCH','EXPOSURE_PURPOSE_MISMATCH','EXPOSURE_ALREADY_CONSUMED','STALE_EXPOSURE','EXPOSURE_CONFLICT','IDEMPOTENCY_CONFLICT','BATCH_TRACK_RESERVED','BATCH_ITEM_NOT_PENDING','BATCH_SEED_CONFLICT','BATCH_CANDIDATES_CHANGED']);
 function publicError(error:unknown):CalibrationError {
  if(error instanceof CalibrationError)return error;
  if(error instanceof ZodError)return new CalibrationError('VALIDATION_ERROR','Request does not match the shared contract.',400);
@@ -56,7 +59,11 @@ export function createCalibrationModule(options:CalibrationModuleOptions){
    }
   };
  }
+ const batch=()=>{if(!options.batch)throw new CalibrationError('BATCH_UNAVAILABLE','Batch 2 is not available on this server yet.',503,true);return options.batch;};
  const registerRoutes=async(app:FastifyInstance)=>{
+  app.get(PUBLIC_ROUTES.calibrationBatch.path,safe(async req=>{empty.parse(req.query);if(req.body!==undefined)empty.parse(req.body);const userId=await owner(req);return backend(async()=>CalibrationBatchReadSchema.parse({batch:await batch().read(userId)}));}));
+  app.post(PUBLIC_ROUTES.calibrationBatchCreate.path,safe(async req=>{csrf(req);empty.parse(req.query);const input=CalibrationBatchCreateSchema.parse(req.body),userId=await owner(req);return backend(async()=>CalibrationBatchSchema.parse(await batch().create(userId,input)));}));
+  app.post(PUBLIC_ROUTES.calibrationBatchSkip.path,safe(async req=>{csrf(req);empty.parse(req.query);const input=CalibrationBatchSkipSchema.parse(req.body),userId=await owner(req);return backend(async()=>CalibrationBatchSchema.parse(await batch().skip(userId,input)));}));
   app.get(PUBLIC_ROUTES.calibrationQueue.path,safe(async req=>{
    const query=CalibrationQueueQuerySchema.parse(req.query);if(req.body!==undefined)empty.parse(req.body);
    const userId=await owner(req);return backend(()=>options.queue.get(userId,query));

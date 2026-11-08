@@ -6,6 +6,8 @@ import {
 import type {MlClient} from './client';
 
 export interface MlRepositoryPort {
+ /** Batch2 sealed labels must never reach the optional online observe path. */
+ isSealedCalibrationTrack?(userId:string,trackId:string):Promise<boolean>;
  /** D guarantees the revision and active labels are read in one user-scoped transaction. */
  trainingExamples(userId:string):Promise<{feedbackRevision:number;examples:FitRequest['examples']}>;
 }
@@ -30,7 +32,7 @@ export function createRepositoryMl({repository,client,evaluationSeed=42}:Reposit
     feedbackRevision:snapshot.feedbackRevision,examples:snapshot.examples,evaluationSeed}));
   },
   /** A2 owns durable delivery/retry ordering. Do not send fit+observe for one revision. */
-  observe(event:ObserveRequest){return client.observe(ObserveRequestSchema.parse(event));},
+  async observe(event:ObserveRequest){const parsed=ObserveRequestSchema.parse(event);if(await repository.isSealedCalibrationTrack?.(parsed.userId,parsed.trackId))throw new Error('SEALED_EVALUATION_EXCLUDED');return client.observe(parsed);},
   evaluation(userId:string,modelVersion?:string){return client.evaluation({userId,...(modelVersion===undefined?{}:{modelVersion})});},
   explain(userId:string,exposureId:string){return client.explain({userId,exposureId});},
  };

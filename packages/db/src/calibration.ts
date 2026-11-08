@@ -3,6 +3,7 @@ import {z} from 'zod';
 import {CalibrationLabelRequestSchema,CalibrationLabelResultSchema,CalibrationHistorySchema,ExposureInputSchema,IdSchema,UuidSchema,TimestampSchema,UndoRequestSchema,type CalibrationStore,type CalibrationCandidateSnapshot,type CalibrationHistory,type CalibrationLabelInput,type CalibrationLabelResult,type CalibrationUndoInput,type ExposureInput} from '@sortfm/contracts';
 import {Database,PersistenceError,json,type Transaction} from './client';
 import {lockUser,readLibrary} from './repository';
+import {assertNotBatchReserved,batchExposure,reservedCalibrationTrackIds} from './calibration-reservations';
 const labelInput=z.strictObject({userId:IdSchema,labelId:UuidSchema,request:CalibrationLabelRequestSchema,requestFingerprint:z.string().min(1),createdAt:TimestampSchema});
 const undoInput=z.strictObject({userId:IdSchema,commandId:UuidSchema,labelId:UuidSchema,request:UndoRequestSchema,requestFingerprint:z.string().min(1),createdAt:TimestampSchema});
 const fail=(code:string):never=>{throw new PersistenceError(code);};
@@ -36,10 +37,10 @@ export class PostgresCalibrationStore implements CalibrationStore {
  async calibrationCandidates(userId:string):Promise<CalibrationCandidateSnapshot>{IdSchema.parse(userId);return this.db.transaction(async tx=>{
   await lockUser(tx,userId);const library=await readLibrary(tx,userId);
   const rows=await tx`SELECT s.track_id FROM saved_tracks s JOIN tracks t USING(track_id) JOIN library_membership m ON m.user_id=s.user_id AND m.track_id=s.track_id LEFT JOIN current_decisions c ON c.user_id=s.user_id AND c.track_id=s.track_id LEFT JOIN review_decisions d ON d.user_id=c.user_id AND d.decision_id=c.decision_id LEFT JOIN effective_feedback f ON f.user_id=s.user_id AND f.track_id=s.track_id WHERE s.user_id=${userId} AND t.card->>'source'='spotify' AND t.card->>'isPlayable'='true' AND s.current_status IN ('saved','deferred') AND (d.result IS NULL OR d.result->>'status' IN ('UNDONE','FAILED_TERMINAL')) AND (f.label IS NULL OR f.revoked) AND NOT EXISTS(SELECT 1 FROM review_decisions r WHERE r.user_id=s.user_id AND r.track_id=s.track_id AND r.result->>'status' IN ('PENDING','FAILED_RETRYABLE')) AND NOT EXISTS(SELECT 1 FROM undo_commands u JOIN review_decisions r USING(user_id,decision_id) WHERE u.user_id=s.user_id AND r.track_id=s.track_id AND u.settled_at IS NULL) ORDER BY s.track_id`;
-  return {library,eligibleTrackIds:rows.map((r:any)=>r.track_id)};
+  const reserved=new Set(await reservedCalibrationTrackIds(tx,userId));return {library,eligibleTrackIds:rows.map((r:any)=>r.track_id).filter((id:string)=>!reserved.has(id))};
  });}
  async insertCalibrationExposure(input:ExposureInput):Promise<void>{const v=ExposureInputSchema.parse(input);await this.db.transaction(async tx=>{
-  await lockUser(tx,v.userId);await eligible(tx,v.userId,v.exposure.trackId,v.exposure.servedAt);
+  await lockUser(tx,v.userId);await assertNotBatchReserved(tx,v.userId,v.exposure.trackId);await eligible(tx,v.userId,v.exposure.trackId,v.exposure.servedAt);
   const rows=await tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at,purpose) VALUES(${v.exposure.exposureId},${v.userId},${v.exposure.trackId},${json(v)}::jsonb,${v.exposure.servedAt},'calibration') ON CONFLICT DO NOTHING RETURNING exposure_id`;
   if(!rows.length){const [same]=await tx`SELECT 1 FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.exposure.exposureId} AND purpose='calibration' AND payload=${json(v)}::jsonb`;if(!same)fail('EXPOSURE_CONFLICT');}
  });}
@@ -50,9 +51,12 @@ export class PostgresCalibrationStore implements CalibrationStore {
   const [e]=await tx`SELECT track_id,purpose,served_at FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`;
   if(!e)fail('EXPOSURE_NOT_FOUND');if(e.purpose!=='calibration')fail('EXPOSURE_PURPOSE_MISMATCH');if(e.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
   if((await tx`SELECT 1 FROM calibration_labels WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`).length)fail('EXPOSURE_ALREADY_CONSUMED');
+  const batch=await batchExposure(tx,v.userId,v.request.exposureId);
+  if(batch){if(batch.exposure_id!==v.request.exposureId||!['pending','revoked'].includes(batch.status))fail('BATCH_ITEM_NOT_PENDING');}else await assertNotBatchReserved(tx,v.userId,v.request.trackId);
   const winner=await eligible(tx,v.userId,v.request.trackId,iso(e.served_at));if(Date.parse(v.createdAt)<new Date(e.served_at).getTime())fail('STALE_EXPOSURE');
-  const revision=Number(owner.feedback_revision)+1,split=winner?.split??calibrationSplit(v.userId,v.request.trackId);
+  const revision=Number(owner.feedback_revision)+1,split=batch?(batch.assignment==='train'?'train':'holdout'):winner?.split??calibrationSplit(v.userId,v.request.trackId);
   await tx`INSERT INTO calibration_labels(label_id,user_id,track_id,exposure_id,idempotency_key,request_fingerprint,request,submitted_label,label,revision,split,created_at,updated_at) VALUES(${v.labelId},${v.userId},${v.request.trackId},${v.request.exposureId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${v.request.label},${v.request.label},${revision},${split},${v.createdAt},${v.createdAt})`;
+  if(batch)await tx`UPDATE calibration_batch_items SET status='labeled' WHERE batch_item_id=${batch.batch_item_id}`;
   await advance(tx,v.userId,revision);return project(tx,v.userId,v.labelId);
  });}
  async undoCalibrationLabel(input:CalibrationUndoInput):Promise<CalibrationLabelResult>{const v=undoInput.parse(input);return this.db.transaction(async tx=>{
@@ -63,6 +67,7 @@ export class PostgresCalibrationStore implements CalibrationStore {
   const revision=Number(owner.feedback_revision)+1;
   await tx`INSERT INTO calibration_undos(command_id,user_id,label_id,idempotency_key,request_fingerprint,request,created_at) VALUES(${v.commandId},${v.userId},${v.labelId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${v.createdAt})`;
   await tx`UPDATE calibration_labels SET label=NULL,revoked=true,revision=${revision},updated_at=${v.createdAt} WHERE user_id=${v.userId} AND label_id=${v.labelId}`;
+  const batch=await batchExposure(tx,v.userId,result.exposureId);if(batch)await tx`UPDATE calibration_batch_items SET status='revoked' WHERE batch_item_id=${batch.batch_item_id}`;
   await advance(tx,v.userId,revision);return project(tx,v.userId,v.labelId);
  });}
  async calibrationHistory(userId:string):Promise<CalibrationHistory>{IdSchema.parse(userId);return this.db.transaction(async tx=>{

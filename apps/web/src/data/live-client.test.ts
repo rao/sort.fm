@@ -410,6 +410,96 @@ test("a stub response during recovery cannot erase an earlier ambiguous command"
 	expect(store.getSnapshot().retry).not.toBeNull();
 });
 
+test.each(["KEEP", "ARCHIVE", "SKIP", "UNLIKE"] as const)(
+	"first-attempt %s on a newly reserved Batch 2 track clears only the rejected command and refreshes GET",
+	async (action) => {
+		const { ApiError } = await import("@sortfm/contracts/client");
+		const f = liveFixture();
+		const reservedId = f.items[0]!.track.trackId;
+		const client = {
+			...f.client,
+			decide: async (request: Parameters<typeof f.client.decide>[0]) => {
+				if (request.trackId === reservedId) {
+					f.items.shift();
+					throw new ApiError(409, { code: "BATCH_TRACK_RESERVED", message: "This song is reserved for calibration.", retryable: false });
+				}
+				return f.client.decide(request);
+			},
+		};
+		const store = new ReviewStore(client);
+		await store.load();
+		const reads = f.calls.length;
+		await store.decide(action);
+		expect(f.journal.read()).toBeNull();
+		expect(store.getSnapshot().retry).toBeNull();
+		expect(store.getSnapshot().terminal).toBe(false);
+		expect(store.getSnapshot().queue.map((item) => item.track.trackId)).not.toContain(reservedId);
+		expect(f.history).toHaveLength(0);
+		expect(f.commands).toHaveLength(0);
+		expect(f.calls.length).toBeGreaterThan(reads);
+		expect(f.calls.slice(reads).every((call) => call.init?.method !== "POST")).toBe(true);
+		const reloaded = new ReviewStore(client);
+		await reloaded.load();
+		expect(reloaded.getSnapshot().retry).toBeNull();
+		await reloaded.decide("KEEP");
+		expect(f.commands).toHaveLength(1);
+		expect(f.commands[0]!.trackId).not.toBe(reservedId);
+	},
+);
+
+test("a rejected reserved-track command stays cleared when GET fails, with new review paused until refresh", async () => {
+	const { ApiError } = await import("@sortfm/contracts/client");
+	const f = liveFixture();
+	const store = new ReviewStore({ ...f.client, decide: async () => {
+		f.items.shift();
+		f.setQueueError(true);
+		throw new ApiError(409, { code: "BATCH_TRACK_RESERVED", message: "Reserved for calibration", retryable: false });
+	} });
+	await store.load();
+	await store.decide("KEEP");
+	expect(f.journal.read()).toBeNull();
+	expect(store.getSnapshot().queue).toHaveLength(0);
+	expect(store.getSnapshot().refreshError).toBeTruthy();
+	await store.decide("UNLIKE");
+	expect(f.commands).toHaveLength(0);
+	f.setQueueError(false);
+	await store.refresh();
+	expect(store.getSnapshot().queue).toHaveLength(1);
+	expect(store.getSnapshot().refreshError).toBeNull();
+});
+
+test.each([false, true])("reservation rejection during recovery preserves a previously ambiguous command (committed=%s)", async (committed) => {
+	const { ApiError } = await import("@sortfm/contracts/client");
+	const f = liveFixture();
+	let attempts = 0;
+	const client = { ...f.client, decide: async (request: Parameters<typeof f.client.decide>[0]) => {
+		if (++attempts === 1) {
+			if (committed) await f.client.decide(request);
+			throw new Error("Response lost");
+		}
+		throw new ApiError(409, { code: "BATCH_TRACK_RESERVED", message: "Reserved for calibration", retryable: false });
+	} };
+	const store = new ReviewStore(client);
+	await store.load();
+	await store.decide("KEEP");
+	const key = f.journal.read()!.request.idempotencyKey;
+	await store.retry();
+	expect(f.journal.read()?.request.idempotencyKey).toBe(key);
+	expect(store.getSnapshot().retry?.request.idempotencyKey).toBe(key);
+	await store.recover();
+	const reloaded = new ReviewStore(client);
+	await reloaded.load();
+	expect(attempts).toBe(2);
+	if (committed) {
+		expect(f.journal.read()).toBeNull();
+		expect(reloaded.getSnapshot().retry).toBeNull();
+		expect(reloaded.getSnapshot().history[0]?.result.idempotencyKey).toBe(key);
+	} else {
+		expect(f.journal.read()?.request.idempotencyKey).toBe(key);
+		expect(reloaded.getSnapshot().retry?.request.idempotencyKey).toBe(key);
+	}
+});
+
 test.each(["KEEP", "SKIP"] as const)(
 	"HTTP fixture supports %s Undo with a contract-valid non-provider mutation step",
 	async (action) => {

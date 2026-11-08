@@ -14,3 +14,4 @@ export {MusicaeQueue,type MusicaeProgress} from './musicae-queue';
 export type {MusicaeOutcome,MusicaeResponse} from './musicae-types';
 
 export {PostgresPlaybackStore} from "./playback-store";
+export {PostgresCalibrationBatchStore} from './calibration-batch';

@@ -9,6 +9,7 @@ import {
 	CalibrationStore,
 	calibrationActionFromKey,
 	calibrationActionFromDrag,
+	calibrationLocked,
 } from "./calibration";
 function setup() {
 	const f = calibrationFixture();
@@ -289,4 +290,65 @@ test("unknown or idempotency conflicts preserve the recovery journal", async () 
 		await f.store.label(0);
 		expect(f.journal.read()?.kind).toBe("label");
 	}
+});
+
+test('Batch2 session persists selection and a lost Skip response recovers on reload without a label or redraw',async()=>{
+ const {calibrationBatchFixture}=await import('../test-support/calibration-batch-fixture');
+ const f=calibrationBatchFixture(),journal=calibrationJournal(f.storage,f.session.user!.id),client=createCalibrationClient(f.api,f.session,journal),store=new CalibrationStore(client);
+ await store.load();await store.selectSession('batch2');
+ const initial=store.getSnapshot().batch!;expect(initial.target).toBe(70);expect(store.getSnapshot().queue).toHaveLength(70);
+ f.loseSkip();await store.skip();expect(journal.read()?.kind).toBe('skip');expect(f.history).toHaveLength(0);
+ const fresh=new CalibrationStore(createCalibrationClient(f.api,f.session,calibrationJournal(f.storage,f.session.user!.id)));await fresh.load();
+ expect(fresh.getSnapshot().session).toBe('batch2');expect(fresh.getSnapshot().batch!.batchId).toBe(initial.batchId);expect(fresh.getSnapshot().pending).toBeNull();expect(f.skips()).toBe(1);expect(fresh.getSnapshot().queue).toHaveLength(70);
+ await fresh.label(1);expect(fresh.getSnapshot().batch!.labeled).toBe(1);expect(fresh.getSnapshot().batch!.trainingLabeled+fresh.getSnapshot().batch!.sealedLabeled).toBe(1);
+});
+
+test('a failed Batch2 transition never leaves ordinary exposures actionable under batch actions',async()=>{
+ const {calibrationBatchFixture}=await import('../test-support/calibration-batch-fixture');const f=calibrationBatchFixture(),journal=calibrationJournal(f.storage,f.session.user!.id),store=new CalibrationStore(createCalibrationClient(f.api,f.session,journal));
+ await store.load();f.failHistory(true);await store.selectSession('batch2');
+ expect(store.getSnapshot().refreshError).not.toBeNull();expect(store.getSnapshot().queue).toHaveLength(0);
+ await store.label(1);await store.skip();expect(f.history).toHaveLength(0);expect(journal.read()).toBeNull();
+ f.failHistory(false);await store.refresh();expect(store.getSnapshot().queue).toHaveLength(70);expect(store.getSnapshot().refreshError).toBeNull();
+});
+
+test.each(["all", "session"])("blocked %s storage reads pause calibration without crashing or losing a pending Batch 2 command", async (blockedKey) => {
+	const { calibrationBatchFixture } = await import("../test-support/calibration-batch-fixture");
+	const f = calibrationBatchFixture();
+	const journal = calibrationJournal(f.storage, f.session.user!.id);
+	const original = new CalibrationStore(createCalibrationClient(f.api, f.session, journal));
+	await original.load();
+	await original.selectSession("batch2");
+	f.loseResponse();
+	await original.label(0);
+	const pending = journal.read();
+	expect(pending?.kind).toBe("label");
+	let blocked = true;
+	const guarded = calibrationJournal({
+		getItem(key) {
+			if (blocked && (blockedKey === "all" || key.endsWith(":session")))
+				throw new DOMException("Storage access denied", "SecurityError");
+			return f.storage.getItem(key);
+		},
+		setItem: (key, value) => f.storage.setItem(key, value),
+		removeItem: (key) => f.storage.removeItem(key),
+	}, f.session.user!.id);
+	// This constructor runs in App's useState initializer, outside calibration recovery.
+	const restored = new CalibrationStore(createCalibrationClient(f.api, f.session, guarded));
+	const calls = f.calls.length;
+	await restored.load();
+	expect(calibrationLocked(restored.getSnapshot())).toBe(true);
+	expect(restored.getSnapshot().refreshError).toContain("Storage access denied");
+	await restored.label(1);
+	await restored.skip();
+	await restored.selectSession("ordinary");
+	expect(f.calls.length).toBe(calls);
+	expect(journal.read()).toEqual(pending);
+	expect(journal.readSession!()).toBe("batch2");
+	blocked = false;
+	await restored.refresh();
+	expect(restored.getSnapshot().session).toBe("batch2");
+	expect(restored.getSnapshot().batch!.labeled).toBe(1);
+	expect(restored.getSnapshot().pending).toBeNull();
+	expect(calibrationLocked(restored.getSnapshot())).toBe(false);
+	expect(f.calls.slice(calls).every((call) => call.init?.method !== "POST")).toBe(true);
 });

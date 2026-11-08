@@ -1,3 +1,4 @@
+import {CalibrationBatchSkipSchema,type CalibrationBatchSkip} from '@sortfm/contracts';
 import {
 	CalibrationLabelRequestSchema,
 	UndoRequestSchema,
@@ -16,8 +17,12 @@ import {
 } from "./live-client";
 export type CalibrationCommand =
 	| { kind: "label"; request: CalibrationLabelRequest }
-	| { kind: "undo"; labelId: string; request: UndoRequest };
+	| { kind: "undo"; labelId: string; request: UndoRequest }
+ | { kind: "skip"; request: CalibrationBatchSkip };
+export type CalibrationSession = "ordinary" | "batch2";
 export interface CalibrationJournal {
+ readSession?():CalibrationSession;
+ selectSession?(session:CalibrationSession):void;
 	read(): CalibrationCommand | null;
 	write(command: CalibrationCommand): void;
 	clear(): void;
@@ -28,10 +33,13 @@ export function calibrationJournal(
 ): CalibrationJournal {
 	const key = `sortfm:calibration:pending:v1:${encodeURIComponent(ownerId)}`;
 	return {
+  readSession:()=>storage.getItem(`${key}:session`)==="batch2"?"batch2":"ordinary",
+  selectSession:(session)=>storage.setItem(`${key}:session`,session),
 		read() {
 			const raw = storage.getItem(key);
 			if (!raw) return null;
 			const value = JSON.parse(raw);
+			if (value.kind === "skip") return {kind:"skip",request:CalibrationBatchSkipSchema.parse(value.request)};
 			if (value.kind === "label")
 				return {
 					kind: "label",
@@ -56,6 +64,7 @@ type CalibrationApi = Pick<
 	LiveApi,
 	| "session"
 	| "calibrationQueue"
+ | "calibrationBatch" | "calibrationBatchCreate" | "calibrationBatchSkip"
 	| "calibrationLabel"
 	| "calibrationUndo"
 	| "calibrationHistory"
@@ -83,10 +92,12 @@ export function createCalibrationClient(
 	return {
 		ownerId,
 		journal,
-		async snapshot() {
+		async snapshot(selection:CalibrationSession="ordinary") {
 			await assertOwner();
+			const batch=selection==="batch2"?(await api.calibrationBatch()).batch:null;
+   if(selection==="batch2"&&!batch)throw new Error("Batch 2 has not been created. Start the saved session below.");
 			const [queue, history, model] = await Promise.all([
-				api.calibrationQueue({ limit: 20 }),
+				batch?Promise.resolve(batch.queue):api.calibrationQueue({ limit: 20 }),
 				api.calibrationHistory(),
 				api
 					.insights()
@@ -107,8 +118,10 @@ export function createCalibrationClient(
 				warning =
 					"Synthetic model metrics were excluded from your personal model.";
 			}
-			return { queue, history, metrics, warning };
+			return { queue, history, metrics, warning, batch };
 		},
+		async startBatch(seed=42){await assertOwner();const existing=(await api.calibrationBatch()).batch;return existing??api.calibrationBatchCreate({seed});},
+  async skip(request:CalibrationBatchSkip){await assertOwner();return api.calibrationBatchSkip(request);},
 		async label(request: CalibrationLabelRequest) {
 			await assertOwner();
 			return api.calibrationLabel(request);

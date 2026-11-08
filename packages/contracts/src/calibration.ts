@@ -52,3 +52,14 @@ export const CalibrationQueueResultSchema = z.strictObject({
 export type CalibrationQueueResult = z.infer<typeof CalibrationQueueResultSchema>;
 export const CalibrationHistorySchema = z.strictObject({items: z.array(CalibrationLabelResultSchema), nextCursor: z.string().nullable()});
 export type CalibrationHistory = z.infer<typeof CalibrationHistorySchema>;
+
+/** Effective eligible training labels and a confirmed model acknowledgement, not an estimated progress percentage. */
+export const TeachingStatusSchema = z.strictObject({
+  trainingFeedbackCount: CountSchema, feedbackRevision: CountSchema,
+  synchronizedFeedbackRevision: CountSchema.nullable(), modelVersion: z.string().min(1).max(128).nullable(),
+}).superRefine((status,ctx)=>{
+  if((status.synchronizedFeedbackRevision===null)!==(status.modelVersion===null)
+    ||(status.synchronizedFeedbackRevision!==null&&status.synchronizedFeedbackRevision>status.feedbackRevision))
+    ctx.addIssue({code:'custom',message:'Model acknowledgement must be known and cannot exceed durable feedback'});
+});
+export type TeachingStatus = z.infer<typeof TeachingStatusSchema>;

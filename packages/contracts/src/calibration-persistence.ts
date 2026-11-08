@@ -1,4 +1,4 @@
-import type {CalibrationCorrectionRequest, CalibrationHistory, CalibrationLabelRequest, CalibrationLabelResult} from "./calibration";
+import type {CalibrationCorrectionRequest, CalibrationHistory, CalibrationLabelRequest, CalibrationLabelResult, TeachingStatus} from "./calibration";
 import type {ExposureInput, SavedTrackInput} from "./db";
 import type {FeatureVector} from "./features";
 import type {ReviewResult, TrackCard, UndoRequest} from "./schemas";
@@ -48,4 +48,7 @@ export interface CalibrationStore {
   undoCalibrationLabel(input: CalibrationUndoInput): Promise<CalibrationLabelResult>;
   /** Current projected label states, newest created first; never cleanup decisions. */
   calibrationHistory(userId: string): Promise<CalibrationHistory>;
+  /** Public ordinary Teach only: excludes every permanent evaluation/holdout identity. Research history remains separate. */
+  teachHistory?(userId: string): Promise<CalibrationHistory>;
+  teachingStatus?(userId: string): Promise<TeachingStatus>;
 }

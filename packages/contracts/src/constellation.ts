@@ -34,6 +34,19 @@ export type TasteConstellationLive=z.infer<typeof TasteConstellationLiveSchema>;
 export type TasteConstellationTrack=z.infer<typeof TasteConstellationTrackSchema>;
 export type TasteConstellationAudio=z.infer<typeof TasteConstellationAudioSchema>;
 
+/** Separate v2 historical view keeps the deployed v1 endpoint compatible. */
+export const TasteConstellationHistoryTrackSchema=TasteConstellationTrackSchema.extend({isLiked:z.boolean()});
+export const TasteConstellationHistorySchema=z.strictObject({...TasteConstellationSchema.shape,
+ schema:z.literal('sortfm.constellation.v2'),membershipSyncedAt:z.iso.datetime({offset:true}).nullable(),
+ tracks:z.array(TasteConstellationHistoryTrackSchema).max(5000),
+}).superRefine(({membershipSyncedAt:_timestamp,...data},ctx)=>{
+ if(!TasteConstellationSchema.safeParse({...data,schema:'sortfm.constellation.v1',tracks:data.tracks.map(({isLiked:_membership,...track})=>track)}).success)
+  ctx.addIssue({code:'custom',message:'Invalid constellation provenance or identity'});
+});
+export const TasteConstellationHistoryLiveSchema=TasteConstellationHistorySchema.safeExtend({mode:z.literal('live')});
+export type TasteConstellationHistory=z.infer<typeof TasteConstellationHistorySchema>;
+export type TasteConstellationHistoryLive=z.infer<typeof TasteConstellationHistoryLiveSchema>;
+
 /** Server-only, already privacy-filtered snapshot. Never serialize this envelope.
  * Implementations must exclude permanent evaluation/monitoring identities and
  * pending work BEFORE the fixed 5000 bound, and fail closed if that is unprovable.
@@ -45,4 +58,12 @@ export const ConstellationProjectionSchema=z.strictObject({
  tracks:z.array(TasteConstellationTrackSchema.omit({prediction:true}).extend({id:SpotifyTrackIdSchema})).max(5000),
 }).refine(data=>new Set(data.tracks.map(t=>t.id)).size===data.tracks.length,{message:'Duplicate constellation identity'});
 export type ConstellationProjection=z.infer<typeof ConstellationProjectionSchema>;
-export interface ConstellationReadPort {constellation(userId:string):Promise<ConstellationProjection>}
+export const ConstellationHistoryProjectionSchema=z.strictObject({
+ userId:IdSchema,membershipSyncedAt:z.iso.datetime({offset:true}).nullable(),
+ tracks:z.array(TasteConstellationHistoryTrackSchema.omit({prediction:true}).extend({id:SpotifyTrackIdSchema})).max(5000),
+}).refine(data=>new Set(data.tracks.map(t=>t.id)).size===data.tracks.length,{message:'Duplicate constellation identity'});
+export type ConstellationHistoryProjection=z.infer<typeof ConstellationHistoryProjectionSchema>;
+export interface ConstellationReadPort {
+ constellation(userId:string):Promise<ConstellationProjection>;
+ constellationHistory?(userId:string):Promise<ConstellationHistoryProjection>;
+}

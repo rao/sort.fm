@@ -1,10 +1,10 @@
 import {CalibrationBatchCreateSchema,CalibrationBatchSkipSchema,CalibrationBatchSchema,CalibrationBatchReadSchema} from './calibration-batch';
 import {CalibrationExperimentReadSchema,CalibrationExperimentReadySchema,CalibrationExperimentSkipSchema} from './calibration-experiment';
 import { z } from "zod";
-import {TasteConstellationLiveSchema} from './constellation';
+import {TasteConstellationLiveSchema,TasteConstellationHistoryLiveSchema} from './constellation';
 import { AccountSessionSchema, DecisionHistorySchema, DemoBootstrapSchema, HealthSchema, LibraryImportStatusSchema, LibrarySummarySchema, ModelInsightsSchema, ModelMetricsSchema, OkSchema, PlayRequestSchema, PlayerStatusSchema, QueueQuerySchema, QueueResultSchema, ReviewRequestSchema, ReviewResultSchema, UndoRequestSchema } from "./schemas";
 import { EvaluationQuerySchema, ExplainQuerySchema, ExplainResponseSchema, FitRequestSchema, FitResponseSchema, ObserveRequestSchema, ObserveResponseSchema, ScoreRequestSchema, ScoreResponseSchema } from "./features";
-import {CalibrationCorrectionRequestSchema, CalibrationHistorySchema, CalibrationLabelRequestSchema, CalibrationLabelResultSchema, CalibrationQueueQuerySchema, CalibrationQueueResultSchema} from "./calibration";
+import {TeachingStatusSchema,CalibrationCorrectionRequestSchema, CalibrationHistorySchema, CalibrationLabelRequestSchema, CalibrationLabelResultSchema, CalibrationQueueQuerySchema, CalibrationQueueResultSchema} from "./calibration";
 import {PlaybackConnectionStatusSchema,PlaybackConnectRequestSchema,PlaybackConnectResponseSchema,PlaybackEmptyRequestSchema,PlaybackSdkTokenSchema,PlaybackPlayRequestSchema,PlaybackTransferRequestSchema} from './playback';
 import {PolicySelectRequestSchema,PolicyDecisionSchema,PolicyAssociationRequestSchema,PolicyAssociationReceiptSchema,PolicyReleaseRequestSchema,PolicyReleaseReceiptSchema,PolicyExposureQuerySchema,PolicyExposureSchema,PolicyDiagnosticsQuerySchema,PolicyDiagnosticsSchema} from './policy';
 
@@ -32,9 +32,12 @@ export const PUBLIC_ROUTES = {
   calibrationCorrection: {method: "POST", path: "/api/calibration/corrections", body: CalibrationCorrectionRequestSchema, response: CalibrationLabelResultSchema, auth: "owner"},
   calibrationUndo: {method: "POST", path: "/api/calibration/labels/:id/undo", body: UndoRequestSchema, response: CalibrationLabelResultSchema, auth: "owner"},
   calibrationHistory: {method: "GET", path: "/api/calibration/history", response: CalibrationHistorySchema, auth: "owner"},
+  teachHistory: {method:'GET',path:'/api/calibration/teach/history',response:CalibrationHistorySchema,auth:'owner'},
+  teachingStatus: {method:'GET',path:'/api/calibration/status',response:TeachingStatusSchema,auth:'owner'},
   analytics: {method: "GET", path: "/api/analytics/summary", response: z.strictObject({library: LibrarySummarySchema, metrics: ModelMetricsSchema}), auth: "session"},
   insights: {method: "GET", path: "/api/ml/insights", response: ModelInsightsSchema, auth: "session"},
   constellation: {method:'GET',path:'/api/ml/constellation',query:z.strictObject({}),response:TasteConstellationLiveSchema,auth:'owner'},
+  constellationHistory: {method:'GET',path:'/api/ml/constellation/history',query:z.strictObject({}),response:TasteConstellationHistoryLiveSchema,auth:'owner'},
   retrain: {method: "POST", path: "/api/ml/retrain", response: FitResponseSchema, auth: "owner"},
   playerStatus: {method: "GET", path: "/api/player/status", response: PlayerStatusSchema, auth: "owner"},
   play: {method: "POST", path: "/api/player/play", body: PlayRequestSchema, response: OkSchema, auth: "owner"},

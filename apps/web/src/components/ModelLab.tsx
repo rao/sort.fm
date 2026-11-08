@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "#ui/components/base/buttons/button";
 import {
 	RiFlaskLine,
@@ -17,6 +17,19 @@ import {
 } from "../data/model-lab";
 import "../styles/model-lab.css";
 import "../styles/scrollbars.css";
+const TasteConstellation = lazy(() =>
+	import("./taste-constellation/TasteConstellation").then((module) => ({
+		default: module.TasteConstellation,
+	})),
+);
+import {
+	ModelGuide,
+	MetricGuide,
+	EvidenceGuide,
+	FeedbackComparison,
+	PolicySelection,
+	PolicyStrategyBadge,
+} from "./taste-constellation/LabExplanations";
 
 const modelNames = {
 	E1: "Save age",
@@ -160,6 +173,7 @@ export function ModelLab({
 					["research", "Experiments"],
 					["feedback", "Feedback"],
 					["policy", "C2 activity"],
+					["constellation", "Constellation"],
 				].map(([id, label]) => (
 					<Button
 						key={id}
@@ -171,6 +185,17 @@ export function ModelLab({
 					</Button>
 				))}
 			</nav>
+			<ModelGuide />
+			{tab === "constellation" && (
+				<Suspense
+					fallback={<div className="ml-empty">Loading constellation…</div>}
+				>
+					<TasteConstellation
+						key={state.bootstrap?.session.user?.id ?? "anonymous"}
+						connected={live}
+					/>
+				</Suspense>
+			)}
 			{tab === "live" && (
 				<section className="ml-window">
 					<header>
@@ -354,6 +379,8 @@ export function ModelLab({
 						</span>
 					</header>
 					<div className="ml-body">
+						<MetricGuide />
+						<EvidenceGuide />
 						{!run ? (
 							<Empty>
 								Load the completed research export to inspect the measured E1 /
@@ -575,6 +602,11 @@ export function ModelLab({
 										</p>
 									</div>
 								</div>
+								<FeedbackComparison
+									feedback={feedback}
+									selected={caseIndex}
+									onSelect={setCaseIndex}
+								/>
 								<div className="ml-actions">
 									<Button
 										size="small"
@@ -683,6 +715,7 @@ export function ModelLab({
 						</span>
 					</header>
 					<div className="ml-body">
+						<PolicySelection item={live ? state.queue[0] : undefined} />
 						{!policy ? (
 							<Empty>
 								<strong>No C2 choice supplied for the current song.</strong>
@@ -754,7 +787,9 @@ export function ModelLab({
 										{outcomes.map(({ item, result, policy }) => (
 											<tr key={result.decisionId}>
 												<th scope="row">{item?.track.title}</th>
-												<td>{policy.strategy}</td>
+												<td>
+													<PolicyStrategyBadge strategy={policy.strategy} />
+												</td>
 												<td>{result.action}</td>
 												<td>
 													{result.status === "UNDONE"

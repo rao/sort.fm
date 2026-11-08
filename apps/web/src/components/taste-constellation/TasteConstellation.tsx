@@ -1,0 +1,627 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+	RiArrowRightLine,
+	RiCloseLine,
+	RiRefreshLine,
+	RiSparklingLine,
+} from "@remixicon/react";
+import { Button } from "#ui/components/base/buttons/button";
+import { SearchField } from "#ui/components/base/search-field/search-field";
+import {
+	createSyntheticLibrary,
+	audioFields,
+	formatAudio,
+	labelName,
+	type Library,
+	type Track,
+} from "./data";
+import { ConstellationError, loadLibrary } from "./client";
+import { ConstellationCanvas } from "./ConstellationCanvas";
+import type { Graph, GraphNode } from "./graph";
+import "./constellation.css";
+
+export function TrackDetails({
+	track,
+	library,
+	node,
+	tracks,
+	onSelect,
+	onClose,
+}: {
+	track: Track;
+	library: Library;
+	node: GraphNode | undefined;
+	tracks: Map<string, Track>;
+	onSelect: (id: string) => void;
+	onClose: () => void;
+}) {
+	const prediction = track.prediction;
+	const current =
+		prediction &&
+		library.modelVersion !== null &&
+		prediction.modelVersion === library.modelVersion;
+	return (
+		<aside className="tc-detail" aria-label="Selected track details">
+			<div className="tc-detail-top">
+				<span className="text-caption-1-semibold">SELECTED TRACK</span>
+				<Button
+					size="small"
+					variant="ghost"
+					iconOnly
+					leadingIcon={RiCloseLine}
+					aria-label="Clear track selection"
+					onClick={onClose}
+				/>
+			</div>
+			<div className="tc-track-heading">
+				{track.imageUrl ? (
+					<img
+						className="tc-art"
+						src={track.imageUrl}
+						alt={`${track.title} artwork`}
+						referrerPolicy="no-referrer"
+						loading="lazy"
+					/>
+				) : (
+					<div
+						className="tc-art tc-art-empty"
+						role="img"
+						aria-label="Artwork unavailable"
+					>
+						<RiSparklingLine aria-hidden="true" />
+					</div>
+				)}
+				<div>
+					<h3 className="text-headline-medium">{track.title}</h3>
+					<p className="text-body-2-regular">{track.artist}</p>
+				</div>
+			</div>
+			<span
+				className="tc-label text-caption-1-semibold"
+				data-label={track.label ?? "unlabeled"}
+			>
+				{labelName(track.label)}
+				{library.mode === "synthetic"
+					? " · demo label"
+					: track.label
+						? " · explicit feedback"
+						: " · no explicit label"}
+			</span>
+			{!node && (
+				<p className="tc-notice text-body-2-regular">
+					Not placed: too few varying audio descriptors. This song has no
+					similarity edges.
+				</p>
+			)}
+			<section className="tc-detail-section">
+				<h4 className="text-body-medium">Musical properties</h4>
+				<dl className="tc-properties text-caption-1-regular">
+					{audioFields.map(([key, title]) => (
+						<div key={key}>
+							<dt>{title}</dt>
+							<dd>{formatAudio(key, track.audio[key])}</dd>
+						</div>
+					))}
+				</dl>
+				<p className="text-caption-1-regular">
+					{library.mode === "synthetic"
+						? "Generated descriptors for this demo."
+						: "Observed cached descriptors. Missing values stay unavailable."}
+				</p>
+			</section>
+			<section className="tc-detail-section">
+				<h4 className="text-body-medium">
+					{current ? "Current C1 removal estimate" : "C1 removal estimate"}
+				</h4>
+				{prediction ? (
+					<>
+						<strong className="tc-estimate text-title-2-medium">
+							{(prediction.removalProbability * 100).toFixed(1)}%
+						</strong>
+						<p className="text-caption-1-regular">
+							{current
+								? "Current model snapshot"
+								: "Stored prediction · current version not confirmed"}{" "}
+							· {prediction.calibrated ? "Calibrated" : "Uncalibrated"}
+							<br />
+							<code>{prediction.modelVersion}</code>
+							<br />
+							<time dateTime={prediction.scoredAt}>
+								{new Date(prediction.scoredAt).toLocaleString()}
+							</time>
+						</p>
+						{prediction.explanations.length ? (
+							<details>
+								<summary className="text-body-2-medium">
+									Why this saved prediction?
+								</summary>
+								<p className="text-caption-1-regular">
+									Signed model contributions, not causal explanations. Positive
+									terms push toward Remove; negative terms toward Keep.
+								</p>
+								<ul className="tc-contributions">
+									{prediction.explanations.map((e, i) => (
+										<li key={`${e.feature}-${i}`}>
+											<b>{e.feature.replaceAll("_", " ")}</b>
+											<span>
+												{e.contribution == null
+													? "Unavailable"
+													: `${e.contribution > 0 ? "+" : ""}${e.contribution.toFixed(3)}`}
+											</span>
+											<p>{e.description}</p>
+										</li>
+									))}
+								</ul>
+							</details>
+						) : (
+							<p className="text-caption-1-regular">
+								No prediction explanations supplied.
+							</p>
+						)}
+					</>
+				) : (
+					<p className="text-body-2-regular">
+						{library.mode === "synthetic"
+							? "No model predictions in this demo."
+							: "No current score supplied. Acoustic proximity is not a removal estimate."}
+					</p>
+				)}
+			</section>
+			<section className="tc-detail-section">
+				<h4 className="text-body-medium">Nearest acoustic neighbors</h4>
+				<p className="text-caption-1-regular">
+					Ranked in full feature space. Smaller distance means more similar
+					observed audio, not more similar taste.
+				</p>
+				{node?.neighbors.length ? (
+					<ol className="tc-neighbors">
+						{node.neighbors.map((neighbor) => {
+							const other = tracks.get(neighbor.id)!;
+							return (
+								<li key={neighbor.id}>
+									<Button variant="ghost" onClick={() => onSelect(neighbor.id)}>
+										<span>
+											<b>{other.title}</b>
+											<small>
+												{neighbor.shared} shared features · distance{" "}
+												{neighbor.distance.toFixed(2)}
+											</small>
+										</span>
+										<RiArrowRightLine aria-hidden="true" />
+									</Button>
+								</li>
+							);
+						})}
+					</ol>
+				) : (
+					<p className="text-caption-1-regular">
+						No comparable neighbors available.
+					</p>
+				)}
+			</section>
+		</aside>
+	);
+}
+
+export function TasteConstellation({ connected }: { connected: boolean }) {
+	const [source, setSource] = useState<"live" | "synthetic">("live");
+	const [library, setLibrary] = useState<Library | null>(null);
+	const [graph, setGraph] = useState<Graph | null>(null);
+	const [error, setError] = useState("");
+	const [graphError, setGraphError] = useState("");
+	const [attempt, setAttempt] = useState(0);
+	const [selected, setSelected] = useState<string | null>(null);
+	const [query, setQuery] = useState("");
+	const [missingOnly, setMissingOnly] = useState(false);
+	const [page, setPage] = useState(0);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: attempt explicitly restarts an aborted or failed read.
+	useEffect(() => {
+		setLibrary(null);
+		setGraph(null);
+		setError("");
+		setGraphError("");
+		setSelected(null);
+		setQuery("");
+		setMissingOnly(false);
+		setPage(0);
+		if (source === "synthetic") {
+			setLibrary(createSyntheticLibrary());
+			return;
+		}
+		if (!connected) return;
+		const controller = new AbortController();
+		let disposed = false;
+		const timeout = setTimeout(() => {
+			controller.abort();
+			if (!disposed)
+				setError("The library request timed out. Please try again.");
+		}, 20_000);
+		void loadLibrary({
+			signal: controller.signal,
+			baseUrl: import.meta.env.VITE_API_ORIGIN,
+		})
+			.then((data) => {
+				if (!disposed && !controller.signal.aborted) setLibrary(data);
+			})
+			.catch((cause) => {
+				if (!disposed && !controller.signal.aborted)
+					setError(
+						cause instanceof ConstellationError
+							? cause.message
+							: "The library map could not be loaded.",
+					);
+			})
+			.finally(() => clearTimeout(timeout));
+		return () => {
+			disposed = true;
+			controller.abort();
+			clearTimeout(timeout);
+		};
+	}, [connected, source, attempt]);
+
+	// Never present the previous source's data even for the render before cleanup.
+	const currentLibrary = library?.mode === source ? library : null;
+	useEffect(() => {
+		setGraph(null);
+		setGraphError("");
+		if (!currentLibrary) return;
+		let worker: Worker;
+		try {
+			worker = new Worker(new URL("./graph.worker.ts", import.meta.url), {
+				type: "module",
+			});
+		} catch {
+			setGraphError(
+				"The map worker could not start. Other Model Lab tabs remain available.",
+			);
+			return;
+		}
+		const timeout = setTimeout(() => {
+			worker.terminate();
+			setGraphError("Map calculation timed out. Please retry.");
+		}, 20_000);
+		worker.onmessage = (
+			event: MessageEvent<{ ok: boolean; graph?: Graph }>,
+		) => {
+			clearTimeout(timeout);
+			if (event.data.ok && event.data.graph) setGraph(event.data.graph);
+			else setGraphError("The map could not be calculated. Please retry.");
+		};
+		worker.onerror = () => {
+			clearTimeout(timeout);
+			setGraphError("The map worker stopped. Please retry.");
+		};
+		worker.postMessage(
+			currentLibrary.tracks.map(({ id, audio }) => ({ id, audio })),
+		);
+		return () => {
+			clearTimeout(timeout);
+			worker.terminate();
+		};
+	}, [currentLibrary]);
+
+	const tracks = useMemo(
+		() => new Map(currentLibrary?.tracks.map((t) => [t.id, t]) ?? []),
+		[currentLibrary],
+	);
+	const unplaced = useMemo(() => new Set(graph?.unplaced ?? []), [graph]);
+	const searchResults = useMemo(() => {
+		const search = query.trim().toLocaleLowerCase();
+		return (currentLibrary?.tracks ?? []).filter(
+			(t) =>
+				(!missingOnly || unplaced.has(t.id)) &&
+				`${t.title} ${t.artist}`.toLocaleLowerCase().includes(search),
+		);
+	}, [currentLibrary, query, missingOnly, unplaced]);
+	const track = tracks.get(selected ?? "");
+	const ready = currentLibrary && graph;
+	const busy =
+		(source === "synthetic" || connected) && !error && !graphError && !ready;
+	const select = (id: string | null) => {
+		setSelected(id);
+	};
+
+	return (
+		<section className="ml-window tc-root" aria-labelledby="tc-title">
+			<header>
+				<h2 id="tc-title">05 / Taste Constellation</h2>
+				<span>
+					{source === "synthetic"
+						? "SYNTHETIC DEMO · NOT YOUR LIBRARY"
+						: "YOUR LIBRARY · READ ONLY"}
+				</span>
+			</header>
+			<div className="tc-intro">
+				<div>
+					<p className="tc-kicker text-caption-1-semibold">A MAP OF SOUND</p>
+					<h3 className="text-title-2-medium">Hear the connections.</h3>
+					<p className="text-body-2-regular">
+						Explore songs through their musical properties. Nearby sounds can
+						lead to very different preferences.
+					</p>
+				</div>
+				<div className="tc-source-actions">
+					{source === "synthetic" ? (
+						<Button variant="secondary" onClick={() => setSource("live")}>
+							Back to my library
+						</Button>
+					) : (
+						<Button
+							variant="secondary"
+							leadingIcon={RiSparklingLine}
+							onClick={() => setSource("synthetic")}
+						>
+							Explore synthetic demo
+						</Button>
+					)}
+					{connected && source === "live" && (
+						<Button
+							variant="secondary"
+							iconOnly
+							leadingIcon={RiRefreshLine}
+							aria-label="Reload library map"
+							disabled={busy}
+							onClick={() => setAttempt((a) => a + 1)}
+						/>
+					)}
+				</div>
+			</div>
+			{source === "synthetic" && (
+				<p className="tc-demo-banner text-body-2-medium">
+					DEMO DATA · 2,700 invented songs and generated descriptors. Labels are
+					illustrative; no real preferences or model predictions are shown.
+				</p>
+			)}
+			{!connected && source === "live" && (
+				<div className="tc-status">
+					<h3 className="text-headline-medium">Your library belongs here.</h3>
+					<p>
+						Connect Spotify to load eligible songs and their observed audio. The
+						demo is available above.
+					</p>
+				</div>
+			)}
+			{(error || graphError) && (
+				<div className="tc-status" role="alert">
+					<h3 className="text-headline-medium">Map unavailable</h3>
+					<p>{error || graphError}</p>
+					<Button variant="secondary" onClick={() => setAttempt((a) => a + 1)}>
+						Try again
+					</Button>
+				</div>
+			)}
+			{busy && (
+				<div className="tc-status" aria-live="polite">
+					<span className="tc-loading-mark" aria-hidden="true">
+						✦
+					</span>
+					<h3 className="text-headline-medium">
+						{currentLibrary
+							? "Finding acoustic neighbors…"
+							: "Loading your library…"}
+					</h3>
+					<p>
+						{currentLibrary
+							? "Projecting observed audio into two dimensions. You can keep using Model Lab."
+							: "Only eligible songs will enter this map."}
+					</p>
+				</div>
+			)}
+			{ready && (
+				<>
+					<section
+						className="tc-summary text-caption-1-regular"
+						aria-label="Graph coverage"
+					>
+						<span>
+							<b>{graph.nodes.length.toLocaleString()}</b> placed /{" "}
+							{currentLibrary.tracks.length.toLocaleString()} supplied
+						</span>
+						<span>
+							<b>{graph.activeFeatures.length}</b> varying descriptors
+						</span>
+						<span>
+							<b>
+								{graph.nodes.length
+									? `${((graph.variance[0] + graph.variance[1]) * 100).toFixed(1)}%`
+									: "—"}
+							</b>{" "}
+							projected variance
+						</span>
+						<span className="tc-legend">
+							<i data-label="keep" /> Keep <i data-label="remove" /> Remove{" "}
+							<i data-label="unlabeled" /> Unlabeled
+						</span>
+					</section>
+					<div className="tc-search-row">
+						<SearchField
+							aria-label="Search constellation tracks"
+							placeholder="Find a song or artist…"
+							value={query}
+							onChange={(value) => {
+								setQuery(value);
+								setPage(0);
+							}}
+							onSubmit={() => {
+								if (searchResults[page * 8])
+									select(searchResults[page * 8]!.id);
+							}}
+						/>
+						<Button
+							variant="secondary"
+							size="small"
+							aria-pressed={missingOnly}
+							onClick={() => {
+								setMissingOnly(!missingOnly);
+								setPage(0);
+							}}
+						>
+							Needs audio ({graph.unplaced.length})
+						</Button>
+					</div>
+					{(query || missingOnly) && (
+						<div className="tc-search-results">
+							<p className="text-caption-1-regular" aria-live="polite">
+								{searchResults.length.toLocaleString()} matching songs
+								{missingOnly ? " · unplaced" : ""}
+							</p>
+							<div>
+								{searchResults.slice(page * 8, page * 8 + 8).map((t) => (
+									<Button
+										variant="secondary"
+										size="small"
+										key={t.id}
+										aria-pressed={t.id === selected}
+										onClick={() => select(t.id)}
+									>
+										{t.title} · {t.artist}
+									</Button>
+								))}
+							</div>
+							{searchResults.length > 8 && (
+								<div className="tc-pagination">
+									<Button
+										size="small"
+										variant="ghost"
+										disabled={page === 0}
+										onClick={() => setPage(page - 1)}
+									>
+										Previous results
+									</Button>
+									<span>
+										{page + 1} / {Math.ceil(searchResults.length / 8)}
+									</span>
+									<Button
+										size="small"
+										variant="ghost"
+										disabled={(page + 1) * 8 >= searchResults.length}
+										onClick={() => setPage(page + 1)}
+									>
+										Next results
+									</Button>
+								</div>
+							)}
+						</div>
+					)}
+					<div className="tc-layout">
+						{graph.nodes.length ? (
+							<ConstellationCanvas
+								graph={graph}
+								tracks={tracks}
+								selected={selected}
+								onSelect={select}
+							/>
+						) : (
+							<div className="tc-status">
+								<h3 className="text-headline-medium">
+									{currentLibrary.tracks.length
+										? "Not enough observed audio yet."
+										: "No eligible songs available."}
+								</h3>
+								<p>
+									{currentLibrary.tracks.length
+										? "Songs remain searchable. At least three varying descriptors and sufficient shared observations are needed to place them."
+										: "No synthetic songs have been substituted. Refresh after your library is available."}
+								</p>
+							</div>
+						)}
+						{track ? (
+							<TrackDetails
+								track={track}
+								library={currentLibrary}
+								node={graph.nodes.find((n) => n.id === track.id)}
+								tracks={tracks}
+								onSelect={select}
+								onClose={() => select(null)}
+							/>
+						) : (
+							<aside className="tc-detail tc-invitation">
+								<RiSparklingLine aria-hidden="true" />
+								<p className="tc-kicker text-caption-1-semibold">
+									FOLLOW YOUR CURIOSITY
+								</p>
+								<h3 className="text-title-3-semibold">
+									Every point is a song.
+								</h3>
+								<p className="text-body-2-regular">
+									Select one to see its closest acoustic neighbors, available
+									descriptors and recorded preference.
+								</p>
+								<div className="tc-mini-legend text-caption-1-regular">
+									<span>● Keep</span>
+									<span>◆ Remove</span>
+									<span>· Unlabeled</span>
+								</div>
+								<h4 className="text-body-medium">Start exploring</h4>
+								<ul className="tc-neighbors">
+									{currentLibrary.tracks.slice(0, 4).map((t) => (
+										<li key={t.id}>
+											<Button variant="ghost" onClick={() => select(t.id)}>
+												<span>
+													<b>{t.title}</b>
+													<small>{t.artist}</small>
+												</span>
+												<RiArrowRightLine aria-hidden="true" />
+											</Button>
+										</li>
+									))}
+								</ul>
+							</aside>
+						)}
+					</div>
+					<div className="tc-method">
+						<p className="text-body-2-medium">
+							Sound explains the map. Your feedback teaches C1.
+						</p>
+						<p className="text-caption-1-regular">
+							Lines connect nearest observed sounds, not learned neural
+							connections. Colors show explicit labels only. A song’s location
+							never determines its removal score.
+						</p>
+						<details>
+							<summary className="text-body-2-medium">
+								How to read this projection
+							</summary>
+							<p>
+								Descriptors are standardized using observed values in this
+								eligible snapshot. Constant or unsupported features are
+								excluded. PCA uses feature-mean imputation for missing values,
+								which can draw incomplete songs toward the center. The displayed
+								variance describes the imputed matrix, not model quality.
+							</p>
+							<p>
+								Neighbor distance is the root mean squared difference across
+								shared standardized descriptors, with at least {graph.minShared}{" "}
+								shared features required. Up to six neighbors are shown per
+								selection. Optional background links connect mutual top-three
+								neighbors. PCA compresses information: proximity on screen can
+								differ from full-feature similarity. No genre boundaries or
+								learned centroid locations are invented.
+							</p>
+							<p>
+								Unplaced songs lack enough varying audio features; they remain
+								searchable. The map is deterministic for the same eligible data,
+								and may shift when that snapshot changes.
+							</p>
+						</details>
+						<p className="text-caption-1-regular">
+							{source === "live" ? (
+								<>
+									Eligible snapshot:{" "}
+									<time dateTime={currentLibrary.generatedAt}>
+										{new Date(currentLibrary.generatedAt).toLocaleString()}
+									</time>
+									. Evaluation identities are excluded by the server before
+									delivery.
+								</>
+							) : (
+								"Synthetic data stays separate from your connected account. Nothing here trains a model or changes Spotify."
+							)}
+						</p>
+					</div>
+				</>
+			)}
+		</section>
+	);
+}

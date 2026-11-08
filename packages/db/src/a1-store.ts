@@ -1,6 +1,8 @@
+import {z} from 'zod';
 import type {A1Store,A1Transaction,Account,Session,OAuthAttempt,ImportJob,ImportObservation,ImportMembership,TasteContext,LibrarySummary} from '@sortfm/contracts';
-import {AccountSessionSchema,LibraryImportStatusSchema,type SavedTrackInput} from '@sortfm/contracts';
+import {AccountSessionSchema,LibraryImportStatusSchema,IdSchema,TimestampSchema,ErrorEnvelopeSchema,type SavedTrackInput} from '@sortfm/contracts';
 import {Database,PersistenceError,json,type Transaction} from './client';import {upsertSavedTracks} from './repository';
+const tasteContextSchema=z.strictObject({userId:IdSchema,fetchedAt:TimestampSchema,source:z.literal('spotify-recently-played'),completeHistory:z.literal(false),events:z.array(z.strictObject({trackId:IdSchema,playedAt:TimestampSchema})).max(50),error:ErrorEnvelopeSchema.nullable()});
 function encrypted(value:string){if(!/^v1\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]+$/.test(value))throw new PersistenceError('ENCRYPTED_CREDENTIAL_REQUIRED');}
 /** A1 seals access/refresh tokens and PKCE verifier before calling this store. Never accepts plaintext. */
 export class PostgresA1Store implements A1Store {
@@ -72,6 +74,12 @@ class PostgresA1Transaction implements A1Transaction {
    count(*) FILTER(WHERE d.result->>'status'='COMPLETE' AND d.result->>'action'='SKIP')::int AS skipped
    FROM current_decisions c JOIN review_decisions d USING(user_id,decision_id) WHERE c.user_id=${userId}`;
   return row as LibrarySummary;
+ }
+ /** Cached read only. Quarantine malformed/foreign payloads; freshness belongs to the assembler. */
+ async getTasteContext(userId:string):Promise<TasteContext|null>{
+  IdSchema.parse(userId);const [row]=await this.tx`SELECT context FROM taste_context WHERE user_id=${userId}`;
+  if(!row)return null;const parsed=tasteContextSchema.safeParse(row.context);
+  return parsed.success&&parsed.data.userId===userId?parsed.data:null;
  }
  async putTasteContext(v:TasteContext){await this.tx`INSERT INTO taste_context(user_id,context) VALUES(${v.userId},${json(v)}::jsonb) ON CONFLICT(user_id) DO UPDATE SET context=excluded.context`;}
 }

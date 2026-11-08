@@ -38,6 +38,7 @@ export class PostgresPolicyStore extends PolicyDeliveryRepository implements Pol
     const r=row.draft.request,d=v.decision,c=r.candidates.find((c:any)=>c.trackId===d.trackId),i=v.item;
     const cold=d.trainedRewards===0&&d.selection.selectionMethod==='c1',expectedMethod=cold?(d.prediction.removalProbability===null?'deterministic_baseline':'logistic_rank'):r.config.strategy;
     if(!c||d.userId!==v.userId||d.exposureId!==r.exposureId||i.userId!==v.userId||i.exposure.exposureId!==d.exposureId||i.exposure.trackId!==d.trackId||i.exposure.policy!==row.draft.queuePolicy||i.exposure.position!==0||i.exposure.policyVersion!==d.policyVersion||i.exposure.selectionMethod!==expectedMethod||(!cold&&d.selection.selectionMethod!==r.config.strategy)||d.modelVersion!==r.modelVersion||d.feedbackRevision!==r.feedbackRevision||d.seed!==r.seed||!p.same(d.config,r.config)||!p.same(d.candidate,c)||!p.same(i.features,c.features)||!p.same(i.prediction,d.prediction)||!p.same([...d.candidateTrackIds].sort(),r.candidates.map((c:any)=>c.trackId).sort()))p.fail('POLICY_EXPOSURE_CONFLICT');
+    if(!p.same(i.listeningContext,row.draft.listeningContext))p.fail('POLICY_EXPOSURE_CONFLICT');
     validateTelemetry(i,d,v.providerExpiresAt);
     const remoteEnd=Date.parse(v.providerExpiresAt),start=Date.parse(d.createdAt);if(remoteEnd-start<30000||remoteEnd-start>900000)p.fail('POLICY_EXPOSURE_CONFLICT');
     expiry=Math.min(expiry,remoteEnd);items=[i];decision=d;

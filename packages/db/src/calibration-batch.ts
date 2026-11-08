@@ -14,7 +14,7 @@ async function eligibleIds(tx:Transaction,userId:string):Promise<string[]>{retur
  ORDER BY s.track_id`).map((r:any)=>r.track_id);}
 function exposure(userId:string,candidate:CalibrationBatchDraft['candidates'][number],position:number,servedAt:string):ExposureInput{
  const p=candidate.prediction;
- return {userId,features:candidate.features,prediction:p,exposure:{exposureId:crypto.randomUUID(),trackId:candidate.track.trackId,policy:'balanced',selectionMethod:'deterministic_baseline',policyVersion:'calibration-batch2:v1',explorationCoefficient:0,propensityEstimate:null,modelVersion:p.modelVersion,featureVersion:FEATURE_VERSION,removalScore:p.removalProbability,heuristicScore:p.heuristicScore,uncertainty:p.uncertainty,position,servedAt}};
+ return {userId,features:candidate.features,prediction:p,...(candidate.listeningContext?{listeningContext:candidate.listeningContext}:{}),exposure:{exposureId:crypto.randomUUID(),trackId:candidate.track.trackId,policy:'balanced',selectionMethod:'deterministic_baseline',policyVersion:'calibration-batch2:v1',explorationCoefficient:0,propensityEstimate:null,modelVersion:p.modelVersion,featureVersion:FEATURE_VERSION,removalScore:p.removalProbability,heuristicScore:p.heuristicScore,uncertainty:p.uncertainty,position,servedAt}};
 }
 async function insertExposure(tx:Transaction,e:ExposureInput){await tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at,purpose) VALUES(${e.exposure.exposureId},${e.userId},${e.exposure.trackId},${json(e)}::jsonb,${e.exposure.servedAt},'calibration')`;}
 async function reserve(tx:Transaction,userId:string,draft:CalibrationBatchDraft,selection:CalibrationBatchSelection,position:number,at:string,replacementFor:string|null=null){

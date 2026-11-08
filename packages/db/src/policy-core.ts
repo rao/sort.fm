@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';import {z} from 'zod';
-import {IdSchema,UuidSchema,TimestampSchema,ExposureInputSchema,PolicySelectRequestSchema,QueuePolicySchema,type PolicyDeliveryEvent} from '@sortfm/contracts';
+import {IdSchema,UuidSchema,TimestampSchema,ExposureInputSchema,PolicySelectRequestSchema,QueuePolicySchema,ListeningContextSnapshotSchema,type PolicyDeliveryEvent} from '@sortfm/contracts';
 import {Database,PersistenceError,json,type Transaction} from './client';
 export const fail=(code:string):never=>{throw new PersistenceError(code);};
 export const iso=(value:Date|string)=>new Date(value).toISOString();
@@ -13,7 +13,7 @@ export const fence=z.strictObject({userId:IdSchema,requestId:UuidSchema,leaseId:
 export const claim=z.strictObject({workerId:z.string().min(1).max(128),leaseMs});
 export const prepare=z.strictObject({userId:IdSchema,requestId:UuidSchema,feedbackRevision:count,membershipRevision:count,leaseMs,reservationMs:z.number().int().min(30000).max(900000),draft:z.discriminatedUnion('kind',[
  z.strictObject({kind:z.literal('c1'),items:z.array(ExposureInputSchema).min(1).max(100)}),
- z.strictObject({kind:z.literal('adaptive'),queuePolicy:QueuePolicySchema,request:PolicySelectRequestSchema}),
+ z.strictObject({kind:z.literal('adaptive'),queuePolicy:QueuePolicySchema,request:PolicySelectRequestSchema,listeningContext:ListeningContextSnapshotSchema.optional()}),
 ])});
 export const release=z.strictObject({userId:IdSchema,requestId:UuidSchema,releaseId:UuidSchema,expectedLeaseId:UuidSchema.optional(),exposureIds:z.array(UuidSchema).min(1).max(100),reason:z.enum(['skip','abandoned','prefetch_discarded'])});
 export const retry=z.strictObject({userId:IdSchema,eventId:UuidSchema,leaseId:UuidSchema,retryAt:TimestampSchema,errorCode:z.enum(['POLICY_UNAVAILABLE','POLICY_TIMEOUT','POLICY_RATE_LIMITED','POLICY_RECEIPT_STALE','POLICY_EXPOSURE_NOT_FOUND','POLICY_DELIVERY_RETRY','POLICY_RESPONSE_INVALID'])});

@@ -27,7 +27,7 @@ If a graph score is absent, say “No current score supplied.” Do not describe
 
 The signed-in sequence above is an **observation-only tour**: no new preferences, review decisions or Spotify changes. Ordinary page navigation can still record queue/exposure telemetry; this is not a guarantee of zero database writes.
 
-If the owner wants an actual decision on camera, substitute one deliberately chosen interaction for a tour segment. In **Teach**, Still love it saves Keep, Outgrown saves Remove, and Unsure supplies no training label; Spotify membership stays unchanged. Show the confirmed result and actual synchronization state, including pending/unavailable states. Undo withdraws a saved preference.
+If the owner wants an actual decision on camera, substitute one deliberately chosen interaction for a tour segment. In **Teach**, Keep saves a Keep preference, Discard saves a Remove preference, and Unsure supplies no training label; Spotify membership stays unchanged. Show the confirmed result and actual synchronization state, including pending/unavailable states. Undo withdraws a saved preference.
 
 In **Sort**, Archive and Unlike really change Spotify. Use only the owner's explicitly chosen song/action, wait for completion, and allow time for a requested Undo to settle. Do not perform arbitrary removals to manufacture footage, call a pending operation successful, or present demo Undo as real-provider proof. No manual retraining or C2 activation is part of either recording path.
 

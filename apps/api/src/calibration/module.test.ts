@@ -5,10 +5,10 @@ import {CalibrationQueue} from './queue';
 import {CalibrationService} from './service';
 import {fixture,now,owner,row} from './test-fixtures';
 const origin='http://127.0.0.1:5173',headers={cookie:'sortfm_session=valid',origin};
-async function appFixture(secure=false){
+async function appFixture(secure=false,correction=false){
  const f=fixture();let kicks=0;const service=new CalibrationService(f.store,{now:()=>now,feedback:{kick(){kicks++;}}});
  const queue=new CalibrationQueue(f.store,{now:()=>now});const app=Fastify();
- await app.register(createCalibrationModule({service,queue,config:{secureCookies:secure,webOrigin:origin,apiOrigin:'http://127.0.0.1:3000'},auth:{session:async token=>token==='valid'?{user:{id:owner}}:null}}).registerRoutes);
+ await app.register(createCalibrationModule({service,queue,...(correction?{correction:service}:{}),config:{secureCookies:secure,webOrigin:origin,apiOrigin:'http://127.0.0.1:3000'},auth:{session:async token=>token==='valid'?{user:{id:owner}}:null}}).registerRoutes);
  return {...f,service,queue,app,kicks:()=>kicks};
 }
 const label=(value:0|1=1)=>({trackId:row(1).track.trackId,exposureId:crypto.randomUUID(),label:value,idempotencyKey:crypto.randomUUID()});
@@ -103,5 +103,21 @@ test('Batch2 routes retain owner/CSRF/strict-body/no-store boundary when optiona
   expect((await f.app.inject({method:'POST',url:'/api/calibration/batch2',headers,payload:{seed:42,userId:'other'}})).statusCode).toBe(400);
   const unavailable=await f.app.inject({url:'/api/calibration/batch2',headers});expect(unavailable.statusCode).toBe(503);expect(unavailable.json().code).toBe('BATCH_UNAVAILABLE');expect(unavailable.headers['cache-control']).toBe('no-store');
   expect((await f.app.inject({url:'/api/calibration/queue',headers})).statusCode).toBe(200);
+ }finally{await f.app.close();}
+});
+
+
+test('post-Skip correction keeps owner, strict body, CSRF, missing-port and safe conflict boundaries',async()=>{
+ const payload={decisionId:crypto.randomUUID(),label:1,idempotencyKey:crypto.randomUUID()};
+ const absent=await appFixture();try{const r=await absent.app.inject({method:'POST',url:'/api/calibration/corrections',headers,payload});expect(r.statusCode).toBe(503);expect(r.json().code).toBe('CALIBRATION_UNAVAILABLE');expect(absent.kicks()).toBe(0);}finally{await absent.app.close();}
+ const f=await appFixture(false,true);let calls=0;
+ f.store.correctSkippedPreference=async input=>{calls++;return {mode:'calibration',labelId:input.labelId,trackId:row(1).track.trackId,exposureId:input.exposureId,idempotencyKey:input.request.idempotencyKey,submittedLabel:1,label:1,state:'active',canUndo:true,feedbackRevision:1,createdAt:input.createdAt,updatedAt:input.createdAt};};
+ try{
+  for(const h of [{},headers])for(const body of [{...payload,label:0},{...payload,trackId:row(1).track.trackId},{...payload,userId:owner},{...payload,action:'UNLIKE'}])expect((await f.app.inject({method:'POST',url:'/api/calibration/corrections',headers:h,payload:body})).statusCode).toBe(h===headers?400:403);
+  expect((await f.app.inject({method:'POST',url:'/api/calibration/corrections',headers:{origin},payload})).statusCode).toBe(401);expect(calls).toBe(0);
+  const created=await f.app.inject({method:'POST',url:'/api/calibration/corrections',headers,payload});expect(created.statusCode).toBe(200);expect(created.json()).toMatchObject({mode:'calibration',submittedLabel:1,label:1});expect(created.headers['cache-control']).toBe('no-store');expect(f.kicks()).toBe(1);
+  for(const [code,status] of [['DECISION_NOT_FOUND',404],['CALIBRATION_NOT_ELIGIBLE',409],['CALIBRATION_LABEL_ACTIVE',409],['BATCH_TRACK_RESERVED',409],['MUTATION_PENDING',409],['IDEMPOTENCY_CONFLICT',409],['REVIEW_TRACK_EXCLUDED',403],['UNKNOWN_PRIVATE',503]] as const){
+   f.store.correctSkippedPreference=async()=>{throw Object.assign(Error('private bearer detail'),{code});};const response=await f.app.inject({method:'POST',url:'/api/calibration/corrections',headers,payload});expect(response.statusCode).toBe(status);expect(response.body).not.toContain('private');expect(response.json().retryable).toBe(status===503);
+  }
  }finally{await f.app.close();}
 });

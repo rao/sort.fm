@@ -31,7 +31,7 @@ test('pre-route installer runs before every route and startup; rejection prevent
 });
 test('default deny covers all unapproved routes, unknown routes, HEAD and future registrations',async()=>{
  const s=await setup();
- const permitted=new Set(['health','authStart','authCallback','logout','me','librarySummary','queue','decide','undo','history','analytics','insights']);
+ const permitted=new Set(['health','authStart','authCallback','logout','me','librarySummary','queue','decide','undo','history','analytics','insights','calibrationCorrection','calibrationHistory','calibrationUndo']);
  for(const [name,route] of Object.entries(PUBLIC_ROUTES))if(!permitted.has(name)){
   const res=await s.app.inject({method:route.method,url:route.path.replace(':id',decision.decisionId).replace(':experiment','batch3'),headers,payload:route.method==='POST'?{}:undefined});
   expect(res.statusCode).toBe(403);expect(res.json().code).toBe('PILOT_ACTION_NOT_ALLOWED');
@@ -104,4 +104,18 @@ test('approved mutation pilot admits all four actions and their Undo without wid
  for(const url of ['/api/library/sync','/api/player/connect','/api/player/play','/api/ml/retrain','/api/calibration/labels'])expect((await s.app.inject({method:'POST',url,headers,payload:{}})).statusCode).toBe(403);
  expect(s.calls()).toBe(4);
  const disabled=await setup({},false);expect((await disabled.app.inject({method:'POST',url:'/api/decisions',headers,payload:{...request,action:'UNLIKE'}})).statusCode).toBe(403);
+});
+
+
+test('pilot preference confirmation is available without mutation opt-in, bound to a published Skip; ordinary calibration stays denied',async()=>{
+ const skip={...decision,action:'SKIP' as const,status:'COMPLETE' as const},payload={decisionId:decision.decisionId,label:1,idempotencyKey:crypto.randomUUID()};
+ const s=await setup({getDecision:async()=>skip});
+ expect((await s.app.inject({method:'POST',url:'/api/calibration/corrections',headers,payload})).statusCode).toBe(200);
+ expect((await s.app.inject({url:'/api/calibration/history',headers})).statusCode).toBe(200);
+ expect((await s.app.inject({method:'POST',url:`/api/calibration/labels/${crypto.randomUUID()}/undo`,headers,payload:{idempotencyKey:crypto.randomUUID()}})).statusCode).toBe(200);
+ for(const body of [{...payload,label:0},{...payload,userId:owner},{...payload,split:'train'}])expect((await s.app.inject({method:'POST',url:'/api/calibration/corrections',headers,payload:body})).statusCode).toBe(400);
+ for(const path of ['/api/calibration/queue','/api/calibration/batch2'])expect((await s.app.inject({url:path,headers})).statusCode).toBe(403);
+ expect((await s.app.inject({method:'POST',url:'/api/calibration/labels',headers,payload:{}})).statusCode).toBe(403);
+ for(const getDecision of [async()=>null,async()=>decision,async()=>({...skip,mode:'demo' as const})]){const denied=await setup({getDecision});expect((await denied.app.inject({method:'POST',url:'/api/calibration/corrections',headers,payload})).statusCode).toBe(403);expect(denied.calls()).toBe(0);}
+ const inherited=await setup({getDecision:async()=>skip,getPublishedExposure:async()=>null});expect((await inherited.app.inject({method:'POST',url:'/api/calibration/corrections',headers,payload})).statusCode).toBe(403);expect(inherited.calls()).toBe(0);
 });

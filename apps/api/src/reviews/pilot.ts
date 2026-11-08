@@ -1,6 +1,6 @@
 import {z,ZodError} from 'zod';
 import type {FastifyInstance,FastifyRequest} from 'fastify';
-import {PUBLIC_ROUTES,QueueQuerySchema,ReviewRequestSchema,UndoRequestSchema,UuidSchema,type ExposureInput} from '@sortfm/contracts';
+import {PUBLIC_ROUTES,CalibrationCorrectionRequestSchema,QueueQuerySchema,ReviewRequestSchema,UndoRequestSchema,UuidSchema,type ExposureInput} from '@sortfm/contracts';
 import {SpotifyError} from '../spotify/errors';
 import {reviewRouteSecurity,type ReviewRouteOptions} from './module';
 import type {ReviewRepository} from './store';
@@ -15,8 +15,8 @@ export interface PilotAdmissionPort extends Pick<ReviewRepository,'getDecisionBy
 const denied=()=>new SpotifyError('PILOT_ACTION_NOT_ALLOWED','This action is not enabled for this pilot.',403,false);
 const conflict=()=>new SpotifyError('IDEMPOTENCY_CONFLICT','This request key was already used for a different action.',409,false);
 const publicReads=new Set<string>([PUBLIC_ROUTES.health.path,PUBLIC_ROUTES.authStart.path,PUBLIC_ROUTES.authCallback.path]);
-const privateReads=new Set<string>([PUBLIC_ROUTES.me.path,PUBLIC_ROUTES.queue.path,PUBLIC_ROUTES.history.path,PUBLIC_ROUTES.librarySummary.path,PUBLIC_ROUTES.insights.path,PUBLIC_ROUTES.analytics.path]);
-const posts=new Set<string>([PUBLIC_ROUTES.logout.path,PUBLIC_ROUTES.decide.path,PUBLIC_ROUTES.undo.path]);
+const privateReads=new Set<string>([PUBLIC_ROUTES.me.path,PUBLIC_ROUTES.queue.path,PUBLIC_ROUTES.history.path,PUBLIC_ROUTES.librarySummary.path,PUBLIC_ROUTES.insights.path,PUBLIC_ROUTES.analytics.path,PUBLIC_ROUTES.calibrationHistory.path]);
+const posts=new Set<string>([PUBLIC_ROUTES.logout.path,PUBLIC_ROUTES.decide.path,PUBLIC_ROUTES.undo.path,PUBLIC_ROUTES.calibrationCorrection.path,PUBLIC_ROUTES.calibrationUndo.path]);
 const expectedDenials=new Set(['REVIEW_EXPOSURE_NOT_PUBLISHED','REVIEW_TRACK_EXCLUDED','REVIEW_OWNER_MISMATCH','REVIEW_ACTION_NOT_ALLOWED']);
 const empty=z.strictObject({});
 
@@ -66,6 +66,18 @@ export function installPilotGuards(app:FastifyInstance,options:ReviewRouteOption
    const old=await repo.getDecisionByIdempotencyKey(userId,input.idempotencyKey);
    if(old && (old.idempotencyKey!==input.idempotencyKey || old.trackId!==input.trackId || old.exposureId!==input.exposureId || old.action!==input.action || old.mode!=='spotify'))throw conflict();
    await published(userId,input.exposureId,input.trackId);
+   return;
+  }
+  // Preference corrections use the published original Skip and D repeats all
+  // eligibility checks under the owner lock. No Spotify mutation is admitted here.
+  if(path===PUBLIC_ROUTES.calibrationCorrection.path){
+   const input=CalibrationCorrectionRequestSchema.parse(request.body),decision=await repo.getDecision(userId,input.decisionId);
+   if(!decision||decision.decisionId!==input.decisionId||decision.mode!=='spotify'||decision.action!=='SKIP')throw denied();
+   await published(userId,decision.exposureId,decision.trackId);return;
+  }
+  if(path===PUBLIC_ROUTES.calibrationUndo.path){
+   z.strictObject({id:UuidSchema}).parse(request.params);UndoRequestSchema.parse(request.body);
+   // The fenced calibration store restricts history/Undo to correction provenance.
    return;
   }
   const {id}=z.strictObject({id:UuidSchema}).parse(request.params),input=UndoRequestSchema.parse(request.body);

@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
-import {CalibrationHistorySchema,CalibrationLabelRequestSchema,CalibrationLabelResultSchema,IdSchema,UndoRequestSchema,UuidSchema,type CalibrationStore,type CalibrationLabelRequest,type UndoRequest} from '@sortfm/contracts';
-import {invalidResponse} from './errors';
+import {CalibrationCorrectionRequestSchema,CalibrationHistorySchema,CalibrationLabelRequestSchema,CalibrationLabelResultSchema,IdSchema,UndoRequestSchema,UuidSchema,type CalibrationCorrectionRequest,type CalibrationStore,type CalibrationLabelRequest,type UndoRequest} from '@sortfm/contracts';
+import {CalibrationError,invalidResponse} from './errors';
 const fingerprint=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** Preference persistence only. D commits revisions/outbox atomically; no provider port. */
@@ -15,6 +15,15 @@ export class CalibrationService {
   const result=CalibrationLabelResultSchema.safeParse(await this.store.createCalibrationLabel({userId,labelId:crypto.randomUUID(),request,requestFingerprint:fingerprint(request),createdAt:this.timestamp()}));
   if(!result.success||result.data.trackId!==request.trackId||result.data.exposureId!==request.exposureId
    ||result.data.idempotencyKey!==request.idempotencyKey||result.data.submittedLabel!==request.label)throw invalidResponse();
+  this.kick();return result.data;
+ }
+ async correct(userId:string,input:CalibrationCorrectionRequest){
+  IdSchema.parse(userId);const request=CalibrationCorrectionRequestSchema.parse(input);
+  if(!this.store.correctSkippedPreference)throw new CalibrationError('CALIBRATION_UNAVAILABLE','Post-Skip confirmation is unavailable on this server.',503,true);
+  const result=CalibrationLabelResultSchema.safeParse(await this.store.correctSkippedPreference({userId,labelId:crypto.randomUUID(),exposureId:crypto.randomUUID(),request,requestFingerprint:fingerprint(request),createdAt:this.timestamp()}));
+  // DB resolves the source track and authoritative IDs on replay; generated IDs
+  // are deliberately not compared because a response may have been lost.
+  if(!result.success||result.data.idempotencyKey!==request.idempotencyKey||result.data.submittedLabel!==1)throw invalidResponse();
   this.kick();return result.data;
  }
  async undo(userId:string,labelId:string,input:UndoRequest){

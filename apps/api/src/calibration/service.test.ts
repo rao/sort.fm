@@ -50,3 +50,13 @@ test('failed persistence never kicks feedback; incoherent results never produce 
  valid.store.undoCalibrationLabel=async()=>first;
  await expect(wrong.undo(owner,first.labelId,{idempotencyKey:createIdempotencyKey()})).rejects.toMatchObject({code:'CALIBRATION_INVALID_RESPONSE'});
 });
+
+test('post-Skip Remove uses a canonical original command, independent generated IDs and durable current retry projection',async()=>{
+ const f=fixture();let kicks=0;const received:any[]=[];let saved:any;
+ f.store.correctSkippedPreference=async v=>{received.push(v);return saved??= {mode:'calibration',labelId:v.labelId,trackId:row(1).track.trackId,exposureId:v.exposureId,idempotencyKey:v.request.idempotencyKey,submittedLabel:1,label:1,state:'active',canUndo:true,feedbackRevision:1,createdAt:v.createdAt,updatedAt:v.createdAt};};
+ const service=new CalibrationService(f.store,{now:()=>now,feedback:{kick(){kicks++;}}}),input={decisionId:crypto.randomUUID(),label:1 as const,idempotencyKey:createIdempotencyKey()};
+ expect(await service.correct(owner,input)).toEqual(await service.correct(owner,input));expect(kicks).toBe(2);expect(received[0].requestFingerprint).toBe(received[1].requestFingerprint);expect(received[0].exposureId).not.toBe(received[1].exposureId);expect(received[0].request).toEqual(input);
+ await expect(service.correct(owner,{...input,label:0} as never)).rejects.toThrow();expect(received).toHaveLength(2);
+ saved={...saved,state:'revoked',label:null,canUndo:false};expect((await service.correct(owner,input)).state).toBe('revoked');
+ delete f.store.correctSkippedPreference;await expect(service.correct(owner,input)).rejects.toMatchObject({code:'CALIBRATION_UNAVAILABLE'});
+});

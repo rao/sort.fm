@@ -4,7 +4,7 @@ import {CalibrationBatchCreateSchema,CalibrationBatchSkipSchema,CalibrationBatch
 import type {CalibrationBatchService} from './batch-service';
 import {z,ZodError} from 'zod';
 import type {FastifyInstance,FastifyReply,FastifyRequest} from 'fastify';
-import {CalibrationLabelRequestSchema,CalibrationQueueQuerySchema,PUBLIC_ROUTES,UndoRequestSchema,UuidSchema} from '@sortfm/contracts';
+import {CalibrationCorrectionRequestSchema,CalibrationLabelRequestSchema,CalibrationQueueQuerySchema,PUBLIC_ROUTES,UndoRequestSchema,UuidSchema} from '@sortfm/contracts';
 import {CalibrationError,invalidResponse} from './errors';
 import type {CalibrationService} from './service';
 import type {CalibrationQueue} from './queue';
@@ -16,9 +16,10 @@ export interface CalibrationModuleOptions {
  /** Deliberately excludes private reserve/snapshot/seal operator methods. */
  experiment?:Pick<CalibrationExperimentService,'read'|'skip'>;
  service:Pick<CalibrationService,'label'|'undo'|'history'>;
+ correction?:Pick<CalibrationService,'correct'>;
  queue:Pick<CalibrationQueue,'get'>;
 }
-const missing=new Set(['BATCH_NOT_FOUND','USER_NOT_FOUND','TRACK_NOT_OWNED','EXPOSURE_NOT_FOUND','CALIBRATION_LABEL_NOT_FOUND','BATCH_ITEM_NOT_FOUND']);
+const missing=new Set(['DECISION_NOT_FOUND','BATCH_NOT_FOUND','USER_NOT_FOUND','TRACK_NOT_OWNED','EXPOSURE_NOT_FOUND','CALIBRATION_LABEL_NOT_FOUND','BATCH_ITEM_NOT_FOUND']);
 const conflicts=new Set(['BATCH_NOT_READY','TRACK_NOT_IN_LIBRARY','CALIBRATION_NOT_ELIGIBLE','CALIBRATION_LABEL_ACTIVE','STALE_CALIBRATION_LABEL','MUTATION_PENDING','EXPOSURE_TRACK_MISMATCH','EXPOSURE_PURPOSE_MISMATCH','EXPOSURE_ALREADY_CONSUMED','STALE_EXPOSURE','EXPOSURE_CONFLICT','IDEMPOTENCY_CONFLICT','BATCH_TRACK_RESERVED','BATCH_ITEM_NOT_PENDING','BATCH_SEED_CONFLICT','BATCH_CANDIDATES_CHANGED']);
 function publicError(error:unknown):CalibrationError {
  if(error instanceof CalibrationError)return error;
@@ -27,6 +28,7 @@ function publicError(error:unknown):CalibrationError {
  if(missing.has(code))return new CalibrationError(code,'The requested calibration resource is unavailable.',404);
  if(conflicts.has(code))return new CalibrationError(code,'The preference conflicts with current state. Refresh calibration before submitting a new label.',409);
  if(['AUTHENTICATION_REQUIRED','SPOTIFY_REAUTH_REQUIRED'].includes(code))return new CalibrationError('AUTHENTICATION_REQUIRED','Connect an authorized account.',401);
+ if(['REVIEW_TRACK_EXCLUDED','REVIEW_EXPOSURE_NOT_PUBLISHED','REVIEW_OWNER_MISMATCH'].includes(code))return new CalibrationError('PILOT_ACTION_NOT_ALLOWED','This preference is not enabled for this pilot.',403);
  if(code==='ACCOUNT_NOT_ALLOWED')return new CalibrationError(code,'This account is not authorized.',403);
  return new CalibrationError('CALIBRATION_UNAVAILABLE','Calibration could not be completed. Retry with the same request key.',503,true);
 }
@@ -75,6 +77,11 @@ export function createCalibrationModule(options:CalibrationModuleOptions){
   app.get(PUBLIC_ROUTES.calibrationQueue.path,safe(async req=>{
    const query=CalibrationQueueQuerySchema.parse(req.query);if(req.body!==undefined)empty.parse(req.body);
    const userId=await owner(req);return backend(()=>options.queue.get(userId,query));
+  }));
+  app.post(PUBLIC_ROUTES.calibrationCorrection.path,safe(async req=>{
+   csrf(req);empty.parse(req.query);const request=CalibrationCorrectionRequestSchema.parse(req.body),userId=await owner(req);
+   if(!options.correction)throw new CalibrationError('CALIBRATION_UNAVAILABLE','Post-Skip confirmation is unavailable on this server.',503,true);
+   return backend(()=>options.correction!.correct(userId,request));
   }));
   app.post(PUBLIC_ROUTES.calibrationLabel.path,safe(async req=>{
    csrf(req);empty.parse(req.query);const request=CalibrationLabelRequestSchema.parse(req.body),userId=await owner(req);

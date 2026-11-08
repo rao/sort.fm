@@ -1,9 +1,12 @@
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
-import {CalibrationLabelRequestSchema,CalibrationLabelResultSchema,CalibrationHistorySchema,ExposureInputSchema,IdSchema,UuidSchema,TimestampSchema,UndoRequestSchema,type CalibrationStore,type CalibrationCandidateSnapshot,type CalibrationHistory,type CalibrationLabelInput,type CalibrationLabelResult,type CalibrationUndoInput,type ExposureInput} from '@sortfm/contracts';
+import {CalibrationCorrectionRequestSchema,CalibrationLabelRequestSchema,CalibrationLabelResultSchema,CalibrationHistorySchema,ExposureInputSchema,IdSchema,UuidSchema,TimestampSchema,UndoRequestSchema,type CalibrationCorrectionInput,type CalibrationStore,type CalibrationCandidateSnapshot,type CalibrationHistory,type CalibrationLabelInput,type CalibrationLabelResult,type CalibrationUndoInput,type ExposureInput} from '@sortfm/contracts';
 import {Database,PersistenceError,json,type Transaction} from './client';
 import {lockUser,readLibrary} from './repository';
+import {assertPublishedReviewExposure} from './review-exclusions';
+import {ready as policyStorageReady} from './policy-core';
 import {assertBatchCollecting,assertNotBatchReserved,batchExposure,reservedCalibrationTrackIds} from './calibration-reservations';
+const correctionInput=z.strictObject({userId:IdSchema,labelId:UuidSchema,exposureId:UuidSchema,request:CalibrationCorrectionRequestSchema,requestFingerprint:z.string().min(1),createdAt:TimestampSchema});
 const labelInput=z.strictObject({userId:IdSchema,labelId:UuidSchema,request:CalibrationLabelRequestSchema,requestFingerprint:z.string().min(1),createdAt:TimestampSchema});
 const undoInput=z.strictObject({userId:IdSchema,commandId:UuidSchema,labelId:UuidSchema,request:UndoRequestSchema,requestFingerprint:z.string().min(1),createdAt:TimestampSchema});
 const fail=(code:string):never=>{throw new PersistenceError(code);};
@@ -32,6 +35,19 @@ async function projections(tx:Transaction,userId:string,labelId?:string):Promise
 }
 async function project(tx:Transaction,userId:string,labelId:string):Promise<CalibrationLabelResult>{return (await projections(tx,userId,labelId))[0]??fail('CALIBRATION_LABEL_NOT_FOUND');}
 async function advance(tx:Transaction,userId:string,revision:number){await tx`UPDATE users SET feedback_revision=${revision} WHERE id=${userId}`;await tx`INSERT INTO feedback_sync_jobs(user_id,target_revision) VALUES(${userId},${revision}) ON CONFLICT(user_id) DO UPDATE SET target_revision=GREATEST(feedback_sync_jobs.target_revision,excluded.target_revision),available_at=LEAST(feedback_sync_jobs.available_at,clock_timestamp()),updated_at=clock_timestamp()`;}
+/** Correction labels remain preference events; pilot access is bound to the original
+ * published Skip even after that review is undone or superseded. Ordinary inherited
+ * calibration rows cannot become visible or undoable through the pilot allowlist. */
+async function assertPilotCorrectionLabel(tx:Transaction,db:Database,userId:string,labelId:string){
+ const policy=db.reviewExclusions;if(!policy)return;policy.assertOwner(userId);
+ const [label]=await tx`SELECT track_id,exposure_id,request FROM calibration_labels WHERE user_id=${userId} AND label_id=${labelId}`;
+ const original=CalibrationCorrectionRequestSchema.safeParse(label?.request?.originalCorrectionRequest);
+ if(!original.success)return fail('CALIBRATION_LABEL_NOT_FOUND');
+ if(label.request.trackId!==label.track_id||label.request.exposureId!==label.exposure_id||label.request.label!==1||label.request.idempotencyKey!==original.data.idempotencyKey)fail('CALIBRATION_LABEL_NOT_FOUND');
+ const [source]=await tx`SELECT track_id,exposure_id,request,result FROM review_decisions WHERE user_id=${userId} AND decision_id=${original.data.decisionId}`;
+ if(!source||source.track_id!==label.track_id||source.request.action!=='SKIP'||source.result.action!=='SKIP'||source.result.mode!=='spotify'||source.result.trackId!==source.track_id||source.result.exposureId!==source.exposure_id)fail('CALIBRATION_LABEL_NOT_FOUND');
+ await assertPublishedReviewExposure(tx,policy,userId,source.exposure_id,source.track_id);
+}
 export class PostgresCalibrationStore implements CalibrationStore {
  constructor(readonly db:Database){}
  async calibrationCandidates(userId:string):Promise<CalibrationCandidateSnapshot>{IdSchema.parse(userId);return this.db.transaction(async tx=>{
@@ -59,8 +75,44 @@ export class PostgresCalibrationStore implements CalibrationStore {
   if(batch)await tx`UPDATE calibration_batch_items SET status='labeled' WHERE batch_item_id=${batch.batch_item_id}`;
   await advance(tx,v.userId,revision);return project(tx,v.userId,v.labelId);
  });}
+ /** Explicit post-collection Remove preference. No review/policy/provider state is rewritten. */
+ async correctSkippedPreference(input:CalibrationCorrectionInput):Promise<CalibrationLabelResult>{const v=correctionInput.parse(input);return this.db.transaction(async tx=>{
+  this.db.reviewExclusions?.assertOwner(v.userId);const owner=await lockUser(tx,v.userId);
+  const [old]=await tx`SELECT label_id,request_fingerprint=${v.requestFingerprint} AND request->'originalCorrectionRequest'=${json(v.request)}::jsonb AS same FROM calibration_labels WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
+  if(old){if(!old.same)fail('IDEMPOTENCY_CONFLICT');await assertPilotCorrectionLabel(tx,this.db,v.userId,old.label_id);return project(tx,v.userId,old.label_id);}
+  const [source]=await tx`SELECT d.*,e.payload,e.purpose,c.decision_id AS current_id,s.current_status,t.card,
+   EXISTS(SELECT 1 FROM library_membership m WHERE m.user_id=d.user_id AND m.track_id=d.track_id) AS member
+   FROM review_decisions d JOIN exposures e ON e.user_id=d.user_id AND e.exposure_id=d.exposure_id
+   JOIN saved_tracks s ON s.user_id=d.user_id AND s.track_id=d.track_id JOIN tracks t ON t.track_id=d.track_id
+   LEFT JOIN current_decisions c ON c.user_id=d.user_id AND c.track_id=d.track_id
+   WHERE d.user_id=${v.userId} AND d.decision_id=${v.request.decisionId}`;
+  if(!source)fail('DECISION_NOT_FOUND');
+  await assertPublishedReviewExposure(tx,this.db.reviewExclusions,v.userId,source.exposure_id,source.track_id);
+  await assertNotBatchReserved(tx,v.userId,source.track_id);
+  if(await pending(tx,v.userId,source.track_id))fail('MUTATION_PENDING');
+  if(await policyStorageReady(tx)){
+   if((await tx`SELECT 1 FROM policy_exposure_bindings WHERE user_id=${v.userId} AND track_id=${source.track_id} AND closed_at IS NULL AND expires_at>clock_timestamp() LIMIT 1`).length)fail('MUTATION_PENDING');
+  }
+  const r=source.result;
+  if(source.current_id!==v.request.decisionId||source.request.action!=='SKIP'||r.action!=='SKIP'||r.status!=='COMPLETE'||r.label!==null||r.labelState!=='inactive'||r.mode!=='spotify'||r.decisionId!==v.request.decisionId||r.trackId!==source.track_id||r.exposureId!==source.exposure_id||source.purpose!=='review'||!source.member||source.card.source!=='spotify'||!source.card.isPlayable||!['saved','deferred'].includes(source.current_status))fail('CALIBRATION_NOT_ELIGIBLE');
+  // Ever-held-out identities remain held out even when their latest label is revoked.
+  if((await tx`SELECT 1 FROM unified_feedback WHERE user_id=${v.userId} AND track_id=${source.track_id} AND split='holdout' LIMIT 1`).length)fail('CALIBRATION_NOT_ELIGIBLE');
+  const [winner]=await tx`SELECT label,revoked FROM effective_feedback WHERE user_id=${v.userId} AND track_id=${source.track_id}`;
+  if(winner?.label!==null&&winner?.label!==undefined&&!winner.revoked)fail('CALIBRATION_LABEL_ACTIVE');
+  if(Date.parse(v.createdAt)<Date.parse(r.updatedAt))fail('STALE_EXPOSURE');
+  const original=ExposureInputSchema.parse(source.payload);
+  if(original.userId!==v.userId||original.exposure.trackId!==source.track_id||original.exposure.exposureId!==source.exposure_id)fail('CALIBRATION_NOT_ELIGIBLE');
+  const {policyTelemetry:_policyTelemetry,...frozenExposure}=original.exposure;
+  const exposure=ExposureInputSchema.parse({...original,exposure:{...frozenExposure,exposureId:v.exposureId,servedAt:v.createdAt,selectionMethod:'deterministic_baseline',policyVersion:'post-collection:skip-correction:v1',explorationCoefficient:0,propensityEstimate:null}});
+  const request={trackId:source.track_id,exposureId:v.exposureId,label:1,idempotencyKey:v.request.idempotencyKey,originalCorrectionRequest:v.request};
+  const revision=Number(owner.feedback_revision)+1;
+  await tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at,purpose) VALUES(${v.exposureId},${v.userId},${source.track_id},${json(exposure)}::jsonb,${v.createdAt},'calibration')`;
+  await tx`INSERT INTO calibration_labels(label_id,user_id,track_id,exposure_id,idempotency_key,request_fingerprint,request,submitted_label,label,revision,split,created_at,updated_at) VALUES(${v.labelId},${v.userId},${source.track_id},${v.exposureId},${v.request.idempotencyKey},${v.requestFingerprint},${json(request)}::jsonb,1,1,${revision},'train',${v.createdAt},${v.createdAt})`;
+  await advance(tx,v.userId,revision);return project(tx,v.userId,v.labelId);
+ });}
  async undoCalibrationLabel(input:CalibrationUndoInput):Promise<CalibrationLabelResult>{const v=undoInput.parse(input);return this.db.transaction(async tx=>{
-  const owner=await lockUser(tx,v.userId);
+  this.db.reviewExclusions?.assertOwner(v.userId);const owner=await lockUser(tx,v.userId);
+  await assertPilotCorrectionLabel(tx,this.db,v.userId,v.labelId);
   const [old]=await tx`SELECT label_id,request_fingerprint=${v.requestFingerprint} AND label_id=${v.labelId} AND request=${json(v.request)}::jsonb AS same FROM calibration_undos WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
   if(old){if(!old.same)fail('IDEMPOTENCY_CONFLICT');return project(tx,v.userId,old.label_id);}
   const result=await project(tx,v.userId,v.labelId);const assigned=await batchExposure(tx,v.userId,result.exposureId);if(assigned)await assertBatchCollecting(tx,v.userId,assigned.batch_id);if(result.state!=='active')fail('STALE_CALIBRATION_LABEL');if(!result.canUndo)fail('MUTATION_PENDING');if(Date.parse(v.createdAt)<Date.parse(result.updatedAt))fail('STALE_CALIBRATION_LABEL');
@@ -71,6 +123,9 @@ export class PostgresCalibrationStore implements CalibrationStore {
   await advance(tx,v.userId,revision);return project(tx,v.userId,v.labelId);
  });}
  async calibrationHistory(userId:string):Promise<CalibrationHistory>{IdSchema.parse(userId);return this.db.transaction(async tx=>{
-  await lockUser(tx,userId);return CalibrationHistorySchema.parse({items:await projections(tx,userId),nextCursor:null});
+  this.db.reviewExclusions?.assertOwner(userId);await lockUser(tx,userId);const items=await projections(tx,userId);
+  if(!this.db.reviewExclusions)return CalibrationHistorySchema.parse({items,nextCursor:null});
+  const permitted:CalibrationLabelResult[]=[];for(const item of items){try{await assertPilotCorrectionLabel(tx,this.db,userId,item.labelId);permitted.push(item);}catch(error){if(!(error instanceof PersistenceError)||!['CALIBRATION_LABEL_NOT_FOUND','REVIEW_TRACK_EXCLUDED','REVIEW_EXPOSURE_NOT_PUBLISHED'].includes(error.code))throw error;}}
+  return CalibrationHistorySchema.parse({items:permitted,nextCursor:null});
  });}
 }

@@ -247,9 +247,10 @@ export async function buildRuntime(options: {
   load:loadCandidates,
   ...(ml?{score:(userId,candidates,modelVersion)=>ml!.score(userId,candidates,modelVersion)}:{}),
  }):null;
- const calibration=spotify&&calibrationStore?createCalibrationModule({
+ const calibrationService=calibrationStore?new CalibrationService(calibrationStore,{...(feedback?{feedback}:{})}):null;
+ const calibration=spotify&&calibrationStore&&calibrationService?createCalibrationModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
-  service:new CalibrationService(calibrationStore,{...(feedback?{feedback}:{})}),
+  service:calibrationService,correction:calibrationService,
   ...(calibrationExperiment?{experiment:calibrationExperiment}:{}),
   // Saved batches resume without a scorer; new creation explicitly reports
   // unavailable scoring. Labels continue through the existing feedback worker.

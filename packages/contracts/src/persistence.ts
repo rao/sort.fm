@@ -77,6 +77,8 @@ export interface A1Transaction {
   completeImportMembership(input: ImportMembership): Promise<void>;
   getSummary(userId: string): Promise<LibrarySummary>;
   putTasteContext(context: TasteContext): Promise<void>;
+  /** Optional for legacy adapters. Cached detached owner-scoped read; no provider I/O. */
+  getTasteContext?(userId: string): Promise<TasteContext | null>;
 }
 export interface A1Store {
   transaction<T>(work: (tx: A1Transaction) => Promise<T>): Promise<T>;

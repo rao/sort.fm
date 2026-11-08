@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {ListeningContextSnapshotSchema} from './listening-context';
 import {CountSchema,IdempotencyKeySchema,PredictionSchema,ProbabilitySchema,SpotifyTrackIdSchema,TimestampSchema,TrackCardSchema,UuidSchema} from './schemas';
 import {FeatureVectorSchema} from './features';
 import {CalibrationQueueResultSchema} from './calibration';
@@ -41,7 +42,7 @@ export const CalibrationBatchReadSchema=z.strictObject({batch:CalibrationBatchSc
 export type CalibrationBatch=z.infer<typeof CalibrationBatchSchema>;
 export type CalibrationBatchSelection=z.infer<typeof CalibrationBatchSelectionSchema>;
 export type CalibrationBatchSkip=z.infer<typeof CalibrationBatchSkipSchema>;
-export const CalibrationFrozenCandidateSchema=z.strictObject({track:TrackCardSchema,features:FeatureVectorSchema,prediction:PredictionSchema});
+export const CalibrationFrozenCandidateSchema=z.strictObject({track:TrackCardSchema,features:FeatureVectorSchema,prediction:PredictionSchema,listeningContext:ListeningContextSnapshotSchema.optional()});
 /** Private server-side snapshot; never exposed as a training/evaluation export. */
 export const CalibrationBatchDraftSchema=z.strictObject({
  batchId:UuidSchema,seed:CalibrationBatchCreateSchema.shape.seed,algorithmVersion:z.string().min(1),modelVersion:z.string().min(1),selectedAt:TimestampSchema,

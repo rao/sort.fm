@@ -12,3 +12,4 @@ export type * from "./playback-persistence";
 export * from "./calibration-batch";
 
 export type * from "./policy-persistence";
+export * from './listening-context';

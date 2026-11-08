@@ -1,6 +1,7 @@
 /** Server-only C2 persistence boundary. D implements; A consumes; root owns changes. */
 import type {ExposureInput,SavedTrackInput} from './db';
 import type {FeatureVector,FitResponse} from './features';
+import type {ListeningContextSnapshot} from './listening-context';
 import type {QueuePolicy,ReviewResult,TrackCard} from './schemas';
 import type {PolicySelectRequest,PolicyDecision,PolicyAssociationEvent,PolicyFitReceipt,PolicyAssociationReceipt,PolicyReleaseRequest,PolicyReleaseReceipt,PolicyConfig} from './policy';
 
@@ -31,6 +32,8 @@ export type C1SelectionDraft = {
 };
 export type AdaptiveSelectionDraft = {
   kind: 'adaptive';
+  /** Cached coverage frozen once beside model inputs, never sent to C1/C2. */
+  listeningContext?: ListeningContextSnapshot;
   /** Preserve the caller's existing UI preference across response loss/recovery. */
   queuePolicy: QueuePolicy;
   /** Exactly one selection request/exposure, epsilon_greedy or linucb only.

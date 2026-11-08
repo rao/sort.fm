@@ -1,11 +1,12 @@
 import { z } from "zod";
+import {ListeningContextSnapshotSchema} from './listening-context';
 import { FeatureVectorSchema } from "./features";
 import { CountSchema, ExposureSchema, FEATURE_VERSION, IdSchema, LibraryImportStatusSchema, ModelMetricsSchema, MutationStatusSchema, MutationStepSchema, PredictionSchema, ReviewRequestSchema, TimestampSchema, TrackCardSchema, UndoRequestSchema, UuidSchema, predictionMatchesExposure } from "./schemas";
 
 // Internal DB inputs ONLY. userId is resolved by the server, never trusted from a browser.
 export const TrackInputSchema = z.strictObject({track: TrackCardSchema, fetchedAt: TimestampSchema});
 export const SavedTrackInputSchema = z.strictObject({userId: IdSchema, track: TrackCardSchema, originalAddedAt: TimestampSchema, syncedAt: TimestampSchema, currentStatus: z.enum(["saved", "kept", "deferred", "archived", "unliked"])});
-export const ExposureInputSchema = z.strictObject({userId: IdSchema, exposure: ExposureSchema, prediction: PredictionSchema, features: FeatureVectorSchema}).refine(input => predictionMatchesExposure(input.prediction, input.exposure) && input.features.featureVersion === input.exposure.featureVersion, "Exposure must preserve the full prediction and feature snapshot");
+export const ExposureInputSchema = z.strictObject({userId: IdSchema, exposure: ExposureSchema, prediction: PredictionSchema, features: FeatureVectorSchema,listeningContext:ListeningContextSnapshotSchema.optional()}).refine(input => predictionMatchesExposure(input.prediction, input.exposure) && input.features.featureVersion === input.exposure.featureVersion, "Exposure must preserve the full prediction and feature snapshot");
 export const DecisionInputSchema = z.strictObject({userId: IdSchema, decisionId: UuidSchema, request: ReviewRequestSchema, requestFingerprint: z.string().min(1), createdAt: TimestampSchema});
 export const UndoCommandInputSchema = z.strictObject({userId: IdSchema, commandId: UuidSchema, decisionId: UuidSchema, request: UndoRequestSchema, requestFingerprint: z.string().min(1), createdAt: TimestampSchema});
 export const MutationTransitionInputSchema = z.strictObject({userId: IdSchema, mutationId: UuidSchema, decisionId: UuidSchema, expectedStatus: MutationStatusSchema, status: MutationStatusSchema, step: MutationStepSchema, attempts: CountSchema, archivePlaylistId: IdSchema.nullable(), occurredAt: TimestampSchema});

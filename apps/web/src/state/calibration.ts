@@ -327,7 +327,7 @@ export class CalibrationStore {
 				notice:
 					this.state.teaching
 						? result.state === "active"
-							? `Saved: ${result.label === 0 ? "Still love it" : "Outgrown"}. Spotify stays unchanged.`
+							? `Saved: ${result.label === 0 ? "Keep" : "Discard"}. Spotify stays unchanged.`
 							: "Answer withdrawn. Spotify stays unchanged."
 						: result.state === "active"
 						? `Saved: would ${result.label === 0 ? "keep" : "remove"}. Spotify is unchanged.`

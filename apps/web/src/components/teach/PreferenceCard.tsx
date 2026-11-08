@@ -76,9 +76,9 @@ export function PreferenceCard({
 						<strong>
 							{teaching
 								? cue === 0
-									? "Still love it"
+									? "Keep"
 									: cue === 1
-										? "Outgrown"
+										? "Discard"
 										: "Unsure"
 								: cue === 0
 									? "Would keep"

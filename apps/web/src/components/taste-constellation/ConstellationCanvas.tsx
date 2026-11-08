@@ -115,25 +115,33 @@ export function ConstellationCanvas({
 					continue;
 				const highlighted = related.has(node.id),
 					isHovered = node.id === hovered;
+				const focused = node.id === active?.id || isHovered;
 				const label = shown.tracks.get(node.id)?.label ?? "unlabeled";
 				const radius =
 					node.id === active?.id
-						? 5.5
+						? 7
 						: highlighted || isHovered
-							? 4
+							? 4.5
 							: label === "unlabeled"
-								? 1.65
-								: 2.7;
+								? 2.1
+								: 3.1;
+				if (focused) {
+					ctx.globalAlpha = 0.12;
+					ctx.fillStyle = colors[label];
+					ctx.beginPath();
+					ctx.arc(p.x, p.y, radius + 12, 0, Math.PI * 2);
+					ctx.fill();
+				}
 				ctx.globalAlpha =
 					active && !highlighted && !isHovered
 						? 0.13
 						: label === "unlabeled" && !highlighted
-							? 0.65
+							? 0.78
 							: 0.95;
 				ctx.fillStyle = colors[label];
 				if (highlighted || isHovered) {
 					ctx.shadowColor = colors[label];
-					ctx.shadowBlur = 14;
+					ctx.shadowBlur = focused ? 20 : 14;
 				}
 				ctx.beginPath();
 				if (label === "remove") {
@@ -145,7 +153,7 @@ export function ConstellationCanvas({
 				} else ctx.arc(p.x, p.y, radius, 0, 2 * Math.PI);
 				ctx.fill();
 				ctx.shadowBlur = 0;
-				if (node.id === active?.id || isHovered) {
+				if (focused) {
 					ctx.globalAlpha = 0.8;
 					ctx.strokeStyle = colors.ink;
 					ctx.lineWidth = 1;

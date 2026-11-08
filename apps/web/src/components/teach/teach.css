@@ -29,6 +29,10 @@
 .teach-actions .action-button > span > span:last-child {
 	white-space: nowrap;
 }
+.teach-workspace .review-helper {
+	justify-content: center;
+	text-align: center;
+}
 .teach-queue-footer {
 	display: flex;
 	align-items: center;
@@ -50,13 +54,6 @@
 	display: block;
 	padding-block: 8px 12px;
 	color: var(--color-text-primary);
-}
-.teach-guide summary {
-	cursor: pointer;
-}
-.teach-guide summary:focus-visible {
-	outline: 2px solid var(--color-border-focus-ring);
-	outline-offset: 4px;
 }
 .teach-guide dl {
 	display: grid;

@@ -629,14 +629,6 @@
 	margin-inline-start: 12px;
 	margin-block-start: 12px;
 }
-.music-desk :is(input, textarea, select):focus-visible,
-.music-desk .search-input:focus-within {
-	outline: 2px solid var(--d-ink);
-	outline-offset: 3px;
-	border-color: var(--d-ink);
-	box-shadow: none;
-	--tw-ring-color: var(--d-ink);
-}
 .desk-player-restore,
 .d-player-restore {
 	position: fixed;
@@ -866,12 +858,6 @@
 }
 .music-desk .desk-playback:has(.demo-preview) {
 	display: grid;
-}
-.music-desk input[type]:focus-visible,
-.music-desk textarea:focus-visible,
-.music-desk select:focus-visible {
-	outline: 2px solid var(--d-ink);
-	outline-offset: 3px;
 }
 .music-desk {
 	--color-border-focus-ring: var(--d-ink);

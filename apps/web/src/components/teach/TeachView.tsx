@@ -124,7 +124,7 @@ export function TeachView({
 									[
 										{
 											action: 1,
-											label: "Outgrown",
+											label: "Discard",
 											key: "←",
 											Icon: RiCloseLine,
 											tone: "unlike",
@@ -138,7 +138,7 @@ export function TeachView({
 										},
 										{
 											action: 0,
-											label: "Still love it",
+											label: "Keep",
 											key: "→",
 											Icon: RiHeartLine,
 											tone: "keep",
@@ -183,7 +183,7 @@ export function TeachView({
 									disabled={locked || !latest}
 									onClick={() => latest && onUndo(latest.labelId)}
 								>
-									Undo answer
+									Undo
 								</Button>
 							</div>
 						</>
@@ -253,15 +253,15 @@ export function TeachView({
 							Refresh feedback
 						</Button>
 					</section>
-					<details className="model-panel teach-guide">
-						<summary className="text-body-medium">Answer guide</summary>
+					<section className="model-panel teach-guide">
+						<h2 className="text-body-medium">Answer guide</h2>
 						<dl>
 							<div>
-								<dt>Still love it</dt>
+								<dt>Keep</dt>
 								<dd>Save a Keep preference.</dd>
 							</div>
 							<div>
-								<dt>Outgrown</dt>
+								<dt>Discard</dt>
 								<dd>Save a Remove preference.</dd>
 							</div>
 							<div>
@@ -272,7 +272,7 @@ export function TeachView({
 						<p className="fine-print">
 							Undo withdraws an answer. Only Sort changes your library.
 						</p>
-					</details>
+					</section>
 				</aside>
 			</div>
 			<section className="calibration-history">
@@ -301,7 +301,7 @@ export function TeachView({
 										</p>
 									</div>
 									<span className="decision-tag">
-										{result.submittedLabel === 0 ? "Still love it" : "Outgrown"}{" "}
+										{result.submittedLabel === 0 ? "Keep" : "Discard"}{" "}
 										·{" "}
 										{result.state === "active"
 											? "saved"
@@ -317,7 +317,7 @@ export function TeachView({
 										}
 										onClick={() => onUndo(result.labelId)}
 									>
-										Undo answer
+										Undo
 									</Button>
 								</article>
 							);

@@ -41,8 +41,8 @@ test("ordinary Teach shows preference actions and real eligible counts without r
 	const html = renderToStaticMarkup(<TeachView state={state} {...callbacks} />);
 	for (const text of [
 		"Teach sort.fm",
-		"Still love it",
-		"Outgrown",
+		'aria-label="Keep (→)"',
+		'aria-label="Discard (←)"',
 		"Unsure",
 		"Training preferences",
 		"waiting for model sync",

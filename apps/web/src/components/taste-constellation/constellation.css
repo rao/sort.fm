@@ -13,6 +13,10 @@
 .tc-root .tc-intro h3 {
 	margin: 0;
 }
+.tc-root .tc-intro .tc-kicker span {
+	color: var(--color-text-secondary);
+	letter-spacing: normal;
+}
 .tc-root .tc-intro p {
 	margin: 8px 0 0;
 }
@@ -170,7 +174,11 @@
 	box-shadow: 6px 6px 0 var(--r-shadow, var(--color-border-button-default));
 }
 .tc-explorer::backdrop {
-	background: color-mix(in srgb, var(--r-edge, var(--color-text-primary)) 72%, transparent);
+	background: color-mix(
+		in srgb,
+		var(--r-edge, var(--color-text-primary)) 72%,
+		transparent
+	);
 	backdrop-filter: blur(4px);
 }
 .tc-explorer[aria-modal="true"] .tc-expanded-header {
@@ -187,7 +195,7 @@
 }
 .tc-layout {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 288px;
+	grid-template-columns: minmax(0, 1fr) 264px;
 	align-items: start;
 	border-top: 1px solid var(--color-border-button-default);
 }
@@ -204,14 +212,26 @@
 	--color-text-primary: var(--r-chrome-text);
 	--color-text-secondary: var(--r-chrome-text);
 	position: relative;
-	height: 560px;
+	height: 640px;
 	overflow: hidden;
 	background:
+		linear-gradient(
+			color-mix(in srgb, var(--color-text-primary) 4%, transparent) 1px,
+			transparent 1px
+		)
+		center / 40px 40px,
+		linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--color-text-primary) 4%, transparent) 1px,
+			transparent 1px
+		)
+		center / 40px 40px,
 		radial-gradient(
-			ellipse at 35% 50%,
-			color-mix(in srgb, var(--tc-unlabeled) 9%, transparent),
-			transparent 65%
-		), var(--color-background-primary-default);
+			ellipse at 50% 45%,
+			color-mix(in srgb, var(--tc-unlabeled) 16%, transparent),
+			transparent 70%
+		),
+		var(--color-background-primary-default);
 	color: var(--color-text-primary);
 }
 .tc-stage canvas {
@@ -446,10 +466,22 @@
 .tc-mini-legend {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 12px;
-	border-block: 1px solid var(--color-border-button-default);
-	padding-block: 12px;
+	gap: 8px;
+	border: 1px solid var(--r-edge, var(--color-border-button-default));
+	border-radius: 4px;
+	background: var(--r-edge, var(--color-background-secondary-default));
+	color: var(--r-chrome-text, var(--color-text-primary));
+	padding: 12px;
 	margin-block: 16px;
+}
+.tc-mini-legend [data-label="keep"] {
+	color: var(--tc-keep);
+}
+.tc-mini-legend [data-label="remove"] {
+	color: var(--tc-remove);
+}
+.tc-mini-legend [data-label="unlabeled"] {
+	color: var(--tc-unlabeled);
 }
 .tc-method {
 	border-top: 1px solid var(--color-border-button-default);
@@ -476,7 +508,7 @@
 		position: static;
 	}
 	.tc-stage {
-		height: 460px;
+		height: 520px;
 	}
 	.tc-detail {
 		border-inline-start: 0;
@@ -508,7 +540,7 @@
 		padding: 16px;
 	}
 	.tc-stage {
-		height: 400px;
+		height: 460px;
 	}
 	.tc-summary {
 		padding: 16px;

@@ -525,8 +525,9 @@ export function TasteConstellation({
 			</header>
 			<div className="tc-intro">
 				<div>
-					<p className="tc-kicker text-caption-1-semibold">A MAP OF SOUND</p>
-					<h3 className="text-title-2-medium">Hear the connections.</h3>
+					<p className="tc-kicker text-caption-1-semibold">
+						A MAP OF SOUND <span>– hear the connections</span>
+					</p>
 					<p className="text-body-2-regular">
 						Explore songs through their musical properties. Nearby sounds can
 						lead to very different preferences.
@@ -773,9 +774,24 @@ export function TasteConstellation({
 										descriptors and recorded preference.
 									</p>
 									<div className="tc-mini-legend text-caption-1-regular">
-										<span>● Keep</span>
-										<span>◆ Remove</span>
-										<span>· Unlabeled</span>
+										<span>
+											<span data-label="keep" aria-hidden="true">
+												●
+											</span>{" "}
+											Keep
+										</span>
+										<span>
+											<span data-label="remove" aria-hidden="true">
+												◆
+											</span>{" "}
+											Remove
+										</span>
+										<span>
+											<span data-label="unlabeled" aria-hidden="true">
+												●
+											</span>{" "}
+											Unlabeled
+										</span>
 									</div>
 									<h4 className="text-body-medium">
 										{visibleLibraryTracks.length

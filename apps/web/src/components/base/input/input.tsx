@@ -133,7 +133,7 @@ export interface InputBaseProps extends Omit<AriaInputProps, "size" | "className
 
 const inputStyles = sortCx({
   field: [
-    "relative flex w-full items-center",
+    "bui-input-shell relative flex w-full items-center",
     "rounded-2lg",
     "bg-background-tertiary-default text-foreground-icon-tertiary",
     "ring-2 ring-inset ring-transparent",

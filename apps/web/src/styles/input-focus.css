@@ -1,0 +1,45 @@
+/* An in-field underline replaces the outer box/ring without hiding focus. */
+:is(.music-desk, .draft-root)
+	:is(input, textarea, select):not(
+		[type="checkbox"],
+		[type="radio"],
+		[type="range"]
+	):focus {
+	outline: none;
+	outline-offset: 0;
+	box-shadow: inset 0 -2px 0 var(--d-ink);
+	background-color: var(--d-paper);
+	caret-color: var(--d-ink);
+	--tw-ring-color: transparent;
+}
+:is(.music-desk, .draft-root) .bui-input-shell:focus-within {
+	outline: none;
+	box-shadow: inset 0 -2px 0 var(--d-ink);
+	background-color: var(--d-paper);
+	color: var(--d-ink);
+}
+:is(.music-desk, .draft-root) .bui-input-shell input:focus {
+	box-shadow: none;
+	background: transparent;
+}
+:is(.music-desk, .draft-root) .search-input:focus-within {
+	outline: none;
+}
+
+/* System high-contrast themes suppress shadows, so retain an inset indicator. */
+@media (forced-colors: active) {
+	:is(.music-desk, .draft-root)
+		:is(input, textarea, select):not(
+			[type="checkbox"],
+			[type="radio"],
+			[type="range"]
+		):focus,
+	:is(.music-desk, .draft-root) .bui-input-shell:focus-within {
+		outline: 2px solid Highlight;
+		outline-offset: -2px;
+		box-shadow: none;
+	}
+	:is(.music-desk, .draft-root) .bui-input-shell input:focus {
+		outline: none;
+	}
+}

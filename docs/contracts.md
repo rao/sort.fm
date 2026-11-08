@@ -91,6 +91,16 @@ Telemetry carries actual `selectionMethod` (`c1`, `epsilon_greedy`, `linucb`, or
 
 The required nested `reservation` is a reported lifecycle snapshot with `reservedAt`, `expiresAt`, `evaluatedAt`, `status` (`active`/`released`/`expired`), nullable `closedAt`, and nullable `closureReason` (`explicit_release`/`undo`/`expiry`). Its original duration is30–900 seconds. Active means open at the supplied evaluation time; released means a recorded terminal closure, and expired means closed at the original expiry time. This snapshot is not proof that the user viewed/listened to the song and is not a current database eligibility assertion. The inspector must not derive a new lifecycle status from the browser clock. Absent telemetry means unavailable; zero values are valid observations.
 
+### C2 private transport
+
+`policy.ts` adopts the existing service-local select, release, exposure and diagnostics operations as shared, server-only schemas. Integration selections require an explicit non-null `modelVersion` and `feedbackRevision`, even though the selection wire schema permits legacy omission. The selected decision must report the actual matching revision. These routes require the ML shared secret and are never browser endpoints.
+
+New `POST /policy/associate` accepts `{userId,event,fitReceipt}`. The immutable event includes a UUID `eventId`, positive per-owner `sequence`, literal `source=cleanup`, decision/exposure/track identities, original policy/model versions, `operation=upsert|revoke`, committed `feedbackRevision`, nullable binary label, frozen features, and `occurredAt`. Optional `usefulness` is allowed only for a labeled upsert. The separate fit receipt contains `modelVersion` and `synchronizedFeedbackRevision`; it must cover the event revision and match the actual currently published C1 fit. There is no caller-supplied split.
+
+Association never invokes C1 fit/observe. The database emits these events only for committed cleanup decisions on actual policy-bound review exposures. Calibration and ordinary unbound C1 exposures cannot earn retrospective policy rewards. Fingerprint owner plus immutable event, excluding the fit receipt so retries can use a newer valid receipt. Changed immutable content is a conflict. Older/coalesced events remain history but earn reward only if the latest event is a strong upsert matching the current permitted C1 train example exactly. Undo and Skip have null labels and close only their original exposure. Holdout examples do not train the policy.
+
+The receipt returns owner/event/sequence, immutable `recordedAt`, `duplicate`, the validated fit receipt and current-snapshot `eligibleForLearning`. Replays can report a different current eligibility after a later fit; that does not change the original event. C1 training acknowledgement and policy delivery remain independent. A policy outage must not prevent C1 from learning saved feedback.
+
 Internal `GET /health` is public liveness. `POST /fit`, `/score`, `/observe`, `GET /evaluation`, `/explain` require `Authorization: Bearer <ML_SERVICE_SHARED_SECRET>`. Foundation returns 503 if unconfigured, 401 if invalid, and 501 if authenticated; it does not validate future model payloads or return fake scores.
 
 | Route | Input | Output |

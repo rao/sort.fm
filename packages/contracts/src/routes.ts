@@ -4,6 +4,7 @@ import { AccountSessionSchema, DecisionHistorySchema, DemoBootstrapSchema, Healt
 import { EvaluationQuerySchema, ExplainQuerySchema, ExplainResponseSchema, FitRequestSchema, FitResponseSchema, ObserveRequestSchema, ObserveResponseSchema, ScoreRequestSchema, ScoreResponseSchema } from "./features";
 import {CalibrationHistorySchema, CalibrationLabelRequestSchema, CalibrationLabelResultSchema, CalibrationQueueQuerySchema, CalibrationQueueResultSchema} from "./calibration";
 import {PlaybackConnectionStatusSchema,PlaybackConnectRequestSchema,PlaybackConnectResponseSchema,PlaybackEmptyRequestSchema,PlaybackSdkTokenSchema,PlaybackPlayRequestSchema,PlaybackTransferRequestSchema} from './playback';
+import {PolicySelectRequestSchema,PolicyDecisionSchema,PolicyAssociationRequestSchema,PolicyAssociationReceiptSchema,PolicyReleaseRequestSchema,PolicyReleaseReceiptSchema,PolicyExposureQuerySchema,PolicyExposureSchema,PolicyDiagnosticsQuerySchema,PolicyDiagnosticsSchema} from './policy';
 
 // Request/response definitions are canonical; unimplemented endpoints return ErrorEnvelope.
 export const PUBLIC_ROUTES = {
@@ -39,6 +40,11 @@ export const PUBLIC_ROUTES = {
   demoBootstrap: {method: "GET", path: "/api/demo/bootstrap", response: DemoBootstrapSchema, auth: "public"},
 } as const;
 export const INTERNAL_ROUTES = {
+  policySelect: {method:'POST',path:'/policy/select',body:PolicySelectRequestSchema,response:PolicyDecisionSchema,auth:'shared_secret'},
+  policyAssociate: {method:'POST',path:'/policy/associate',body:PolicyAssociationRequestSchema,response:PolicyAssociationReceiptSchema,auth:'shared_secret'},
+  policyRelease: {method:'POST',path:'/policy/release',body:PolicyReleaseRequestSchema,response:PolicyReleaseReceiptSchema,auth:'shared_secret'},
+  policyExposure: {method:'GET',path:'/policy/exposure',query:PolicyExposureQuerySchema,response:PolicyExposureSchema,auth:'shared_secret'},
+  policyDiagnostics: {method:'GET',path:'/policy/diagnostics',query:PolicyDiagnosticsQuerySchema,response:PolicyDiagnosticsSchema,auth:'shared_secret'},
   health: {method: "GET", path: "/health", auth: "public", response: z.strictObject({status: z.literal("ok"), service: z.literal("ml"), contractVersion: z.literal("1.0.0"), capabilities: z.strictObject({scoring: z.boolean(), training: z.boolean()})})},
   fit: {method: "POST", path: "/fit", body: FitRequestSchema, response: FitResponseSchema, auth: "shared_secret"},
   score: {method: "POST", path: "/score", body: ScoreRequestSchema, response: ScoreResponseSchema, auth: "shared_secret"},

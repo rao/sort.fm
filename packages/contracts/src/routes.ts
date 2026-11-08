@@ -4,7 +4,7 @@ import { z } from "zod";
 import {TasteConstellationLiveSchema} from './constellation';
 import { AccountSessionSchema, DecisionHistorySchema, DemoBootstrapSchema, HealthSchema, LibraryImportStatusSchema, LibrarySummarySchema, ModelInsightsSchema, ModelMetricsSchema, OkSchema, PlayRequestSchema, PlayerStatusSchema, QueueQuerySchema, QueueResultSchema, ReviewRequestSchema, ReviewResultSchema, UndoRequestSchema } from "./schemas";
 import { EvaluationQuerySchema, ExplainQuerySchema, ExplainResponseSchema, FitRequestSchema, FitResponseSchema, ObserveRequestSchema, ObserveResponseSchema, ScoreRequestSchema, ScoreResponseSchema } from "./features";
-import {CalibrationHistorySchema, CalibrationLabelRequestSchema, CalibrationLabelResultSchema, CalibrationQueueQuerySchema, CalibrationQueueResultSchema} from "./calibration";
+import {CalibrationCorrectionRequestSchema, CalibrationHistorySchema, CalibrationLabelRequestSchema, CalibrationLabelResultSchema, CalibrationQueueQuerySchema, CalibrationQueueResultSchema} from "./calibration";
 import {PlaybackConnectionStatusSchema,PlaybackConnectRequestSchema,PlaybackConnectResponseSchema,PlaybackEmptyRequestSchema,PlaybackSdkTokenSchema,PlaybackPlayRequestSchema,PlaybackTransferRequestSchema} from './playback';
 import {PolicySelectRequestSchema,PolicyDecisionSchema,PolicyAssociationRequestSchema,PolicyAssociationReceiptSchema,PolicyReleaseRequestSchema,PolicyReleaseReceiptSchema,PolicyExposureQuerySchema,PolicyExposureSchema,PolicyDiagnosticsQuerySchema,PolicyDiagnosticsSchema} from './policy';
 
@@ -29,6 +29,7 @@ export const PUBLIC_ROUTES = {
   calibrationExperimentSkip: {method:'POST',path:'/api/calibration/experiments/:experiment/skip',body:CalibrationExperimentSkipSchema,response:CalibrationExperimentReadySchema,auth:'owner'},
   calibrationQueue: {method: "GET", path: "/api/calibration/queue", query: CalibrationQueueQuerySchema, response: CalibrationQueueResultSchema, auth: "owner"},
   calibrationLabel: {method: "POST", path: "/api/calibration/labels", body: CalibrationLabelRequestSchema, response: CalibrationLabelResultSchema, auth: "owner"},
+  calibrationCorrection: {method: "POST", path: "/api/calibration/corrections", body: CalibrationCorrectionRequestSchema, response: CalibrationLabelResultSchema, auth: "owner"},
   calibrationUndo: {method: "POST", path: "/api/calibration/labels/:id/undo", body: UndoRequestSchema, response: CalibrationLabelResultSchema, auth: "owner"},
   calibrationHistory: {method: "GET", path: "/api/calibration/history", response: CalibrationHistorySchema, auth: "owner"},
   analytics: {method: "GET", path: "/api/analytics/summary", response: z.strictObject({library: LibrarySummarySchema, metrics: ModelMetricsSchema}), auth: "session"},

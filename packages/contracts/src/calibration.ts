@@ -8,6 +8,12 @@ export const CalibrationLabelRequestSchema = z.strictObject({
 });
 export type CalibrationLabelRequest = z.infer<typeof CalibrationLabelRequestSchema>;
 
+/** A new preference confirmation; never rewrites the source Skip or creates a policy reward. */
+export const CalibrationCorrectionRequestSchema = z.strictObject({
+  decisionId: UuidSchema, label: z.literal(1), idempotencyKey: IdempotencyKeySchema,
+});
+export type CalibrationCorrectionRequest = z.infer<typeof CalibrationCorrectionRequestSchema>;
+
 export const CalibrationLabelResultSchema = z.strictObject({
   mode: z.literal("calibration"), labelId: UuidSchema, trackId: SpotifyTrackIdSchema,
   exposureId: UuidSchema, idempotencyKey: IdempotencyKeySchema,

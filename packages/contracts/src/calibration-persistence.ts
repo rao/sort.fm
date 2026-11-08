@@ -1,4 +1,4 @@
-import type {CalibrationHistory, CalibrationLabelRequest, CalibrationLabelResult} from "./calibration";
+import type {CalibrationCorrectionRequest, CalibrationHistory, CalibrationLabelRequest, CalibrationLabelResult} from "./calibration";
 import type {ExposureInput, SavedTrackInput} from "./db";
 import type {FeatureVector} from "./features";
 import type {ReviewResult, TrackCard, UndoRequest} from "./schemas";
@@ -25,6 +25,10 @@ export type CalibrationUndoInput = {
   userId: string; commandId: string; labelId: string; request: UndoRequest;
   requestFingerprint: string; createdAt: string;
 };
+export type CalibrationCorrectionInput = {
+  userId: string; labelId: string; exposureId: string; request: CalibrationCorrectionRequest;
+  requestFingerprint: string; createdAt: string;
+};
 
 /**
  * D implements; A consumes. Every method is owner-scoped and transactionally atomic.
@@ -39,6 +43,8 @@ export interface CalibrationStore {
   /** Persists purpose=calibration independently of the unchanged ExposureInput payload. */
   insertCalibrationExposure(input: ExposureInput): Promise<void>;
   createCalibrationLabel(input: CalibrationLabelInput): Promise<CalibrationLabelResult>;
+  /** New explicit training preference from an eligible committed Skip. Source review and C2 ledger stay immutable. */
+  correctSkippedPreference?(input: CalibrationCorrectionInput): Promise<CalibrationLabelResult>;
   undoCalibrationLabel(input: CalibrationUndoInput): Promise<CalibrationLabelResult>;
   /** Current projected label states, newest created first; never cleanup decisions. */
   calibrationHistory(userId: string): Promise<CalibrationHistory>;

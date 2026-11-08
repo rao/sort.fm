@@ -19,6 +19,15 @@ const item = {...fixture, track: {...fixture.track, trackId, source: "spotify", 
 const queue = {contractVersion: contracts.CONTRACT_VERSION, mode: "calibration", items: [item], remaining: 1, nextCursor: null, fallbackReason: null};
 
 describe("calibration boundaries", () => {
+  test("post-Skip corrections accept only an explicit Remove preference and original decision identity", () => {
+    const correction={decisionId:labelId,label:1 as const,idempotencyKey:contracts.IdempotencyKeySchema.parse(idempotencyKey)};
+    expect(contracts.CalibrationCorrectionRequestSchema.parse(correction)).toEqual(correction);
+    for(const patch of [{label:0},{label:null},{decisionId:'bad'},{trackId},{exposureId},{action:'UNLIKE'},{reward:1},{split:'train'}]) {
+      expect(contracts.CalibrationCorrectionRequestSchema.safeParse({...correction,...patch}).success).toBe(false);
+    }
+    expect(contracts.PUBLIC_ROUTES.calibrationCorrection.auth).toBe('owner');
+    expect(contracts.PUBLIC_ROUTES.calibrationCorrection.response).toBe(contracts.CalibrationLabelResultSchema);
+  });
   test("exports a separate owner-only calibration surface", () => {
     expect("CalibrationLabelRequestSchema" in contracts).toBe(true);
     expect("CalibrationLabelResultSchema" in contracts).toBe(true);
@@ -65,6 +74,15 @@ describe("calibration boundaries", () => {
       expect(contracts.CalibrationQueueQuerySchema.safeParse(patch).success).toBe(false);
     }
   });
+});
+
+test('correction client preserves identity on its separate preference-only endpoint',async()=>{
+  const calls:{url:string;body:unknown}[]=[];
+  const client=createApiClient({fetch:(async(input:RequestInfo|URL,init?:RequestInit)=>{calls.push({url:String(input),body:JSON.parse(String(init?.body))});return Response.json(result);}) as typeof fetch});
+  const body=contracts.CalibrationCorrectionRequestSchema.parse({decisionId:labelId,label:1,idempotencyKey});
+  await client.calibrationCorrection(body);await client.calibrationCorrection(body);
+  expect(calls).toEqual([{url:'/api/calibration/corrections',body},{url:'/api/calibration/corrections',body}]);
+  expect(()=>client.calibrationCorrection({...body,action:'UNLIKE'} as typeof body)).toThrow();
 });
 
 test("browser client keeps calibration commands on their own endpoints and preserves retry keys", async () => {

@@ -1,6 +1,7 @@
 import {CalibrationBatchCreateSchema,CalibrationBatchSkipSchema,type CalibrationBatchSkip} from './calibration-batch';
 import {CALIBRATION_BATCH3_EXPERIMENT,CalibrationExperimentIdSchema,CalibrationExperimentSkipSchema,type CalibrationExperimentSkip} from './calibration-experiment';
 import { z } from "zod";
+import {CalibrationCorrectionRequestSchema,type CalibrationCorrectionRequest} from './calibration';
 import { CalibrationLabelRequestSchema, CalibrationQueueQuerySchema, ErrorEnvelopeSchema, IdempotencyKeySchema, PUBLIC_ROUTES, QueueQuerySchema, ReviewRequestSchema, UndoRequestSchema, UuidSchema, type CalibrationLabelRequest, type ErrorEnvelope, type ReviewRequest, type UndoRequest } from "./index";
 import {IdSchema} from './schemas';
 import {PlaybackConnectRequestSchema,PlaybackPlayRequestSchema,PlaybackTransferRequestSchema,type PlaybackConnectRequest,type PlaybackPlayRequest,type PlaybackTransferRequest} from './playback';
@@ -67,6 +68,7 @@ export function createApiClient(options: {baseUrl?: string; fetch?: typeof fetch
     calibrationExperimentSkip: (body:CalibrationExperimentSkip,experiment=CALIBRATION_BATCH3_EXPERIMENT) => request(PUBLIC_ROUTES.calibrationExperimentSkip.path.replace(':experiment',CalibrationExperimentIdSchema.parse(experiment)),PUBLIC_ROUTES.calibrationExperimentSkip.response,CalibrationExperimentSkipSchema.parse(body),{cache:'no-store'}),
     calibrationQueue: (query: z.input<typeof CalibrationQueueQuerySchema> = {}) => { const parsed = CalibrationQueueQuerySchema.parse(query); return request(`${PUBLIC_ROUTES.calibrationQueue.path}?${new URLSearchParams({limit: String(parsed.limit)})}`, PUBLIC_ROUTES.calibrationQueue.response); },
     calibrationLabel: (body: CalibrationLabelRequest) => request(PUBLIC_ROUTES.calibrationLabel.path, PUBLIC_ROUTES.calibrationLabel.response, CalibrationLabelRequestSchema.parse(body)),
+    calibrationCorrection: (body: CalibrationCorrectionRequest) => request(PUBLIC_ROUTES.calibrationCorrection.path, PUBLIC_ROUTES.calibrationCorrection.response, CalibrationCorrectionRequestSchema.parse(body)),
     calibrationUndo: (labelId: string, body: UndoRequest) => request(PUBLIC_ROUTES.calibrationUndo.path.replace(":id", UuidSchema.parse(labelId)), PUBLIC_ROUTES.calibrationUndo.response, UndoRequestSchema.parse(body)),
     calibrationHistory: () => request(PUBLIC_ROUTES.calibrationHistory.path, PUBLIC_ROUTES.calibrationHistory.response),
     insights: () => request(PUBLIC_ROUTES.insights.path, PUBLIC_ROUTES.insights.response),

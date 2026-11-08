@@ -1,3 +1,4 @@
+import { ProjectionCache } from "./components/taste-constellation/history";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PUBLIC_ROUTES, type ReviewAction } from "@sortfm/contracts";
 import type { ReviewClient } from "./data/demo-client";
@@ -43,6 +44,7 @@ const routes = [
 type Route = "landing" | (typeof routes)[number];
 function currentRoute(): Route {
 	const path = window.location.hash.slice(2);
+	if (path === "calibrate/research") return "calibrate";
 	return routes.includes(path as (typeof routes)[number])
 		? (path as Route)
 		: "landing";
@@ -64,6 +66,35 @@ export default function App({
 	const shellRef = useRef<HTMLDivElement>(null);
 	const footerRef = useRef<HTMLElement>(null);
 	const [store] = useState(() => new ReviewStore(client, 240));
+	const [projectionCache] = useState(() => new ProjectionCache());
+	useEffect(() => () => projectionCache.clear(), [projectionCache]);
+	const [research, setResearch] = useState(
+		() => window.location.hash === "#/calibrate/research",
+	);
+	const [teaching] = useState(() =>
+		client.live
+			? new CalibrationStore(
+					createCalibrationClient(
+						client.live.api,
+						client.live.session,
+						calibrationJournal(
+							{
+								getItem: (key) => window.sessionStorage.getItem(key),
+								setItem: (key, value) =>
+									window.sessionStorage.setItem(key, value),
+								removeItem: (key) => window.sessionStorage.removeItem(key),
+							},
+							client.live.session.user!.id,
+							"teach",
+						),
+						{
+							history: () => client.live!.api.teachHistory(),
+							status: () => client.live!.api.teachingStatus(),
+						},
+					),
+				)
+			: null,
+	);
 	const [corrections] = useState(() =>
 		client.live
 			? new CorrectionStore(
@@ -122,10 +153,11 @@ export default function App({
 		setPlaybackStopped(true);
 		onLogout?.();
 	}
+	const activeCalibration = research ? calibration : teaching;
 	const calibrationState = useSyncExternalStore(
-		calibration?.subscribe ?? emptySubscribe,
-		calibration?.getSnapshot ?? emptySnapshot,
-		calibration?.getSnapshot ?? emptySnapshot,
+		activeCalibration?.subscribe ?? emptySubscribe,
+		activeCalibration?.getSnapshot ?? emptySnapshot,
+		activeCalibration?.getSnapshot ?? emptySnapshot,
 	);
 	const state = useSyncExternalStore(
 		store.subscribe,
@@ -168,6 +200,7 @@ export default function App({
 		function navigate() {
 			if (!window.location.hash.startsWith("#/")) return;
 			setRoute(currentRoute());
+			setResearch(window.location.hash === "#/calibrate/research");
 			setModal(null);
 			window.scrollTo(0, 0);
 		}
@@ -196,8 +229,8 @@ export default function App({
 		return () => clearInterval(timer);
 	}, [live, route, store]);
 	useEffect(() => {
-		document.title = `${route === "landing" ? "Make room for what moves you" : route === "calibrate" ? "Taste calibration" : route[0]!.toUpperCase() + route.slice(1)} · sort.fm`;
-	}, [route]);
+		document.title = `${route === "landing" ? "Make room for what moves you" : route === "calibrate" ? (research ? "Research calibration" : "Teach sort.fm") : route[0]!.toUpperCase() + route.slice(1)} · sort.fm`;
+	}, [route, research]);
 	useEffect(() => {
 		if (route === "history") void corrections?.refresh();
 	}, [route, corrections]);
@@ -403,7 +436,12 @@ export default function App({
 			<div className="demo-strip">
 				{route === "calibrate" ? (
 					<>
-						<span>Calibration only.</span> Your Spotify library stays unchanged.
+						<span>
+							{research
+								? "Research calibration."
+								: "Teaching preferences only."}
+						</span>{" "}
+						Your Spotify library stays unchanged.
 					</>
 				) : live ? (
 					<>
@@ -420,9 +458,9 @@ export default function App({
 					Model Lab <Icon name="arrow" size={13} />
 				</a>
 			</div>
-			<main id="main" key={route} tabIndex={-1}>
+			<main id="main" key={`${route}:${research}`} tabIndex={-1}>
 				{route === "calibrate" ? (
-					<CalibrationWorkspace store={calibration} />
+					<CalibrationWorkspace store={activeCalibration} research={research} />
 				) : live && route === "library" ? (
 					<ConnectedLibrary
 						api={client.live!.api}
@@ -476,6 +514,7 @@ export default function App({
 					/>
 				) : route === "model" ? (
 					<ModelLab
+						projectionCache={projectionCache}
 						state={state}
 						onRefresh={() => void store.refresh()}
 						onRetrain={() => void store.retrain()}

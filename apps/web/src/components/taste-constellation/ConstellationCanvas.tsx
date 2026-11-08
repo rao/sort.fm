@@ -7,6 +7,7 @@ import { labelName, type Track } from "./data";
 type Camera = { x: number; y: number; zoom: number };
 type Props = {
 	graph: Graph;
+	visibleGraph: Graph;
 	tracks: Map<string, Track>;
 	selected: string | null;
 	onSelect: (id: string | null) => void;
@@ -14,10 +15,14 @@ type Props = {
 
 export function ConstellationCanvas({
 	graph,
+	visibleGraph,
 	tracks,
 	selected,
 	onSelect,
 }: Props) {
+	const presentation = useRef({ visibleGraph, tracks });
+	presentation.current = { visibleGraph, tracks };
+	const clearHover = useRef(() => {});
 	const canvas = useRef<HTMLCanvasElement>(null);
 	const frame = useRef<HTMLDivElement>(null);
 	const camera = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
@@ -81,14 +86,17 @@ export function ConstellationCanvas({
 			const dpr = Math.min(window.devicePixelRatio || 1, 2);
 			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 			ctx.clearRect(0, 0, width, height);
-			const active = byId.get(currentSelection.current ?? "");
+			const shown = presentation.current;
+			const active = shown.visibleGraph.nodes.find(
+				(n) => n.id === currentSelection.current,
+			);
 			const related = new Set(
 				active ? [active.id, ...active.neighbors.map((n) => n.id)] : [],
 			);
 			const links = active
 				? active.neighbors.map((n): [string, string] => [active.id, n.id])
 				: showEdges.current
-					? graph.edges
+					? shown.visibleGraph.edges
 					: [];
 			ctx.lineWidth = active ? 1.25 : 0.6;
 			ctx.strokeStyle = active ? colors.keep : colors.edge;
@@ -101,13 +109,13 @@ export function ConstellationCanvas({
 				ctx.lineTo(end.x, end.y);
 			}
 			ctx.stroke();
-			for (const node of graph.nodes) {
+			for (const node of shown.visibleGraph.nodes) {
 				const p = point(node);
 				if (p.x < -15 || p.x > width + 15 || p.y < -15 || p.y > height + 15)
 					continue;
 				const highlighted = related.has(node.id),
 					isHovered = node.id === hovered;
-				const label = tracks.get(node.id)?.label ?? "unlabeled";
+				const label = shown.tracks.get(node.id)?.label ?? "unlabeled";
 				const radius =
 					node.id === active?.id
 						? 5.5
@@ -237,7 +245,7 @@ export function ConstellationCanvas({
 		const pick = (x: number, y: number) => {
 			let nearest: string | null = null,
 				distance = 100;
-			for (const node of graph.nodes) {
+			for (const node of presentation.current.visibleGraph.nodes) {
 				const p = point(node),
 					d = (p.x - x) ** 2 + (p.y - y) ** 2;
 				if (d < distance) {
@@ -301,6 +309,10 @@ export function ConstellationCanvas({
 			setHover(null);
 			schedule();
 		};
+		clearHover.current = () => {
+			keyboardIndex = -1;
+			leave();
+		};
 		const cancel = () => {
 			pointer = null;
 		};
@@ -331,14 +343,17 @@ export function ConstellationCanvas({
 			) {
 				event.preventDefault();
 				const step = ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 1;
-				keyboardIndex =
-					(keyboardIndex + step + graph.nodes.length) % graph.nodes.length;
-				hovered = graph.nodes[keyboardIndex]?.id ?? null;
+				const nodes = presentation.current.visibleGraph.nodes;
+				keyboardIndex = nodes.length
+					? (keyboardIndex + step + nodes.length) % nodes.length
+					: -1;
+				hovered = nodes[keyboardIndex]?.id ?? null;
 				setHover(hovered);
 				focusNode.current(hovered);
 			} else if (event.key === "Enter" || event.key === " ") {
 				event.preventDefault();
-				if (hovered) select.current(hovered);
+				if (hovered && presentation.current.tracks.has(hovered))
+					select.current(hovered);
 			} else if (event.key === "Escape") {
 				select.current(null);
 				leave();
@@ -377,7 +392,12 @@ export function ConstellationCanvas({
 			focusNode.current = () => {};
 			redraw.current = () => {};
 		};
-	}, [graph, tracks]);
+	}, [graph]);
+	useEffect(() => {
+		presentation.current = { visibleGraph, tracks };
+		clearHover.current();
+		redraw.current();
+	}, [visibleGraph, tracks]);
 
 	useEffect(() => {
 		showEdges.current = edges;
@@ -438,7 +458,9 @@ export function ConstellationCanvas({
 					</output>
 				)}
 				<div className="tc-map-bottom text-caption-1-regular">
-					<span>{graph.nodes.length.toLocaleString()} placed tracks</span>
+					<span>
+						{visibleGraph.nodes.length.toLocaleString()} placed tracks
+					</span>
 					<span>{zoom}%</span>
 				</div>
 			</div>

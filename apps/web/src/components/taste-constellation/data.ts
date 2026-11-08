@@ -1,10 +1,10 @@
 import type { z } from "zod";
-import { TasteConstellationSchema } from "@sortfm/contracts";
+import { TasteConstellationHistorySchema } from "@sortfm/contracts";
 
 export { audioFields, type AudioKey } from "./audio";
 import { audioFields, type AudioKey } from "./audio";
 // The HTTP and presentation paths share the integration-owned contract.
-export const librarySchema = TasteConstellationSchema;
+export const librarySchema = TasteConstellationHistorySchema;
 export type Library = z.infer<typeof librarySchema>;
 export type Track = Library["tracks"][number];
 export type Audio = Track["audio"];
@@ -35,11 +35,12 @@ export function createSyntheticLibrary(count = 2700): Library {
 		"Silver Hours",
 	];
 	return {
-		schema: "sortfm.constellation.v1",
+		schema: "sortfm.constellation.v2",
 		mode: "synthetic",
 		privacy: "evaluation-excluded",
 		generatedAt: "2026-11-08T00:00:00Z",
 		modelVersion: null,
+		membershipSyncedAt: null,
 		tracks: Array.from(
 			{ length: Math.min(5000, Math.max(0, Math.floor(count))) },
 			(_, i) => {
@@ -66,6 +67,7 @@ export function createSyntheticLibrary(count = 2700): Library {
 					title: `${words[i % words.length]} ${String(i + 1).padStart(3, "0")}`,
 					artist: `Demo ensemble ${String((i % 24) + 1).padStart(2, "0")}`,
 					imageUrl: null,
+					isLiked: i % 5 !== 4,
 					label: i % 11 === 0 ? "keep" : i % 13 === 0 ? "remove" : null,
 					audio,
 					prediction: null,

@@ -1,4 +1,5 @@
 import {CalibrationBatchSchema,CalibrationExperimentReadySchema,type CalibrationBatch,type CalibrationExperiment} from '@sortfm/contracts';
+import type {TeachingState} from '../components/teach/status';
 import type {CalibrationSession} from '../data/calibration-client';
 import {
 	CalibrationLabelResultSchema,
@@ -35,6 +36,7 @@ export function calibrationActionFromDrag(
 }
 type Item = CalibrationQueueResult["items"][number];
 export type CalibrationState = {
+ teaching?:TeachingState;
  session:CalibrationSession;
  batch:CalibrationBatch|null;
  experiment:CalibrationExperiment|null;
@@ -126,6 +128,7 @@ export class CalibrationStore {
 	};
 	private listeners = new Set<() => void>();
 	private skipped = new Set<string>();
+	private teachingStatusRequest = 0;
 	constructor(private client: CalibrationClient) {}
 	getSnapshot = () => this.state;
 	subscribe = (listener: () => void) => {
@@ -158,6 +161,7 @@ export class CalibrationStore {
 			tracks[item.track.trackId] = item.track;
 		this.update({
 			ready: true,
+   teaching:"teaching" in snapshot ? snapshot.teaching : undefined,
    batch:snapshot.batch,
    experiment:snapshot.experiment,
    skipped:collection?collection.groups.reduce((n,g)=>n+g.skipped,0):this.skipped.size,
@@ -233,6 +237,14 @@ export class CalibrationStore {
    const pending=this.client.journal.read(session);this.client.journal.selectSession?.(session);this.skipped.clear();this.update({session,batch:null,experiment:null,pending,skipped:0,notice:"",queue:[],history:[],tracks:{},metrics:null,remaining:null,refreshError:"Loading the selected calibration session."});await this.reconcile();
   }catch(error){this.update({error:errorMessage(error)});}finally{this.update({busy:false});}
  }
+ async refreshTeachingStatus(){
+  if(!this.state.teaching||this.state.busy||this.state.refreshing||this.state.loading)return;
+  const history=this.state.history,request=++this.teachingStatusRequest;
+  const current=()=>request===this.teachingStatusRequest&&this.state.history===history&&!this.state.busy&&!this.state.refreshing;
+  try{const teaching=await this.client.teachingStatus();if(current())this.update({teaching});}
+  catch{if(current())this.update({teaching:{status:null,warning:'Feedback synchronization could not be checked.'}});}
+ }
+
 	async showSkipped() {
 		if (calibrationLocked(this.state)||this.state.session!=="ordinary") return;
 		this.skipped.clear();
@@ -313,7 +325,11 @@ export class CalibrationStore {
 					),
 				],
 				notice:
-					result.state === "active"
+					this.state.teaching
+						? result.state === "active"
+							? `Saved: ${result.label === 0 ? "Still love it" : "Outgrown"}. Spotify stays unchanged.`
+							: "Answer withdrawn. Spotify stays unchanged."
+						: result.state === "active"
 						? `Saved: would ${result.label === 0 ? "keep" : "remove"}. Spotify is unchanged.`
 						: `Calibration label ${result.state}. Spotify is unchanged.`,
 			});

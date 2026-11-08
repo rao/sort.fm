@@ -33,6 +33,25 @@
 	border-block: 1px dashed var(--color-border-button-default);
 	background: var(--color-background-secondary-default);
 }
+.tc-view-controls {
+	padding: 16px 24px;
+	border-block-end: 1px solid var(--color-border-button-default);
+}
+.tc-view-controls fieldset {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.tc-view-controls p {
+	margin-block: 12px 0;
+}
+.tc-root .tc-membership {
+	margin-block: 12px;
+	color: var(--color-text-secondary);
+}
 .tc-status {
 	padding: 48px 24px;
 	text-align: center;

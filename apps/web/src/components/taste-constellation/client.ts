@@ -24,7 +24,7 @@ export async function loadLibrary(options: {
 }): Promise<Library> {
 	try {
 		const response = await (options.transport ?? fetch)(
-			`${(options.baseUrl ?? "").trim().replace(/\/$/, "")}/api/ml/constellation`,
+			`${(options.baseUrl ?? "").trim().replace(/\/$/, "")}/api/ml/constellation/history`,
 			{
 				method: "GET",
 				credentials: "include",

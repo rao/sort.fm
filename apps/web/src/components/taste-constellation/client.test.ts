@@ -17,7 +17,7 @@ test("graph read uses authenticated no-store transport and a typed live-only res
 		},
 	});
 	expect(result.mode).toBe("live");
-	expect(url).toBe("https://api.example.test/api/ml/constellation");
+	expect(url).toBe("https://api.example.test/api/ml/constellation/history");
 	expect(init).toMatchObject({
 		method: "GET",
 		cache: "no-store",

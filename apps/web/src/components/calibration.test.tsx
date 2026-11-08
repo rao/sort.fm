@@ -52,6 +52,6 @@ test("calibration displays real track metadata but never song predictions or des
 });
 test("calibration cannot silently turn into demo cleanup", () => {
 	const html = renderToStaticMarkup(<CalibrationWorkspace store={null} />);
-	expect(html).toContain("Calibration needs your connected library");
+	expect(html).toContain("Teach sort.fm with your connected library");
 	expect(html).not.toContain("Would remove");
 });

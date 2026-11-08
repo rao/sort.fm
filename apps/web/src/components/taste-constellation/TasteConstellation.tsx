@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	RiArrowRightLine,
 	RiCloseLine,
@@ -17,6 +17,12 @@ import {
 } from "./data";
 import { ConstellationError, loadLibrary } from "./client";
 import { ConstellationCanvas } from "./ConstellationCanvas";
+import {
+	geometryKey,
+	filterGraph,
+	ProjectionCache,
+	type MusicView,
+} from "./history";
 import type { Graph, GraphNode } from "./graph";
 import "./constellation.css";
 
@@ -87,6 +93,13 @@ export function TrackDetails({
 						? " · explicit feedback"
 						: " · no explicit label"}
 			</span>
+			<p className="tc-membership text-caption-1-regular">
+				{track.isLiked
+					? "Currently liked in Spotify"
+					: "In your music history · no longer liked"}
+				{library.mode === "synthetic" ? " · demo state" : ""}. Preference
+				feedback does not change this membership.
+			</p>
 			{!node && (
 				<p className="tc-notice text-body-2-regular">
 					Not placed: too few varying audio descriptors. This song has no
@@ -203,10 +216,25 @@ export function TrackDetails({
 	);
 }
 
-export function TasteConstellation({ connected }: { connected: boolean }) {
+export function TasteConstellation({
+	connected,
+	projectionCache,
+	refreshKey = "",
+}: {
+	connected: boolean;
+	projectionCache?: ProjectionCache;
+	refreshKey?: string;
+}) {
+	const [cache] = useState(() => projectionCache ?? new ProjectionCache());
+	const [view, setView] = useState<MusicView>("history");
+	const [reading, setReading] = useState(false);
+	const previousSource = useRef("live");
 	const [source, setSource] = useState<"live" | "synthetic">("live");
 	const [library, setLibrary] = useState<Library | null>(null);
-	const [graph, setGraph] = useState<Graph | null>(null);
+	const [projection, setProjection] = useState<{
+		key: string;
+		graph: Graph;
+	} | null>(null);
 	const [error, setError] = useState("");
 	const [graphError, setGraphError] = useState("");
 	const [attempt, setAttempt] = useState(0);
@@ -215,27 +243,36 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 	const [missingOnly, setMissingOnly] = useState(false);
 	const [page, setPage] = useState(0);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: attempt explicitly restarts an aborted or failed read.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: attempt and refreshKey explicitly invalidate the readonly snapshot.
 	useEffect(() => {
-		setLibrary(null);
-		setGraph(null);
+		if (previousSource.current !== source) {
+			setLibrary(null);
+			setSelected(null);
+			setQuery("");
+			setMissingOnly(false);
+			setPage(0);
+			previousSource.current = source;
+		}
 		setError("");
-		setGraphError("");
-		setSelected(null);
-		setQuery("");
-		setMissingOnly(false);
-		setPage(0);
+		setReading(false);
 		if (source === "synthetic") {
 			setLibrary(createSyntheticLibrary());
 			return;
 		}
-		if (!connected) return;
+		if (!connected) {
+			setLibrary(null);
+			return;
+		}
+		setReading(true);
 		const controller = new AbortController();
 		let disposed = false;
 		const timeout = setTimeout(() => {
 			controller.abort();
-			if (!disposed)
+			if (!disposed) {
+				setLibrary(null);
+				setReading(false);
 				setError("The library request timed out. Please try again.");
+			}
 		}, 20_000);
 		void loadLibrary({
 			signal: controller.signal,
@@ -245,27 +282,54 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 				if (!disposed && !controller.signal.aborted) setLibrary(data);
 			})
 			.catch((cause) => {
-				if (!disposed && !controller.signal.aborted)
+				if (!disposed && !controller.signal.aborted) {
+					setLibrary(null);
 					setError(
 						cause instanceof ConstellationError
 							? cause.message
 							: "The library map could not be loaded.",
 					);
+				}
 			})
-			.finally(() => clearTimeout(timeout));
+			.finally(() => {
+				clearTimeout(timeout);
+				if (!disposed) setReading(false);
+			});
 		return () => {
 			disposed = true;
 			controller.abort();
 			clearTimeout(timeout);
 		};
-	}, [connected, source, attempt]);
+	}, [connected, source, attempt, refreshKey]);
+	useEffect(() => {
+		if (source !== "live" || !connected) return;
+		const refresh = () => {
+			if (!document.hidden) setAttempt((a) => a + 1);
+		};
+		window.addEventListener("focus", refresh);
+		document.addEventListener("visibilitychange", refresh);
+		return () => {
+			window.removeEventListener("focus", refresh);
+			document.removeEventListener("visibilitychange", refresh);
+		};
+	}, [source, connected]);
 
 	// Never present the previous source's data even for the render before cleanup.
 	const currentLibrary = library?.mode === source ? library : null;
+	const inputKey = useMemo(
+		() => (currentLibrary ? geometryKey(currentLibrary.tracks) : null),
+		[currentLibrary],
+	);
+	const graph = projection?.key === inputKey ? projection.graph : null;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: retry can restart a failed worker without changing acoustic inputs.
 	useEffect(() => {
-		setGraph(null);
 		setGraphError("");
-		if (!currentLibrary) return;
+		if (!inputKey) return;
+		const cached = cache.read(source, inputKey);
+		if (cached) {
+			setProjection({ key: inputKey, graph: cached });
+			return;
+		}
 		let worker: Worker;
 		try {
 			worker = new Worker(new URL("./graph.worker.ts", import.meta.url), {
@@ -285,37 +349,57 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 			event: MessageEvent<{ ok: boolean; graph?: Graph }>,
 		) => {
 			clearTimeout(timeout);
-			if (event.data.ok && event.data.graph) setGraph(event.data.graph);
-			else setGraphError("The map could not be calculated. Please retry.");
+			if (event.data.ok && event.data.graph) {
+				cache.write(source, inputKey, event.data.graph);
+				setProjection({ key: inputKey, graph: event.data.graph });
+			} else setGraphError("The map could not be calculated. Please retry.");
 		};
 		worker.onerror = () => {
 			clearTimeout(timeout);
 			setGraphError("The map worker stopped. Please retry.");
 		};
-		worker.postMessage(
-			currentLibrary.tracks.map(({ id, audio }) => ({ id, audio })),
-		);
+		worker.postMessage(JSON.parse(inputKey));
 		return () => {
 			clearTimeout(timeout);
 			worker.terminate();
 		};
-	}, [currentLibrary]);
+	}, [inputKey, source, cache, attempt]);
+	const visibleLibraryTracks = useMemo(
+		() =>
+			(currentLibrary?.tracks ?? []).filter(
+				(t) => view === "history" || t.isLiked,
+			),
+		[currentLibrary, view],
+	);
+	const visibleGraph = useMemo(
+		() =>
+			graph && currentLibrary
+				? filterGraph(graph, currentLibrary.tracks, view)
+				: null,
+		[graph, currentLibrary, view],
+	);
 
 	const tracks = useMemo(
-		() => new Map(currentLibrary?.tracks.map((t) => [t.id, t]) ?? []),
-		[currentLibrary],
+		() => new Map(visibleLibraryTracks.map((t) => [t.id, t])),
+		[visibleLibraryTracks],
 	);
-	const unplaced = useMemo(() => new Set(graph?.unplaced ?? []), [graph]);
+	const unplaced = useMemo(
+		() => new Set(visibleGraph?.unplaced ?? []),
+		[visibleGraph],
+	);
 	const searchResults = useMemo(() => {
 		const search = query.trim().toLocaleLowerCase();
-		return (currentLibrary?.tracks ?? []).filter(
+		return visibleLibraryTracks.filter(
 			(t) =>
 				(!missingOnly || unplaced.has(t.id)) &&
 				`${t.title} ${t.artist}`.toLocaleLowerCase().includes(search),
 		);
-	}, [currentLibrary, query, missingOnly, unplaced]);
+	}, [visibleLibraryTracks, query, missingOnly, unplaced]);
 	const track = tracks.get(selected ?? "");
-	const ready = currentLibrary && graph;
+	const ready = currentLibrary && graph && visibleGraph;
+	useEffect(() => {
+		if (selected && !tracks.has(selected)) setSelected(null);
+	}, [tracks, selected]);
 	const busy =
 		(source === "synthetic" || connected) && !error && !graphError && !ready;
 	const select = (id: string | null) => {
@@ -361,7 +445,7 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 							iconOnly
 							leadingIcon={RiRefreshLine}
 							aria-label="Reload library map"
-							disabled={busy}
+							disabled={busy || reading}
 							onClick={() => setAttempt((a) => a + 1)}
 						/>
 					)}
@@ -410,13 +494,44 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 			)}
 			{ready && (
 				<>
+					<div className="tc-view-controls">
+						<fieldset aria-label="Music view">
+							{(
+								[
+									["history", "Your Music History"],
+									["current", "Current Liked Songs"],
+								] as const
+							).map(([mode, title]) => (
+								<Button
+									key={mode}
+									variant={view === mode ? "primary" : "secondary"}
+									aria-pressed={view === mode}
+									onClick={() => {
+										setView(mode);
+										setPage(0);
+									}}
+								>
+									{title}
+								</Button>
+							))}
+						</fieldset>
+						<p className="text-caption-1-regular">
+							Same map, same positions. Colors show eligible preferences from
+							Teach and Sort; membership is separate.
+						</p>
+						{reading && (
+							<output className="text-caption-1-regular">
+								Refreshing labels and membership…
+							</output>
+						)}
+					</div>
 					<section
 						className="tc-summary text-caption-1-regular"
 						aria-label="Graph coverage"
 					>
 						<span>
-							<b>{graph.nodes.length.toLocaleString()}</b> placed /{" "}
-							{currentLibrary.tracks.length.toLocaleString()} supplied
+							<b>{visibleGraph.nodes.length.toLocaleString()}</b> placed /{" "}
+							{visibleLibraryTracks.length.toLocaleString()} in this view
 						</span>
 						<span>
 							<b>{graph.activeFeatures.length}</b> varying descriptors
@@ -457,7 +572,7 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 								setPage(0);
 							}}
 						>
-							Needs audio ({graph.unplaced.length})
+							Needs audio ({visibleGraph.unplaced.length})
 						</Button>
 					</div>
 					{(query || missingOnly) && (
@@ -508,6 +623,7 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 						{graph.nodes.length ? (
 							<ConstellationCanvas
 								graph={graph}
+								visibleGraph={visibleGraph}
 								tracks={tracks}
 								selected={selected}
 								onSelect={select}
@@ -530,7 +646,7 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 							<TrackDetails
 								track={track}
 								library={currentLibrary}
-								node={graph.nodes.find((n) => n.id === track.id)}
+								node={visibleGraph.nodes.find((n) => n.id === track.id)}
 								tracks={tracks}
 								onSelect={select}
 								onClose={() => select(null)}
@@ -553,9 +669,20 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 									<span>◆ Remove</span>
 									<span>· Unlabeled</span>
 								</div>
-								<h4 className="text-body-medium">Start exploring</h4>
+								<h4 className="text-body-medium">
+									{visibleLibraryTracks.length
+										? "Start exploring"
+										: "No songs in this view"}
+								</h4>
+								{!visibleLibraryTracks.length && (
+									<p className="text-body-2-regular">
+										No eligible songs are currently liked according to the
+										synchronized library. Your history stays available in the
+										other view.
+									</p>
+								)}
 								<ul className="tc-neighbors">
-									{currentLibrary.tracks.slice(0, 4).map((t) => (
+									{visibleLibraryTracks.slice(0, 4).map((t) => (
 										<li key={t.id}>
 											<Button variant="ghost" onClick={() => select(t.id)}>
 												<span>
@@ -602,9 +729,28 @@ export function TasteConstellation({ connected }: { connected: boolean }) {
 							<p>
 								Unplaced songs lack enough varying audio features; they remain
 								searchable. The map is deterministic for the same eligible data,
-								and may shift when that snapshot changes.
+								and may shift when its songs or observed audio change. Switching
+								views or updating preferences and membership preserves the same
+								embedding. In Current Liked Songs, links show only original
+								acoustic neighbors that are also currently liked.
 							</p>
 						</details>
+						{source === "live" && (
+							<p className="text-caption-1-regular">
+								Last library sync:{" "}
+								{currentLibrary.membershipSyncedAt ? (
+									<time dateTime={currentLibrary.membershipSyncedAt}>
+										{new Date(
+											currentLibrary.membershipSyncedAt,
+										).toLocaleString()}
+									</time>
+								) : (
+									"not confirmed"
+								)}
+								. Confirmed Sort and Undo actions update membership separately.
+								External Spotify changes appear after library sync.
+							</p>
+						)}
 						<p className="text-caption-1-regular">
 							{source === "live" ? (
 								<>

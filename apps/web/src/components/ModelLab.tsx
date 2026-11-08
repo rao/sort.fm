@@ -1,3 +1,4 @@
+import type { ProjectionCache } from "./taste-constellation/history";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "#ui/components/base/buttons/button";
 import {
@@ -90,10 +91,12 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 export function ModelLab({
 	state,
+	projectionCache,
 	onRefresh,
 	onRetrain,
 }: {
 	state: ReviewState;
+	projectionCache?: ProjectionCache;
 	onRefresh?: () => void;
 	onRetrain?: () => void;
 }) {
@@ -193,6 +196,15 @@ export function ModelLab({
 					<TasteConstellation
 						key={state.bootstrap?.session.user?.id ?? "anonymous"}
 						connected={live}
+						projectionCache={projectionCache}
+						refreshKey={JSON.stringify(
+							state.history.map(({ result }) => [
+								result.decisionId,
+								result.status,
+								result.feedbackRevision,
+								result.labelState,
+							]),
+						)}
 					/>
 				</Suspense>
 			)}

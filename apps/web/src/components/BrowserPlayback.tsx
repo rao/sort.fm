@@ -7,6 +7,7 @@ import {
 } from "../state/browser-player";
 import { RiArrowUpSLine } from "@remixicon/react";
 import { Cover, Icon } from "./ui";
+import { AutoplayToggle } from "./AutoplayToggle";
 
 export type PlaybackConnection = PlaybackConnectionStatus;
 export interface PlaybackConnectionGateway {
@@ -335,14 +336,7 @@ export function BrowserPlaybackView(props: Props) {
 							Use your device's volume buttons.
 						</span>
 					)}
-					<label className="browser-auto">
-						<input
-							type="checkbox"
-							checked={state.autoAdvance}
-							onChange={(event) => props.onAuto(event.currentTarget.checked)}
-						/>
-						Play each new song
-					</label>
+					<AutoplayToggle checked={state.autoAdvance} onChange={props.onAuto} />
 					<p className="browser-player-detail-message">
 						{connection?.reason ?? state.message}
 					</p>

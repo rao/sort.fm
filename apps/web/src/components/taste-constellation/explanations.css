@@ -1,6 +1,6 @@
 .model-lab .lx-guide {
 	padding: 12px 16px;
-	margin-bottom: 20px;
+	margin-block-end: 16px;
 	border: 1px solid var(--color-border-button-default);
 	border-radius: 12px;
 	background: var(--color-background-secondary-default);
@@ -11,14 +11,18 @@
 }
 .lx-models {
 	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 16px 24px;
-	padding-top: 20px;
+	gap: 12px;
+	padding-block-start: 16px;
 }
 .lx-models article {
-	display: flex;
+	display: grid;
+	grid-template-columns: 2rem 1fr;
 	align-items: flex-start;
-	gap: 16px;
+	gap: 12px;
+}
+.lx-models article[data-model="C2"] {
+	border-block-start: 1px solid var(--color-border-button-default);
+	padding-block-start: 12px;
 }
 .lx-model-id {
 	flex-shrink: 0;
@@ -28,7 +32,11 @@
 	margin: 0;
 }
 .model-lab .lx-models p {
-	margin: 8px 0;
+	margin: 4px 0 0;
+}
+.model-lab .lx-model-note {
+	margin-block: 16px 0;
+	color: var(--color-text-secondary);
 }
 .lx-metrics {
 	display: flex;

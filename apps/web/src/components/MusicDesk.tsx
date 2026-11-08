@@ -158,6 +158,16 @@ export function MusicDeskChrome({
 					/>
 				</div>
 			</header>
+			{!playbackVisible && (live || route !== "calibrate") && (
+				<Button
+					variant="secondary"
+					className="desk-player-restore"
+					leadingIcon={RiHeadphoneLine}
+					onClick={onPlayback}
+				>
+					Show player
+				</Button>
+			)}
 			{subroutes.length > 0 && (
 				<nav
 					className="desk-subnav"

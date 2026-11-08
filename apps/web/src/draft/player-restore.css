@@ -1,0 +1,5 @@
+.d-player-restore {
+ position: fixed;
+ inset: auto 16px 16px auto;
+ z-index: 46;
+}

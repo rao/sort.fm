@@ -124,6 +124,67 @@
 	align-items: center;
 	margin-top: 12px;
 }
+.tc-explorer-toolbar,
+.tc-expanded-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px 24px;
+}
+.tc-expanded-header[hidden] {
+	display: none;
+}
+.tc-root .tc-expanded-header h3,
+.tc-root .tc-expanded-header p {
+	margin: 0;
+}
+.tc-root .tc-expanded-header p {
+	margin-block-start: 4px;
+	color: var(--color-text-secondary);
+}
+.tc-explorer {
+	position: static;
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	max-width: none;
+	max-height: none;
+	border: 0;
+	overflow: visible;
+	background: transparent;
+	color: inherit;
+}
+.tc-explorer[aria-modal="true"] {
+	position: fixed;
+	inset: 0;
+	margin: auto;
+	width: calc(100vw - 32px);
+	max-width: 1600px;
+	max-height: calc(100dvh - 32px);
+	overflow: auto;
+	overscroll-behavior: contain;
+	border: 2px solid var(--r-edge, var(--color-border-button-default));
+	border-radius: 4px;
+	background: var(--d-paper, var(--color-background-primary-default));
+	box-shadow: 6px 6px 0 var(--r-shadow, var(--color-border-button-default));
+}
+.tc-explorer::backdrop {
+	background: color-mix(in srgb, var(--r-edge, var(--color-text-primary)) 72%, transparent);
+	backdrop-filter: blur(4px);
+}
+.tc-explorer[aria-modal="true"] .tc-expanded-header {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	background: var(--d-paper, var(--color-background-primary-default));
+}
+.tc-explorer[aria-modal="true"] .tc-map-wrap {
+	top: 80px;
+}
+.tc-explorer[aria-modal="true"] .tc-stage {
+	height: max(360px, calc(100dvh - 208px));
+}
 .tc-layout {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) 288px;
@@ -315,27 +376,41 @@
 	float: right;
 }
 .tc-neighbors {
+	display: grid;
+	gap: 8px;
 	list-style: none;
 	padding: 0;
 	margin: 0;
 }
 .tc-root .tc-neighbors button {
 	box-shadow: none;
-	border: 0;
-	border-radius: 8px;
-	padding: 8px 0;
-	background: transparent;
+	border: 1px solid var(--color-border-button-default);
+	border-radius: 4px;
+	padding: 12px;
+	gap: 12px;
+	background: var(--color-background-primary-default);
+	color: var(--color-text-primary);
 	width: 100%;
+	min-width: 0;
 	height: auto;
+	min-height: 56px;
 	text-align: start;
 	justify-content: space-between;
 	white-space: normal;
 }
 .tc-neighbors button > span {
-	display: flex;
-	justify-content: space-between;
-	width: 100%;
-	gap: 8px;
+	display: block;
+	flex: 1 1 0;
+	min-width: 0;
+	padding: 0;
+}
+.tc-root .tc-neighbors button:hover {
+	background: var(--color-background-secondary-default);
+	border-color: var(--color-border-button-hover);
+}
+.tc-song-copy {
+	display: block;
+	min-width: 0;
 }
 .tc-neighbors b,
 .tc-neighbors small {
@@ -344,26 +419,37 @@
 .tc-neighbors small {
 	color: var(--color-text-secondary);
 	margin-top: 4px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .tc-neighbors svg {
 	width: 16px;
 	min-width: 16px;
+	flex-shrink: 0;
 }
 .tc-invitation > svg {
-	width: 36px;
-	height: 36px;
-	margin: 16px 0 24px;
+	width: 24px;
+	height: 24px;
+	margin: 0 0 12px;
 	color: var(--color-foreground-icon-secondary);
 }
+.tc-root .tc-invitation .tc-kicker {
+	margin: 0 0 8px;
+}
 .tc-root .tc-invitation h3 {
-	margin: 8px 0;
+	margin: 0 0 8px;
+}
+.tc-root .tc-invitation > p {
+	margin: 0;
 }
 .tc-mini-legend {
 	display: flex;
-	gap: 16px;
+	flex-wrap: wrap;
+	gap: 12px;
 	border-block: 1px solid var(--color-border-button-default);
-	padding-block: 16px;
-	margin-block: 24px;
+	padding-block: 12px;
+	margin-block: 16px;
 }
 .tc-method {
 	border-top: 1px solid var(--color-border-button-default);
@@ -380,6 +466,9 @@
 	border: 1px dashed var(--color-border-button-default);
 }
 @media (max-width: 850px) {
+	.tc-explorer[aria-modal="true"] .tc-stage {
+		height: max(360px, calc(100dvh - 224px));
+	}
 	.tc-layout {
 		grid-template-columns: minmax(0, 1fr);
 	}
@@ -402,6 +491,14 @@
 	}
 }
 @media (max-width: 500px) {
+	.tc-explorer-toolbar,
+	.tc-expanded-header {
+		padding: 12px 16px;
+	}
+	.tc-explorer[aria-modal="true"] {
+		width: calc(100vw - 16px);
+		max-height: calc(100dvh - 16px);
+	}
 	.tc-properties {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}

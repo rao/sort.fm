@@ -1,5 +1,96 @@
 import type { ModelMetrics, Prediction } from "@sortfm/contracts";
 import { Icon, Progress } from "./ui";
+import "./model-panel.css";
+
+const inputNumber = new Intl.NumberFormat("en-US", {
+	maximumSignificantDigits: 4,
+});
+
+function ExplanationBreakdown({ prediction }: { prediction: Prediction }) {
+	const directional =
+		prediction.removalProbability !== null &&
+		["logistic", "sgd_logistic"].includes(prediction.modelKind);
+	const notes = [
+		...new Set(
+			prediction.explanations.flatMap(({ description }) =>
+				description
+					.trim()
+					.split(/(?<=[.!?])\s+/)
+					.filter(Boolean),
+			),
+		),
+	];
+	return (
+		<div className="explanation-breakdown">
+			<p>
+				{directional
+					? "Signed effects on this saved score: Keep ← · → Remove."
+					: "Inputs and contributions supplied with this saved score."}
+			</p>
+			<table className="explanation-terms text-caption-1-regular">
+				<caption className="sr-only">
+					Saved model inputs and contributions
+				</caption>
+				<thead>
+					<tr>
+						<th scope="col">Feature</th>
+						<th scope="col">Model input</th>
+						<th scope="col">Effect</th>
+					</tr>
+				</thead>
+				<tbody>
+					{prediction.explanations.map((term, index) => (
+						<tr key={`${term.feature}-${index}`}>
+							<th scope="row">{term.feature.replaceAll("_", " ")}</th>
+							<td title={term.value == null ? undefined : String(term.value)}>
+								{term.value == null
+									? "Not supplied"
+									: inputNumber.format(term.value)}
+							</td>
+							<td
+								title={
+									term.contribution == null
+										? undefined
+										: String(term.contribution)
+								}
+							>
+								{term.contribution == null ? (
+									"Not supplied"
+								) : (
+									<>
+										{term.contribution > 0 ? "+" : ""}
+										{inputNumber.format(term.contribution)}
+										{directional
+											? term.contribution === 0
+												? " · neutral"
+												: term.contribution > 0
+													? " → Remove"
+													: " → Keep"
+											: ""}
+									</>
+								)}
+							</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
+			{notes.length > 0 && (
+				<details className="explanation-notes">
+					<summary>Model notes</summary>
+					<p>
+						Inputs may be transformed; contributions are model terms, not
+						percentage points.
+					</p>
+					<ul>
+						{notes.map((note) => (
+							<li key={note}>{note}</li>
+						))}
+					</ul>
+				</details>
+			)}
+		</div>
+	);
+}
 export function PredictionDisplay({
 	prediction,
 }: {
@@ -104,9 +195,7 @@ export function ModelPanel({
 					Why this song? <Icon name="plus" size={16} />
 				</summary>
 				{prediction?.explanations.length ? (
-					prediction.explanations.map((explanation) => (
-						<p key={explanation.feature}>{explanation.description}</p>
-					))
+					<ExplanationBreakdown prediction={prediction} />
 				) : (
 					<p>
 						{live

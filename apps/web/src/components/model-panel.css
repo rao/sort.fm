@@ -1,0 +1,45 @@
+.explanation-terms {
+	inline-size: 100%;
+	border-collapse: collapse;
+	font-variant-numeric: tabular-nums;
+}
+.explanation-terms th,
+.explanation-terms td {
+	padding-block: 8px;
+	text-align: start;
+	vertical-align: top;
+	border-block-end: 1px solid var(--color-border-button-default);
+}
+.explanation-terms th + th,
+.explanation-terms td {
+	padding-inline-start: 12px;
+}
+.explanation-terms tbody th {
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+.explanation-terms tbody td:last-child {
+	min-inline-size: 5rem;
+}
+.why-song .explanation-notes {
+	margin-block-start: 12px;
+}
+.why-song .explanation-notes summary {
+	color: var(--color-text-secondary);
+}
+.explanation-notes summary::after {
+	content: "+";
+}
+.explanation-notes[open] summary::after {
+	content: "−";
+}
+.why-song summary:focus-visible {
+	outline: 2px solid var(--color-border-focus-ring);
+	outline-offset: 4px;
+}
+.explanation-notes ul {
+	display: grid;
+	gap: 8px;
+	padding-inline-start: 16px;
+	color: var(--color-text-secondary);
+}

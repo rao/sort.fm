@@ -890,6 +890,13 @@ body {
 	font-size: 15px;
 }
 .d-dialog {
+	position: fixed;
+	inset: 0;
+	margin: auto;
+	max-width: min(460px, calc(100vw - 32px));
+	max-height: calc(100dvh - 32px);
+	overflow: auto;
+	overscroll-behavior: contain;
 	border: 3px solid var(--r-edge);
 	border-radius: 2px;
 	box-shadow: 6px 6px 0 var(--r-shadow);

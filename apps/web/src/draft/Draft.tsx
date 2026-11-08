@@ -39,7 +39,7 @@ import {
 } from "@remixicon/react";
 import { Button, ButtonLink } from "#ui/components/base/buttons/button";
 import { SearchField } from "#ui/components/base/search-field/search-field";
-import { demoTracks } from "@sortfm/contracts/fixtures";
+import { demoTracks } from "../data/demo-catalog";
 import type { ReviewAction, TrackCard } from "@sortfm/contracts";
 import { createDemoClient } from "../data/demo-client";
 import {
@@ -329,9 +329,9 @@ export function Draft() {
 	}, [screen, dialog, latest, act, store]);
 	const exit =
 		direction === "KEEP"
-			? { x: 190, rotate: 12 }
+			? { x: 190, rotate: 6 }
 			: direction === "ARCHIVE"
-				? { x: -190, rotate: -12 }
+				? { x: -190, rotate: -6 }
 				: { y: direction === "SKIP" ? -160 : 160 };
 	const visibleHistory = state.history.filter(
 		(e) =>
@@ -668,7 +668,7 @@ export function Draft() {
 															>
 																<RiHeadphoneLine size={17} />
 																<span>
-																	{completed.length >= 12
+																	{completed.length >= demoTracks.length
 																		? "Full pass complete"
 																		: completed.length >= 6
 																			? "Finding your frequency"
@@ -731,16 +731,27 @@ export function Draft() {
 																			}
 																			initial={{
 																				opacity: 0,
-																				scale: reduced ? 1 : 0.96,
-																				y: reduced ? 0 : 18,
+																				scale: reduced ? 1 : 0.98,
+																				y: reduced ? 0 : 12,
 																			}}
 																			animate={{ opacity: 1, scale: 1, y: 0 }}
 																			exit={
 																				reduced
-																					? { opacity: 0 }
-																					: { ...exit, opacity: 0 }
+																					? { opacity: 0, transition: { duration: 0.12 } }
+																					: {
+																						...exit,
+																						opacity: 0,
+																						transition: {
+																							duration: 0.32,
+																							ease: [0.32, 0, 0.2, 1],
+																							opacity: { duration: 0.14, delay: 0.18 },
+																						},
+																					}
 																			}
-																			transition={{ duration: 0.18 }}
+																			transition={{
+																				duration: reduced ? 0.12 : 0.26,
+																				ease: [0.22, 1, 0.36, 1],
+																			}}
 																		>
 																			<SwipeSleeve
 																				track={current}
@@ -826,7 +837,7 @@ export function Draft() {
 															</div>
 															<div className="d-device-bottom">
 																<span>
-																	{completed.length >= 12
+																	{completed.length >= demoTracks.length
 																		? "FULL PASS COMPLETE"
 																		: completed.length >= 6
 																			? "FINDING YOUR FREQUENCY"
@@ -1349,6 +1360,7 @@ export function Draft() {
 						</div>
 					</div>
 				)}
+				{!showPlayback && screen !== "home" && <Button variant="secondary" className="d-player-restore" leadingIcon={RiHeadphoneLine} onClick={() => setShowPlayback(true)}>Show player</Button>}
 				<output className="sr-only" aria-live="polite">
 					{state.notice}
 				</output>

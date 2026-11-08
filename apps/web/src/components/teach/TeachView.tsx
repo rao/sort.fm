@@ -50,8 +50,7 @@ export function TeachView({
 			<div className="calibration-banner">
 				<span>
 					<RiHeartLine aria-hidden="true" size={18} />
-					<strong>Spotify stays unchanged.</strong> These answers save
-					preferences, never remove songs or change playlists.
+					<strong>Spotify stays unchanged.</strong> Saves preferences only.
 				</span>
 			</div>
 			{(state.error || state.refreshError) && (
@@ -166,7 +165,7 @@ export function TeachView({
 							<p className="review-helper">
 								{state.busy
 									? "Saving your answer…"
-									: "Swipe left for Outgrown, right for Still love it, up for Unsure. Z undoes."}
+									: "Swipe or use arrow keys · Z to undo"}
 							</p>
 							<div className="teach-queue-footer">
 								<a
@@ -220,8 +219,7 @@ export function TeachView({
 						</EmptyState>
 					)}
 					<p className="fine-print">
-						Predictions stay hidden while you answer. Unsure skips a song for
-						this session without adding a training label.
+						Scores stay hidden. Unsure skips without saving an answer.
 					</p>
 				</section>
 				<aside className="workspace-aside">
@@ -229,8 +227,7 @@ export function TeachView({
 						className="model-panel teach-feedback"
 						aria-label="Saved training feedback"
 					>
-						<span className="eyebrow">YOUR FEEDBACK, OVER TIME</span>
-						<h2>A clearer picture of your taste.</h2>
+						<h2>Your feedback</h2>
 						<div className="teach-feedback-count">
 							<strong className="text-title-1-medium">
 								{status?.trainingFeedbackCount.toLocaleString() ?? "—"}
@@ -238,8 +235,7 @@ export function TeachView({
 							<span>Training preferences</span>
 						</div>
 						<p className="fine-print">
-							Explicit Keep and Remove feedback from Teach and Sort, currently
-							eligible for training.
+							Eligible Keep / Remove answers from Teach and Sort.
 						</p>
 						<output className="teach-sync" aria-live="polite">
 							{synchronization(status, confirmedRevision)}
@@ -247,10 +243,6 @@ export function TeachView({
 						{state.teaching?.warning && (
 							<p className="fine-print">{state.teaching.warning}</p>
 						)}
-						<p className="fine-print">
-							Your saved answers and model synchronization are separate. There’s
-							no finish line to reach.
-						</p>
 						<Button
 							variant="secondary"
 							size="small"
@@ -261,28 +253,26 @@ export function TeachView({
 							Refresh feedback
 						</Button>
 					</section>
-					<section className="model-panel teach-guide">
-						<h2>Three honest answers.</h2>
+					<details className="model-panel teach-guide">
+						<summary className="text-body-medium">Answer guide</summary>
 						<dl>
 							<div>
 								<dt>Still love it</dt>
-								<dd>Save an explicit Keep preference.</dd>
+								<dd>Save a Keep preference.</dd>
 							</div>
 							<div>
 								<dt>Outgrown</dt>
-								<dd>
-									Save an explicit Remove preference. The song stays in Spotify.
-								</dd>
+								<dd>Save a Remove preference.</dd>
 							</div>
 							<div>
 								<dt>Unsure</dt>
-								<dd>Move on without a new supervised label.</dd>
+								<dd>Skip. No answer saved.</dd>
 							</div>
 						</dl>
 						<p className="fine-print">
-							Undo withdraws your answer. To change your library, use Sort.
+							Undo withdraws an answer. Only Sort changes your library.
 						</p>
-					</section>
+					</details>
 				</aside>
 			</div>
 			<section className="calibration-history">

@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	RiArrowRightLine,
 	RiCloseLine,
+	RiFullscreenLine,
 	RiRefreshLine,
 	RiSparklingLine,
 } from "@remixicon/react";
@@ -25,6 +33,92 @@ import {
 } from "./history";
 import type { Graph, GraphNode } from "./graph";
 import "./constellation.css";
+
+export function ConstellationExplorer({ children }: { children: ReactNode }) {
+	const id = useId();
+	const dialog = useRef<HTMLDialogElement>(null);
+	const trigger = useRef<HTMLButtonElement>(null);
+	const closeButton = useRef<HTMLButtonElement>(null);
+	const [expanded, setExpanded] = useState(false);
+	useEffect(() => {
+		if (!expanded) return;
+		const overflow = document.body.style.overflow;
+		document.body.style.overflow = "hidden";
+		closeButton.current?.focus();
+		return () => {
+			document.body.style.overflow = overflow;
+		};
+	}, [expanded]);
+	const collapse = () => {
+		dialog.current?.close();
+		dialog.current?.show();
+		setExpanded(false);
+		trigger.current?.focus({ preventScroll: true });
+	};
+	return (
+		<>
+			<div className="tc-explorer-toolbar">
+				<span className="text-caption-1-semibold">Explore the map</span>
+				<Button
+					ref={trigger}
+					variant="secondary"
+					size="small"
+					leadingIcon={RiFullscreenLine}
+					aria-haspopup="dialog"
+					aria-controls={id}
+					aria-expanded={expanded}
+					onClick={() => {
+						// An inline nonmodal dialog must close before entering the top layer.
+						dialog.current?.close();
+						dialog.current?.showModal();
+						setExpanded(true);
+					}}
+				>
+					Expand map
+				</Button>
+			</div>
+			<dialog
+				ref={dialog}
+				id={id}
+				open
+				className="tc-explorer"
+				aria-label="Taste constellation map"
+				aria-modal={expanded || undefined}
+				onCancel={(event) => {
+					event.preventDefault();
+					if (expanded) collapse();
+				}}
+				onKeyDownCapture={(event) => {
+					if (expanded && event.key === "Escape") {
+						event.preventDefault();
+						event.stopPropagation();
+						collapse();
+					}
+				}}
+			>
+				<div className="tc-expanded-header" hidden={!expanded}>
+					<div>
+						<h3 className="text-headline-medium">Taste Constellation</h3>
+						<p className="text-caption-1-regular">
+							More room to follow the connections.
+						</p>
+					</div>
+					<Button
+						ref={closeButton}
+						variant="secondary"
+						size="small"
+						leadingIcon={RiCloseLine}
+						aria-label="Close expanded map"
+						onClick={collapse}
+					>
+						Close
+					</Button>
+				</div>
+				{children}
+			</dialog>
+		</>
+	);
+}
 
 export function TrackDetails({
 	track,
@@ -192,15 +286,19 @@ export function TrackDetails({
 							const other = tracks.get(neighbor.id)!;
 							return (
 								<li key={neighbor.id}>
-									<Button variant="ghost" onClick={() => onSelect(neighbor.id)}>
-										<span>
-											<b>{other.title}</b>
-											<small>
+									<Button
+										className="text-button"
+										variant="ghost"
+										trailingIcon={RiArrowRightLine}
+										onClick={() => onSelect(neighbor.id)}
+									>
+										<span className="tc-song-copy">
+											<b className="text-body-2-medium">{other.title}</b>
+											<small className="text-caption-1-regular">
 												{neighbor.shared} shared features · distance{" "}
 												{neighbor.distance.toFixed(2)}
 											</small>
 										</span>
-										<RiArrowRightLine aria-hidden="true" />
 									</Button>
 								</li>
 							);
@@ -619,84 +717,92 @@ export function TasteConstellation({
 							)}
 						</div>
 					)}
-					<div className="tc-layout">
-						{graph.nodes.length ? (
-							<ConstellationCanvas
-								graph={graph}
-								visibleGraph={visibleGraph}
-								tracks={tracks}
-								selected={selected}
-								onSelect={select}
-							/>
-						) : (
-							<div className="tc-status">
-								<h3 className="text-headline-medium">
-									{currentLibrary.tracks.length
-										? "Not enough observed audio yet."
-										: "No eligible songs available."}
-								</h3>
-								<p>
-									{currentLibrary.tracks.length
-										? "Songs remain searchable. At least three varying descriptors and sufficient shared observations are needed to place them."
-										: "No synthetic songs have been substituted. Refresh after your library is available."}
-								</p>
-							</div>
-						)}
-						{track ? (
-							<TrackDetails
-								track={track}
-								library={currentLibrary}
-								node={visibleGraph.nodes.find((n) => n.id === track.id)}
-								tracks={tracks}
-								onSelect={select}
-								onClose={() => select(null)}
-							/>
-						) : (
-							<aside className="tc-detail tc-invitation">
-								<RiSparklingLine aria-hidden="true" />
-								<p className="tc-kicker text-caption-1-semibold">
-									FOLLOW YOUR CURIOSITY
-								</p>
-								<h3 className="text-title-3-semibold">
-									Every point is a song.
-								</h3>
-								<p className="text-body-2-regular">
-									Select one to see its closest acoustic neighbors, available
-									descriptors and recorded preference.
-								</p>
-								<div className="tc-mini-legend text-caption-1-regular">
-									<span>● Keep</span>
-									<span>◆ Remove</span>
-									<span>· Unlabeled</span>
-								</div>
-								<h4 className="text-body-medium">
-									{visibleLibraryTracks.length
-										? "Start exploring"
-										: "No songs in this view"}
-								</h4>
-								{!visibleLibraryTracks.length && (
-									<p className="text-body-2-regular">
-										No eligible songs are currently liked according to the
-										synchronized library. Your history stays available in the
-										other view.
+					<ConstellationExplorer>
+						<div className="tc-layout">
+							{graph.nodes.length ? (
+								<ConstellationCanvas
+									graph={graph}
+									visibleGraph={visibleGraph}
+									tracks={tracks}
+									selected={selected}
+									onSelect={select}
+								/>
+							) : (
+								<div className="tc-status">
+									<h3 className="text-headline-medium">
+										{currentLibrary.tracks.length
+											? "Not enough observed audio yet."
+											: "No eligible songs available."}
+									</h3>
+									<p>
+										{currentLibrary.tracks.length
+											? "Songs remain searchable. At least three varying descriptors and sufficient shared observations are needed to place them."
+											: "No synthetic songs have been substituted. Refresh after your library is available."}
 									</p>
-								)}
-								<ul className="tc-neighbors">
-									{visibleLibraryTracks.slice(0, 4).map((t) => (
-										<li key={t.id}>
-											<Button variant="ghost" onClick={() => select(t.id)}>
-												<span>
-													<b>{t.title}</b>
-													<small>{t.artist}</small>
-												</span>
-												<RiArrowRightLine aria-hidden="true" />
-											</Button>
-										</li>
-									))}
-								</ul>
-							</aside>
-						)}
-					</div>
+								</div>
+							)}
+							{track ? (
+								<TrackDetails
+									track={track}
+									library={currentLibrary}
+									node={visibleGraph.nodes.find((n) => n.id === track.id)}
+									tracks={tracks}
+									onSelect={select}
+									onClose={() => select(null)}
+								/>
+							) : (
+								<aside className="tc-detail tc-invitation">
+									<RiSparklingLine aria-hidden="true" />
+									<p className="tc-kicker text-caption-1-semibold">
+										FOLLOW YOUR CURIOSITY
+									</p>
+									<h3 className="text-title-3-semibold">
+										Every point is a song.
+									</h3>
+									<p className="text-body-2-regular">
+										Select one to see its closest acoustic neighbors, available
+										descriptors and recorded preference.
+									</p>
+									<div className="tc-mini-legend text-caption-1-regular">
+										<span>● Keep</span>
+										<span>◆ Remove</span>
+										<span>· Unlabeled</span>
+									</div>
+									<h4 className="text-body-medium">
+										{visibleLibraryTracks.length
+											? "Start exploring"
+											: "No songs in this view"}
+									</h4>
+									{!visibleLibraryTracks.length && (
+										<p className="text-body-2-regular">
+											No eligible songs are currently liked according to the
+											synchronized library. Your history stays available in the
+											other view.
+										</p>
+									)}
+									<ul className="tc-neighbors">
+										{visibleLibraryTracks.slice(0, 4).map((t) => (
+											<li key={t.id}>
+												<Button
+													className="text-button"
+													variant="ghost"
+													trailingIcon={RiArrowRightLine}
+													onClick={() => select(t.id)}
+												>
+													<span className="tc-song-copy">
+														<b className="text-body-2-medium">{t.title}</b>
+														<small className="text-caption-1-regular">
+															{t.artist}
+														</small>
+													</span>
+												</Button>
+											</li>
+										))}
+									</ul>
+								</aside>
+							)}
+						</div>
+					</ConstellationExplorer>
 					<div className="tc-method">
 						<p className="text-body-2-medium">
 							Sound explains the map. Your feedback teaches C1.

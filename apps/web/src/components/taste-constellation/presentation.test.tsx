@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TrackDetails, TasteConstellation } from "./TasteConstellation";
+import {
+	ConstellationExplorer,
+	TrackDetails,
+	TasteConstellation,
+} from "./TasteConstellation";
+import { ConstellationCanvas } from "./ConstellationCanvas";
+import { buildGraph } from "./graph";
 import {
 	ModelGuide,
 	MetricGuide,
@@ -10,6 +16,37 @@ import {
 } from "./LabExplanations";
 import { createSyntheticLibrary } from "./data";
 import { demoQueue } from "@sortfm/contracts/fixtures";
+
+test("the expandable map keeps one accessible canvas and a named dialog trigger", () => {
+	const library = createSyntheticLibrary(8);
+	const graph = buildGraph(library.tracks.map((track) => ({
+		id: track.id,
+		audio: track.audio,
+	})));
+	const html = renderToStaticMarkup(
+		<ConstellationExplorer>
+			<ConstellationCanvas
+				graph={graph}
+				visibleGraph={graph}
+				tracks={new Map(library.tracks.map((track) => [track.id, track]))}
+				selected={null}
+				onSelect={() => {}}
+			/>
+		</ConstellationExplorer>,
+	);
+	expect(html.match(/<canvas\b/g)).toHaveLength(1);
+	expect(html).toContain('aria-label="Interactive acoustic constellation"');
+	expect(html).toContain('aria-haspopup="dialog"');
+	expect(html).toContain('aria-expanded="false"');
+	expect(html).toContain("Expand map");
+	expect(html).toContain('aria-label="Close expanded map"');
+	const controls = html.match(/aria-controls="([^"]+)"/)?.[1];
+	expect(controls).toBeDefined();
+	expect(html).toContain(`id="${controls}"`);
+	expect(html).toContain('<dialog');
+	expect(html).toContain('aria-label="Taste constellation map"');
+	expect(html).not.toContain('aria-modal="true"');
+});
 
 test("real data is the initial path and demo requires an explicit choice", () => {
 	const disconnected = renderToStaticMarkup(

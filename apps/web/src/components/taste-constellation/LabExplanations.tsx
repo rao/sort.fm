@@ -4,30 +4,22 @@ import type { QueueItem } from "../../state/review";
 import "./explanations.css";
 
 const models = [
-	[
-		"E1",
-		"Save-age baseline",
-		"Uses how long a song has been saved as a simple comparison point. It does not listen to the song or learn acoustic taste.",
-	],
+	["E1", "Save age", "A simple baseline using time since save."],
 	[
 		"E2",
 		"Metadata & history",
-		"Uses metadata and available listening context. All listening fields were missing in the 52-label and 159-label frozen experiments, so those E2 runs used metadata and save age.",
+		"Uses metadata, save age and available listening history.",
 	],
-	[
-		"E3",
-		"Metadata + audio",
-		"Adds observed audio descriptors to metadata. Missing audio is unavailable information, not evidence that you dislike a song.",
-	],
+	["E3", "Metadata + audio", "Adds observed audio descriptors to metadata."],
 	[
 		"C1",
-		"Your preference model",
-		"Learns from explicit Keep/Remove training labels, including distances to Keep and Remove reference centroids. Centroids summarize eligible training examples; library likes are not automatically Keep labels. Held-out songs do not form the references.",
+		"Audio + taste references",
+		"Learns from explicit Keep / Remove answers, including distances to their audio centroids.",
 	],
 	[
 		"C2",
-		"What to review next",
-		"A contextual bandit selects songs by balancing exploitation of estimated utility with exploration. Its reward estimates and exploration bonus are policy quantities, not C1 removal probabilities.",
+		"Chooses the next song",
+		"Balances estimated review utility with exploration. Selection scores are separate from removal estimates.",
 	],
 ] as const;
 
@@ -35,14 +27,12 @@ export function ModelGuide() {
 	return (
 		<details className="lx-guide">
 			<summary>
-				Model field guide{" "}
-				<span className="text-caption-1-regular">
-					E1 → E2 → E3 → C1 · C2 selection
-				</span>
+				How the models work{" "}
+				<span className="text-caption-1-regular">E1–C1 score · C2 selects</span>
 			</summary>
 			<div className="lx-models">
 				{models.map(([id, name, description]) => (
-					<article key={id}>
+					<article key={id} data-model={id}>
 						<span className="lx-model-id text-title-3-semibold">{id}</span>
 						<div>
 							<h3 className="text-body-medium">{name}</h3>
@@ -51,6 +41,11 @@ export function ModelGuide() {
 					</article>
 				))}
 			</div>
+			<p className="lx-model-note text-caption-1-regular">
+				All listening fields were missing in frozen E2 runs. Missing audio never
+				means dislike. C1 references use training answers only. A library like
+				alone is no Keep label; held-out songs never form references.
+			</p>
 		</details>
 	);
 }
@@ -246,9 +241,8 @@ export function PolicySelection({ item }: { item: QueueItem | undefined }) {
 			<PolicyStrategyBadge strategy={data.strategy} />
 			<p className="text-body-2-regular">
 				{data.strategy === "explore"
-					? "This recorded selection favored exploration under the policy's rule."
-					: "This recorded selection favored estimated utility under the policy's rule."}{" "}
-				This describes the stored choice, not a new policy decision.
+					? "This saved selection favored exploration."
+					: "This saved selection favored estimated review utility."}
 			</p>
 			<dl className="lx-policy-counts text-caption-1-regular">
 				<div>

@@ -25,7 +25,7 @@ describe("review interaction contract", () => {
 		const store = await setup();
 		await Promise.all([store.decide("KEEP"), store.decide("UNLIKE")]);
 		expect(store.getSnapshot().history).toHaveLength(1);
-		expect(store.getSnapshot().queue).toHaveLength(11);
+		expect(store.getSnapshot().queue).toHaveLength(39);
 	});
 	test("skip is unlabeled and undo restores original track", async () => {
 		const store = await setup();
@@ -56,7 +56,7 @@ describe("review interaction contract", () => {
 		const store = await setup("decision-error");
 		await store.decide("ARCHIVE");
 		const failed = store.getSnapshot();
-		expect(failed.queue).toHaveLength(12);
+		expect(failed.queue).toHaveLength(40);
 		expect(failed.error).not.toBeNull();
 		const key = failed.retry!.request.idempotencyKey;
 		await store.retry();
@@ -86,7 +86,7 @@ describe("adapter response safety", () => {
 		});
 		await store.load();
 		await store.decide("ARCHIVE");
-		expect(store.getSnapshot().queue).toHaveLength(12);
+		expect(store.getSnapshot().queue).toHaveLength(40);
 		expect(store.getSnapshot().history).toHaveLength(0);
 		expect(store.getSnapshot().noticeUndoId).toBeNull();
 		expect(store.getSnapshot().error).toContain("settling");
@@ -102,7 +102,7 @@ describe("adapter response safety", () => {
 		});
 		await store.load();
 		await store.decide("KEEP");
-		expect(store.getSnapshot().queue).toHaveLength(12);
+		expect(store.getSnapshot().queue).toHaveLength(40);
 		expect(store.getSnapshot().history).toHaveLength(0);
 		expect(store.getSnapshot().error).toContain("did not match");
 	});
@@ -124,16 +124,16 @@ describe("adapter response safety", () => {
 		expect(store.getSnapshot().bootstrap).toBeNull();
 		expect(store.getSnapshot().error).not.toBeNull();
 		await store.load();
-		expect(store.getSnapshot().queue).toHaveLength(12);
+		expect(store.getSnapshot().queue).toHaveLength(40);
 		expect(store.getSnapshot().history).toHaveLength(0);
 	});
 	test("reviewing the whole collection ends with a truly empty queue", async () => {
 		const store = await setup();
-		for (let i = 0; i < 12; i++) await store.decide(i % 2 ? "ARCHIVE" : "KEEP");
+		for (let i = 0; i < 40; i++) await store.decide(i % 2 ? "ARCHIVE" : "KEEP");
 		expect(store.getSnapshot().queue).toHaveLength(0);
-		expect(store.getSnapshot().history).toHaveLength(12);
+		expect(store.getSnapshot().history).toHaveLength(40);
 		await store.decide("UNLIKE");
-		expect(store.getSnapshot().history).toHaveLength(12);
+		expect(store.getSnapshot().history).toHaveLength(40);
 	});
 });
 
@@ -167,7 +167,7 @@ test("nonretryable API failure enters recovery without repeatedly submitting", a
 	await store.load();
 	await store.decide("ARCHIVE");
 	expect(store.getSnapshot().terminal).toBe(true);
-	expect(store.getSnapshot().queue).toHaveLength(12);
+	expect(store.getSnapshot().queue).toHaveLength(40);
 	expect(store.getSnapshot().history).toHaveLength(0);
 	await store.retry();
 	expect(attempts).toBe(1);

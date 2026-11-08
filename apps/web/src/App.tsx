@@ -19,6 +19,7 @@ import {
 } from "./data/calibration-client";
 import { ConnectedLibrary } from "./components/Connected";
 import { History } from "./components/History";
+import { DemoPlayback } from "./components/DemoPlayback";
 import { BrowserPlayback } from "./components/BrowserPlayback";
 import { BrowserPlayerStore } from "./state/browser-player";
 import { createBrowserPlaybackClient } from "./data/browser-playback-client";
@@ -246,7 +247,7 @@ export default function App({
 				event.altKey ||
 				(event.shiftKey && event.key !== "?") ||
 				target?.closest(
-					"input,textarea,select,button,a,summary,dialog,[contenteditable=true]",
+					"input,textarea,select,button,a,audio,summary,dialog,[contenteditable=true]",
 				)
 			)
 				return;
@@ -336,7 +337,7 @@ export default function App({
 						<div>
 							<strong>Everyone can try the demo</strong>
 							<p>
-								Fictional songs, original cover art, and the complete sorting
+								Forty real songs, audio previews, and the complete sorting
 								experience. No Spotify changes.
 							</p>
 						</div>
@@ -385,7 +386,7 @@ export default function App({
 					<p>
 						{live
 							? "A playable Spotify track is not available for this card."
-							: "These artists and songs are fictional, so there is no recording to play. You can still explore every sorting interaction."}
+							: "Hear real song previews from the 1970s–2000s without connecting Spotify. Use the playback controls below each song."}
 					</p>
 					<p>
 						Connected tracks always offer an Open in Spotify link. Playback
@@ -451,7 +452,7 @@ export default function App({
 				) : (
 					<>
 						<span>Good music. Zero commitment.</span> You're exploring a
-						fictional library. Nothing changes on Spotify.
+						demo library with real music. Nothing changes on Spotify.
 					</>
 				)}
 				<a href="#/model">
@@ -791,27 +792,12 @@ export default function App({
 							</div>
 						</div>
 
-						<button
-							type="button"
-							className="player-status"
-							aria-label={
-								live
-									? "Playback unavailable for this song"
-									: "Preview unavailable: fictional demo track"
-							}
-							onClick={() => setModal("playback")}
-						>
-							<Icon name="headphones" size={18} />
-							<span>
-								<span className="desk-preview-long">Preview unavailable</span>
-								<span className="desk-preview-short">No preview</span>{" "}
-								<span>
-									•{" "}
-									{live ? "Open this song in Spotify" : "Fictional demo track"}
-								</span>
-							</span>
-							<Icon name="info" size={14} />
-						</button>
+						{!live && current ? (
+							showPlayback && <DemoPlayback track={current.track} />
+						) : (
+							<span className="player-status">{current ? "Playback unavailable for this song" : "All sorted. Thanks for listening."}</span>
+						)}
+
 						<div className="player-end">
 							{current?.track.spotifyUri ? (
 								<a

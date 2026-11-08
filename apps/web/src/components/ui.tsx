@@ -184,7 +184,7 @@ export function Cover({
 					{track.source !== "synthetic" && <Icon name="music" size={32} />}
 				</span>
 			)}
-			{typography && track.source === "synthetic" && (
+			{typography && track.source === "synthetic" && !track.imageUrl && (
 				<div className="cover-type" aria-hidden="true">
 					<span>{track.artists[0]?.name}</span>
 					<strong>{track.album}</strong>

@@ -11,6 +11,7 @@ import type { createApiClient } from "@sortfm/contracts/client";
 
 /** B2 seam: method signatures are identical to the shared, validated HTTP client. */
 import type { LiveGateway } from "./live-client";
+import { shuffledDemoTracks } from "./demo-catalog";
 
 export type ReviewClient = Pick<
 	ReturnType<typeof createApiClient>,
@@ -24,7 +25,18 @@ export function createDemoClient({
 	latency?: number;
 	scenario?: DemoScenario;
 } = {}): ReviewClient {
-	const queue = createDemoQueue();
+	const template = createDemoQueue({ limit: 1 }).items[0]!;
+	const tracks = shuffledDemoTracks();
+	const queue = {
+		...createDemoQueue({ limit: 0 }),
+		remaining: tracks.length,
+		fallbackReason: "Shuffled demo collection. Saved dates and review decisions are simulated.",
+		items: tracks.map((track, position) => ({
+			...template,
+			track,
+			exposure: { ...template.exposure, trackId: track.trackId, exposureId: crypto.randomUUID(), position },
+		})),
+	};
 	const decisions = new Map<string, ReviewResult>();
 	const archiveCopies = new Set<string>();
 	const commands = new Map<
@@ -54,7 +66,7 @@ export function createDemoClient({
 				...demoBootstrap,
 				queue: getQueue(),
 				notice:
-					"Fictional songs. Decisions stay in this tab. Nothing changes on Spotify.",
+					"Real songs, streamed previews. Saved dates are simulated; decisions stay in this tab. Nothing changes on Spotify.",
 			});
 		},
 		async queue() {

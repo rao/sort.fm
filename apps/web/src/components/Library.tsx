@@ -36,11 +36,11 @@ export function Library({
 								: `${total} songs. Countless possibilities.`}
 						</h2>
 						<p>
-							A small collection of fictional artists and original artwork,
-							ready for a fresh listen.
+							Forty favorites from the 1970s–2000s, with real artwork and
+							streamed audio previews. Saved dates are simulated.
 						</p>
 						<span className="subtle-tag">
-							<Icon name="library" size={14} /> Synthetic library • no Spotify
+							<Icon name="library" size={14} /> Demo library • no Spotify
 							writes
 						</span>
 					</div>

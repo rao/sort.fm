@@ -1,4 +1,4 @@
-import { demoTracks } from "@sortfm/contracts/fixtures";
+import { demoTracks } from "../data/demo-catalog";
 import { RiArrowRightLine, RiSpotifyFill, RiPlayFill } from "@remixicon/react";
 import { Button } from "#ui/components/base/buttons/button";
 import { Cover, Logo } from "./ui";

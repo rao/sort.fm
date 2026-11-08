@@ -1912,3 +1912,25 @@ button:not(.desk-profile):not(.desk-choice):not(.desk-listen):not(
 		letter-spacing: 1px;
 	}
 }
+
+/* Native preview controls keep seeking, volume and keyboard playback accessible. */
+.music-desk .demo-preview {
+	flex: 1;
+	min-width: 0;
+	max-width: 36rem;
+}
+@media (max-width: 760px) {
+	.music-desk .desk-playback:has(.demo-preview) {
+		flex-wrap: wrap;
+	}
+	.music-desk .desk-playback .demo-preview {
+		flex-basis: 100%;
+		max-width: none;
+	}
+}
+@media (max-width: 760px) {
+	.music-desk .desk-playback .demo-preview {
+		grid-column: 1 / -1;
+		grid-row: 2;
+	}
+}

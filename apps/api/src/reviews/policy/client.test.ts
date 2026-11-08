@@ -151,7 +151,7 @@ test('Skip, Undo and unpermitted feature receipts cannot claim a learned reward'
 });
 
 test('policy error codes remain classifiable without exposing upstream text',async()=>{
-  for(const [status,code,retryable] of [[404,'POLICY_EXPOSURE_NOT_FOUND',false],[409,'NO_ELIGIBLE_CANDIDATES',false],[503,'POLICY_STATE_UNAVAILABLE',true]] as const) {
+  for(const [status,code,retryable] of [[404,'POLICY_EXPOSURE_NOT_FOUND',false],[409,'NO_ELIGIBLE_CANDIDATES',false],[409,'STALE_FIT_RECEIPT',false],[503,'POLICY_STATE_UNAVAILABLE',true]] as const) {
     const client=createPolicyClient({serviceUrl:'https://ml.example.test',sharedSecret:'test-private-secret',fetch:async()=>Response.json({code,message:'test-private-secret',retryable},{status})});
     await expect(client.associate(association)).rejects.toMatchObject({code,status,retryable});
   }

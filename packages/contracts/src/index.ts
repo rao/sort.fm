@@ -10,3 +10,5 @@ export type * from "./calibration-persistence";
 export type * from "./playback-persistence";
 
 export * from "./calibration-batch";
+
+export type * from "./policy-persistence";

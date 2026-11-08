@@ -52,3 +52,13 @@ real Spotify audio was verified. After overseer deployment, verify fresh-session
 grant recovery, Enable, Play, advancing time, pause, seek and mute before claiming
 complete real-audio restoration. C2 and unrelated playback layout work stay out
 of this patch.
+
+## Silent-failure follow-up
+
+Actual Arc screenshot showed Model Lab with Reconnect player and no failure
+message. `BrowserPlayerStore.select()` cleared errors on every card/route change,
+even with connection still failed. Preserve that error until an explicit new
+connection attempt or successful recovery. A new regression fails on the old
+behavior, covers leaving Review and selecting another song, and confirms a
+successful reconnect clears it. Updated frontend suite: 360 passed, 0 failed,
+2,286 assertions; lint, typecheck and production build passed again.

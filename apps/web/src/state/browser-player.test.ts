@@ -109,6 +109,24 @@ function fixture(extra: { operationTimeoutMs?: number } = {}) {
 const uri = `spotify:track:${"0".repeat(22)}`;
 const next = `spotify:track:${"1".repeat(22)}`;
 
+test("changing cards or leaving review cannot hide an unresolved player failure", async () => {
+	const f = fixture();
+	f.store.select(uri, true);
+	await f.store.enable();
+	f.emit("authentication_error", { message: "Private provider detail" });
+	const failure = f.store.getSnapshot().error;
+	expect(failure).toContain("authorization was rejected");
+	f.store.select(null, false);
+	expect(f.store.getSnapshot().connection).toBe("error");
+	expect(f.store.getSnapshot().error).toBe(failure);
+	f.store.select(next, true);
+	expect(f.store.getSnapshot().error).toBe(failure);
+	await f.store.enable();
+	expect(f.store.getSnapshot().connection).toBe("ready");
+	expect(f.store.getSnapshot().error).toBeNull();
+	f.store.dispose();
+});
+
 test("selection never plays until a user gesture and only matching SDK state confirms audio", async () => {
 	const f = fixture();
 	f.store.select(uri, true);

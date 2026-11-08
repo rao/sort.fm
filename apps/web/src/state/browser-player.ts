@@ -202,7 +202,12 @@ export class BrowserPlayerStore {
 		this.selection++;
 		this.autoSelection =
 			this.state.autoAdvance && this.armed ? this.selection : null;
-		this.update({ selectedUri: uri, playable, error: null });
+		this.update({
+			selectedUri: uri,
+			playable,
+			// Changing the displayed song cannot repair a failed device or grant.
+			error: this.state.connection === "error" ? this.state.error : null,
+		});
 		void this.reconcileSelection();
 	}
 	setAutoAdvance(value: boolean) {

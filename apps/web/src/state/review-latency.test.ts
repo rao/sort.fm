@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createIdempotencyKey } from "@sortfm/contracts/client";
 import { createLiveApi, createLiveClient } from "../data/live-client";
 import { liveFixture } from "../test-support/live-fixture";
 import { ReviewStore } from "./review";
@@ -24,6 +25,78 @@ function responseGate() {
 		},
 	};
 }
+
+test.each(["history", "insights"] as const)(
+	"review entry displays its first card before slow %s and ignores stale initial details",
+	async (optional) => {
+		const f = liveFixture();
+		const gate = responseGate();
+		let initial = true;
+		const api = createLiveApi({
+			fetch: (async (input, init) => {
+				const response = await f.transport(input, init);
+				return initial && String(input).endsWith(`/${optional}`)
+					? gate.hold(response)
+					: response;
+			}) as typeof fetch,
+		});
+		const store = new ReviewStore(createLiveClient(api, f.session, f.journal));
+		let loaded = false;
+		const load = store.load({ deferDetails: true }).then(() => { loaded = true; });
+		try {
+			await gate.started;
+			await Bun.sleep(0);
+			expect(loaded).toBe(true);
+			expect(store.getSnapshot().loading).toBe(false);
+			expect(store.getSnapshot().queue).toHaveLength(2);
+			const original = store.getSnapshot().queue[0]!.track.trackId;
+			initial = false;
+			await store.decide("SKIP");
+			await Bun.sleep(0);
+			const current = store.getSnapshot();
+			expect(current.queue).toHaveLength(1);
+			expect(current.queue[0]!.track.trackId).not.toBe(original);
+			expect(current.history[0]!.result.action).toBe("SKIP");
+			gate.release();
+			await Bun.sleep(0);
+			expect(store.getSnapshot()).toBe(current);
+		} finally {
+			gate.release();
+			await load;
+		}
+	},
+);
+
+test("fast review entry still waits for recovery history when a command journal exists", async () => {
+	const f = liveFixture();
+	const item = (await f.api.queue({ mode: "spotify", limit: 20, policy: "balanced" })).items[0]!;
+	f.journal.write({ kind: "decide", request: {
+		trackId: item.track.trackId, exposureId: item.exposure.exposureId,
+		action: "UNLIKE", idempotencyKey: createIdempotencyKey(),
+	} });
+	const pending = f.journal.read();
+	const gate = responseGate();
+	const api = createLiveApi({ fetch: (async (input, init) => {
+		const response = await f.transport(input, init);
+		return String(input).endsWith("/history") ? gate.hold(response) : response;
+	}) as typeof fetch });
+	const store = new ReviewStore(createLiveClient(api, f.session, f.journal));
+	const load = store.load({ deferDetails: true });
+	try {
+		await gate.started;
+		await Bun.sleep(0);
+		expect(store.getSnapshot().loading).toBe(true);
+		await store.decide("KEEP");
+		expect(f.commands).toHaveLength(0);
+		expect(f.journal.read()).toEqual(pending);
+	} finally {
+		gate.release();
+		await load;
+	}
+	expect(store.getSnapshot().retry).toEqual(pending);
+	await store.decide("KEEP");
+	expect(f.commands).toHaveLength(0);
+});
 
 test.each([
 	["history", false],

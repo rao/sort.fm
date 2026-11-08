@@ -139,7 +139,7 @@ export class ReviewStore {
 		this.state = { ...this.state, ...patch };
 		for (const listener of this.listeners) listener();
 	}
-	async load() {
+	async load(options: { deferDetails?: boolean } = {}) {
 		if (
 			this.state.loading ||
 			this.state.busy ||
@@ -147,11 +147,18 @@ export class ReviewStore {
 			this.state.bootstrap
 		)
 			return;
-		this.readRevision++;
+		const revision = ++this.readRevision;
 		this.update({ loading: true, error: null });
 		try {
 			if (this.client.live) {
 				const pending = this.client.live.journal.read();
+				// A fresh review card needs no optional inspector/history reads.
+				// Recovery still waits for history before allowing another command.
+				if (options.deferDetails && !pending) {
+					this.applyReviewSnapshot(await this.client.live.reviewSnapshot());
+					void this.refreshDetails(revision);
+					return;
+				}
 				const snapshot = await this.client.live.snapshot();
 				const settled =
 					pending &&

@@ -214,7 +214,7 @@ export default function App({
 			route !== "calibrate" &&
 			!(live && route === "library")
 		)
-			void store.load();
+			void store.load({ deferDetails: route === "review" });
 	}, [route, store, live]);
 	useEffect(() => {
 		if (

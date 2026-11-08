@@ -1668,6 +1668,93 @@ input::placeholder {
 	grid-template-columns: 1fr 1.6fr;
 	gap: 22px;
 }
+.policy-details {
+	grid-column: 1 / -1;
+	min-width: 0;
+}
+.policy-details > .fine-print {
+	margin-top: 20px;
+}
+.page > .policy-details {
+	margin-bottom: 22px;
+}
+.policy-detail-grid .fine-print {
+	margin-top: 16px;
+}
+.policy-identity,
+.policy-detail-grid,
+.policy-context-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0 32px;
+}
+.policy-detail-grid {
+	margin-top: 28px;
+}
+.policy-details dl,
+.policy-details dd {
+	margin: 0;
+}
+.policy-details dt {
+	color: var(--muted);
+}
+.policy-details dd {
+	text-align: right;
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+.policy-details .data-row {
+	align-items: baseline;
+}
+.policy-details .fine-print {
+	line-height: 1.6;
+}
+.policy-scores {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 24px;
+}
+.policy-scores dt {
+	font-size: 12px;
+}
+.policy-scores dd {
+	text-align: left;
+	font-size: 28px;
+	font-variant-numeric: tabular-nums;
+	margin-top: 8px;
+}
+.policy-reasons {
+	padding-left: 18px;
+	font-size: 13px;
+	line-height: 1.7;
+}
+.policy-reservation h3 {
+	margin: 0;
+	font-size: 15px;
+}
+.policy-context {
+	margin-top: 28px;
+	border-top: 1px solid var(--line);
+	padding-top: 18px;
+}
+.policy-context summary {
+	cursor: pointer;
+	font-size: 13px;
+}
+@media (max-width: 680px) {
+	.policy-identity,
+	.policy-detail-grid,
+	.policy-context-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.policy-detail-grid {
+		gap: 24px;
+	}
+	.policy-details .section-top {
+		flex-wrap: wrap;
+		gap: 12px;
+	}
+}
 .large-count {
 	font-size: 52px;
 	font-family: "Manrope", sans-serif;

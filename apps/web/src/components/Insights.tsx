@@ -3,6 +3,7 @@ import { isEmptyModelEvaluation } from "../data/live-client";
 import type { ReviewState } from "../state/review";
 import { EvaluationEmpty, PredictionDisplay } from "./ModelPanel";
 import { Icon, Progress } from "./ui";
+import { PolicyDetails } from "./PolicyDetails";
 export function Insights({
 	state,
 	onRetrain,
@@ -68,6 +69,7 @@ export function Insights({
 					</p>
 				</header>
 				{controls}
+				<PolicyDetails exposure={state.queue[0]?.exposure ?? null} />
 				<section className="surface model-details">
 					<h2>Audio enrichment</h2>
 					<AudioFeatureDetails audio={state.insights?.audioFeatures} />
@@ -114,6 +116,7 @@ export function Insights({
 				</span>
 			</div>
 			<div className="insights-grid">
+				<PolicyDetails exposure={state.queue[0]?.exposure ?? null} />
 				<section className="surface feedback-surface">
 					<h2>Every decision is a signal</h2>
 					<div className="large-count">
@@ -238,12 +241,6 @@ export function Insights({
 							{live && isEmptyModelEvaluation(metrics)
 								? "No feedback yet"
 								: metrics.dataset}
-						</strong>
-					</div>
-					<div className="data-row">
-						<span>Selection policy</span>
-						<strong>
-							{state.queue[0]?.exposure.selectionMethod ?? "Queue complete"}
 						</strong>
 					</div>
 					<AudioFeatureDetails audio={state.insights?.audioFeatures} />

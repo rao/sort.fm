@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Database,migrate,PostgresA1Store,Repository,reviewExclusionManifestDigest} from '@sortfm/db';
-import {QueueResultSchema,ReviewResultSchema,PolicyAssociationEventSchema,PolicyAssociationReceiptSchema,PolicyReleaseReceiptSchema,PolicySelectRequestSchema,PolicyDiagnosticsSchema,type ExposureInput,type QueueResult,type ReviewResult,type PolicyAssociationEvent,type PolicyAssociationReceipt,type PolicyFitReceipt,type PolicySelectRequest} from '@sortfm/contracts';
+import {QueueResultSchema,ReviewResultSchema,CalibrationLabelResultSchema,PolicyAssociationEventSchema,PolicyAssociationReceiptSchema,PolicyReleaseReceiptSchema,PolicySelectRequestSchema,PolicyDiagnosticsSchema,type ExposureInput,type QueueResult,type ReviewResult,type PolicyAssociationEvent,type PolicyAssociationReceipt,type PolicyFitReceipt,type PolicySelectRequest} from '@sortfm/contracts';
 import {demoTracks,createDemoQueue} from '@sortfm/contracts/fixtures';
 import {buildRuntime} from '../src/runtime';
 import {createMlClient,createPolicyClient,feedbackSplit} from '../src/ml';
@@ -17,7 +17,7 @@ type Runtime=Awaited<ReturnType<typeof buildRuntime>>;
 type Item=QueueResult['items'][number];
 type Association={payload:PolicyAssociationEvent;receipt:PolicyAssociationReceipt|null;claimed_fit_receipt:PolicyFitReceipt|null;completed_at:Date|null;disposition:string|null};
 
-test.skipIf(!databaseUrl)('full pilot: Keep0 / Archive1 / Skip-null / Unlike1, original C2 exposures, committed fit before rewards, Undo and release',async()=>{
+test.skipIf(!databaseUrl)('full pilot: Keep0 / Archive1 / Skip-null / Unlike1, original C2 exposures, committed fit before rewards, correction isolation, Undo and release',async()=>{
  const db=new Database(databaseUrl!,`pilot_c2_${crypto.randomUUID().replaceAll('-','').slice(0,24)}`),repo=new Repository(db);
  let runtime:Runtime|undefined,ml:Awaited<ReturnType<typeof localMl>>|undefined;
  const provider=authoredSpotify();
@@ -145,6 +145,43 @@ test.skipIf(!databaseUrl)('full pilot: Keep0 / Archive1 / Skip-null / Unlike1, o
    expect(await runtime!.pilot!.repository.getExposure(userId,item.exposure.exposureId)).toEqual(snapshot);
    decisions.push({item,result,frozen:snapshot});
   }
+  // An explicit completed-Skip correction is a fresh calibration example.
+  // Its C1 fit/Undo must never rewrite the original decision or invent C2 reward.
+  const originalSkip=decisions.find(d=>d.result.action==='SKIP')!;
+  const originalDecisionBefore=await runtime!.pilot!.repository.getDecision(userId,originalSkip.result.decisionId);
+  const originalExposureBefore=await runtime!.pilot!.repository.getExposure(userId,originalSkip.item.exposure.exposureId);
+  const policyBefore=await associations();
+  const correctionBody=JSON.stringify({decisionId:originalSkip.result.decisionId,label:1,idempotencyKey:crypto.randomUUID()});
+  const correctionResponse=await fetch(`${base}/api/calibration/corrections`,{method:'POST',headers,body:correctionBody});
+  expect(correctionResponse.status).toBe(200);
+  const correction=CalibrationLabelResultSchema.parse(await correctionResponse.json());
+  expect(correction).toMatchObject({mode:'calibration',trackId:originalSkip.item.track.trackId,submittedLabel:1,label:1,state:'active',canUndo:true});
+  expect(correction.exposureId).not.toBe(originalSkip.item.exposure.exposureId);
+  await waitFeedback(correction.feedbackRevision,labels+1,associationsCount,labels);
+  const [correctionExposure]=await db.transaction(tx=>tx`SELECT purpose,payload FROM exposures WHERE user_id=${userId} AND exposure_id=${correction.exposureId}`);
+  expect(correctionExposure.purpose).toBe('calibration');
+  expect(correctionExposure.payload.features).toEqual(originalExposureBefore!.features);
+  expect(correctionExposure.payload.prediction).toEqual(originalExposureBefore!.prediction);
+  expect(correctionExposure.payload.listeningContext).toEqual(originalExposureBefore!.listeningContext);
+  expect(correctionExposure.payload.exposure.policyTelemetry).toBeUndefined();
+  const correctionExamples=(await runtime!.pilot!.repository.trainingExamples(userId)).examples;
+  expect(correctionExamples.find(example=>example.decisionId===correction.labelId)).toMatchObject({label:1,trackId:originalSkip.item.track.trackId});
+  expect(await runtime!.pilot!.repository.getDecision(userId,originalSkip.result.decisionId)).toEqual(originalDecisionBefore);
+  expect(await runtime!.pilot!.repository.getExposure(userId,originalSkip.item.exposure.exposureId)).toEqual(originalExposureBefore);
+  expect(await associations()).toEqual(policyBefore);
+  const correctionReplay=await fetch(`${base}/api/calibration/corrections`,{method:'POST',headers,body:correctionBody});
+  expect(correctionReplay.status).toBe(200);expect(CalibrationLabelResultSchema.parse(await correctionReplay.json())).toEqual(correction);
+  const correctionUndoBody=JSON.stringify({idempotencyKey:crypto.randomUUID()}),correctionUndoPath=`${base}/api/calibration/labels/${correction.labelId}/undo`;
+  const correctionUndoResponse=await fetch(correctionUndoPath,{method:'POST',headers,body:correctionUndoBody});expect(correctionUndoResponse.status).toBe(200);
+  const correctionUndone=CalibrationLabelResultSchema.parse(await correctionUndoResponse.json());
+  expect(correctionUndone).toMatchObject({labelId:correction.labelId,exposureId:correction.exposureId,label:null,state:'revoked',canUndo:false});
+  await waitFeedback(correctionUndone.feedbackRevision,labels,associationsCount,labels);
+  expect(await associations()).toEqual(policyBefore);
+  expect(await runtime!.pilot!.repository.getDecision(userId,originalSkip.result.decisionId)).toEqual(originalDecisionBefore);
+  expect(await runtime!.pilot!.repository.getExposure(userId,originalSkip.item.exposure.exposureId)).toEqual(originalExposureBefore);
+  const correctionUndoReplay=await fetch(correctionUndoPath,{method:'POST',headers,body:correctionUndoBody});expect(correctionUndoReplay.status).toBe(200);
+  expect(CalibrationLabelResultSchema.parse(await correctionUndoReplay.json())).toEqual(correctionUndone);
+  expect((await runtime!.pilot!.repository.trainingExamples(userId)).examples.some(example=>example.decisionId===correction.labelId)).toBe(false);
   for(const decision of decisions){
    const beforeWrites=provider.writes.length,undoBody=JSON.stringify({idempotencyKey:crypto.randomUUID()}),path=`${base}/api/decisions/${decision.result.decisionId}/undo`;
    expect((await fetch(path,{method:'POST',headers,body:undoBody})).status).toBe(409);

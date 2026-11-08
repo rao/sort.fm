@@ -1,17 +1,18 @@
 import {createHash} from 'node:crypto';import {z} from 'zod';
 import {IdSchema,SpotifyTrackIdSchema} from '@sortfm/contracts';
 import {PersistenceError,type Transaction} from './client';
-export type ReviewExclusionManifest={ownerId:string;pilotSchema:string;sortedTrackIds:string[];sha256:string};
-export type ReviewExclusionPolicy=Readonly<{ownerId:string;pilotSchema:string;sha256:string;assertOwner(userId:string):void;denies(userId:string,trackId:string):boolean;assertTrack(userId:string,trackId:string):void}>;
-const manifestSchema=z.strictObject({ownerId:IdSchema,pilotSchema:z.string().regex(/^pilot_c2_[a-f0-9]{24}$/),sortedTrackIds:z.array(SpotifyTrackIdSchema).max(100000),sha256:z.string().regex(/^[a-f0-9]{64}$/)});
+export type ReviewExclusionManifest={ownerId:string;pilotSchema:string;sortedTrackIds:string[];sha256:string;allowSpotifyMutations?:boolean};
+export type ReviewExclusionPolicy=Readonly<{ownerId:string;pilotSchema:string;sha256:string;allowSpotifyMutations:boolean;assertOwner(userId:string):void;denies(userId:string,trackId:string):boolean;assertTrack(userId:string,trackId:string):void}>;
+const manifestSchema=z.strictObject({ownerId:IdSchema,pilotSchema:z.string().regex(/^pilot_c2_[a-f0-9]{24}$/),sortedTrackIds:z.array(SpotifyTrackIdSchema).max(100000),sha256:z.string().regex(/^[a-f0-9]{64}$/),allowSpotifyMutations:z.boolean().optional()});
 const fail=(code:string):never=>{throw new PersistenceError(code);};
-/** Exact UTF-8 input: compact JSON with these three alphabetically ordered keys. */
-export function reviewExclusionManifestDigest(v:Omit<ReviewExclusionManifest,'sha256'>){return createHash('sha256').update(JSON.stringify({ownerId:v.ownerId,pilotSchema:v.pilotSchema,sortedTrackIds:v.sortedTrackIds})).digest('hex');}
+/** Compact JSON with alphabetically ordered keys. Absent mutation opt-in retains
+ * the original digest; enabling it requires a separately approved new digest. */
+export function reviewExclusionManifestDigest(v:Omit<ReviewExclusionManifest,'sha256'>){return createHash('sha256').update(JSON.stringify({...(v.allowSpotifyMutations===undefined?{}:{allowSpotifyMutations:v.allowSpotifyMutations}),ownerId:v.ownerId,pilotSchema:v.pilotSchema,sortedTrackIds:v.sortedTrackIds})).digest('hex');}
 export function createReviewExclusionPolicy(schema:string,input:ReviewExclusionManifest):ReviewExclusionPolicy{
  const parsed=manifestSchema.safeParse(input);if(!parsed.success)return fail('INVALID_REVIEW_EXCLUSIONS');const v=parsed.data;
  if(v.pilotSchema!==schema||v.sortedTrackIds.some((id,i)=>i>0&&id<=v.sortedTrackIds[i-1]!)||reviewExclusionManifestDigest(v)!==v.sha256)fail('INVALID_REVIEW_EXCLUSIONS');
  const denied=new Set(v.sortedTrackIds),assertOwner=(userId:string)=>{if(userId!==v.ownerId)fail('REVIEW_OWNER_MISMATCH');};
- return Object.freeze({ownerId:v.ownerId,pilotSchema:v.pilotSchema,sha256:v.sha256,assertOwner,denies(userId:string,trackId:string){assertOwner(userId);return denied.has(trackId);},assertTrack(userId:string,trackId:string){assertOwner(userId);if(denied.has(trackId))fail('REVIEW_TRACK_EXCLUDED');}});
+ return Object.freeze({ownerId:v.ownerId,pilotSchema:v.pilotSchema,sha256:v.sha256,allowSpotifyMutations:v.allowSpotifyMutations===true,assertOwner,denies(userId:string,trackId:string){assertOwner(userId);return denied.has(trackId);},assertTrack(userId:string,trackId:string){assertOwner(userId);if(denied.has(trackId))fail('REVIEW_TRACK_EXCLUDED');}});
 }
 /** Membership is a persisted publication/binding relationship, never a timestamp.
  * Consumed/closed publications still authorize exact command replay and Undo. */
@@ -33,4 +34,4 @@ export async function assertPilotDecision(tx:Transaction,policy:ReviewExclusionP
  if(!d)fail('DECISION_NOT_FOUND');if(d.result?.action!==d.request.action||d.result?.trackId!==d.track_id||d.result?.exposureId!==d.exposure_id)fail('REVIEW_EXPOSURE_NOT_PUBLISHED');assertPilotAction(policy,userId,d.track_id,d.request.action);
  await assertPublishedReviewExposure(tx,policy,userId,d.exposure_id,d.track_id);
 }
-export function assertPilotAction(policy:ReviewExclusionPolicy|undefined,userId:string,trackId:string,action:string){if(!policy)return;policy.assertTrack(userId,trackId);if(!['KEEP','SKIP'].includes(action))fail('REVIEW_ACTION_NOT_ALLOWED');}
+export function assertPilotAction(policy:ReviewExclusionPolicy|undefined,userId:string,trackId:string,action:string){if(!policy)return;policy.assertTrack(userId,trackId);if(!(policy.allowSpotifyMutations?['KEEP','ARCHIVE','SKIP','UNLIKE']:['KEEP','SKIP']).includes(action))fail('REVIEW_ACTION_NOT_ALLOWED');}

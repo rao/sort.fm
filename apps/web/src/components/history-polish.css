@@ -1,0 +1,39 @@
+.history-page .history-row .decision-tag.keep {
+	--history-action-ink: var(--color-notification-success-foreground);
+	--history-action-fill: var(--color-notification-success-background);
+}
+.history-page .history-row .decision-tag.archive {
+	--history-action-ink: var(--color-status-yellow-text);
+	--history-action-fill: var(--color-status-yellow-background);
+}
+.history-page .history-row .decision-tag.unlike {
+	--history-action-ink: var(--color-notification-error-foreground);
+	--history-action-fill: var(--color-notification-error-background);
+}
+.history-page .history-row .decision-tag.skip {
+	--history-action-ink: var(--color-notification-information-foreground);
+	--history-action-fill: var(--color-notification-information-background);
+}
+.history-page .history-row .decision-tag.restored {
+	--history-action-ink: var(--color-text-secondary);
+	--history-action-fill: var(--color-background-secondary-default);
+}
+.history-page .history-row .decision-tag {
+	color: var(--history-action-ink);
+	background: var(--history-action-fill);
+	border-color: color-mix(
+		in srgb,
+		var(--history-action-ink) 30%,
+		var(--color-border-button-default)
+	);
+}
+.history-page .history-cover {
+	flex-shrink: 0;
+	overflow: hidden;
+	background: var(--color-background-secondary-default);
+}
+.history-page .history-cover img {
+	inline-size: 100%;
+	block-size: 100%;
+	object-fit: cover;
+}

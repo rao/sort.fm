@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReviewResult } from "@sortfm/contracts";
 import { Button } from "#ui/components/base/buttons/button";
 import {
@@ -9,6 +9,38 @@ import {
 import type { ReviewState } from "../state/review";
 import { actionLabels, actionPast } from "../state/review";
 import { Cover, EmptyState, Icon } from "./ui";
+import {
+	historyRows,
+	loadHistoryMetadata,
+	type HistoryTrack,
+} from "../data/history-metadata";
+import "./history-polish.css";
+
+const noMetadata = new Map<string, HistoryTrack>();
+export function HistoryArtwork({ track }: { track: HistoryTrack | null }) {
+	const [failedUrl, setFailedUrl] = useState<string | null>(null);
+	return (
+		<div className="cover history-cover">
+			{track?.imageUrl && failedUrl !== track.imageUrl ? (
+				<img
+					src={track.imageUrl}
+					alt={`Album artwork for ${track.title}`}
+					loading="lazy"
+					onError={() => setFailedUrl(track.imageUrl)}
+				/>
+			) : (
+				<span
+					className="cover-placeholder"
+					role="img"
+					aria-label="Album artwork unavailable"
+				>
+					<Icon name="music" size={24} />
+				</span>
+			)}
+		</div>
+	);
+}
+
 export function History({
 	state,
 	onUndo,
@@ -26,6 +58,40 @@ export function History({
 }) {
 	const [filter, setFilter] = useState("all");
 	const [search, setSearch] = useState("");
+	const owner =
+		state.bootstrap?.session.mode === "spotify"
+			? (state.bootstrap.session.user?.id ?? null)
+			: null;
+	const [metadata, setMetadata] = useState<{
+		owner: string;
+		tracks: Map<string, HistoryTrack>;
+	} | null>(null);
+	const unresolved = historyRows(
+		state.history,
+		state.queue,
+		noMetadata,
+		"all",
+		"",
+	)
+		.filter(
+			(row) =>
+				row.result.mode === "spotify" && (!row.track || !row.track.imageUrl),
+		)
+		.map((row) => row.result.trackId)
+		.sort()
+		.join(",");
+	useEffect(() => {
+		if (!owner || !unresolved) return;
+		const controller = new AbortController();
+		void loadHistoryMetadata(owner, controller.signal)
+			.then((tracks) => {
+				if (!controller.signal.aborted) setMetadata({ owner, tracks });
+			})
+			.catch(() => {
+				if (!controller.signal.aborted) setMetadata(null);
+			});
+		return () => controller.abort();
+	}, [owner, unresolved]);
 	const eligibleSkips = latestSkipDecisions(
 		state.history.map(({ result }) => result),
 	);
@@ -37,12 +103,12 @@ export function History({
 		!!state.refreshError;
 	const labelsLocked =
 		!corrections || correctionLocked(corrections.state) || reviewLocked;
-	const entries = state.history.filter(
-		({ result, item }) =>
-			(filter === "all" || result.action === filter) &&
-			`${item?.track.title ?? result.trackId} ${item?.track.artists.map((artist) => artist.name).join(" ") ?? ""}`
-				.toLowerCase()
-				.includes(search.toLowerCase()),
+	const entries = historyRows(
+		state.history,
+		state.queue,
+		metadata?.owner === owner ? metadata.tracks : noMetadata,
+		filter,
+		search,
 	);
 	return (
 		<div className="page history-page">
@@ -132,17 +198,15 @@ export function History({
 			</div>
 			{entries.length ? (
 				<div className="history-list">
-					{entries.map(({ item, result }) => (
+					{entries.map(({ item, result, track }) => (
 						<article className="history-row" key={result.decisionId}>
-							{item ? (
+							{item?.track.source === "synthetic" ? (
 								<Cover track={item.track} />
 							) : (
-								<span className="missing-cover">
-									<Icon name="music" />
-								</span>
+								<HistoryArtwork track={track} />
 							)}
 							<div className="history-song">
-								<h2>{item?.track.title ?? "Saved Spotify decision"}</h2>
+								<h2>{track?.title ?? "Song details unavailable"}</h2>
 								{result.mode === "spotify" &&
 									/^[a-zA-Z0-9]{22}$/.test(result.trackId) && (
 										<a
@@ -154,11 +218,7 @@ export function History({
 											Open in Spotify
 										</a>
 									)}
-								<p>
-									{item?.track.artists
-										.map((artist) => artist.name)
-										.join(", ") ?? result.trackId}
-								</p>
+								<p>{track?.artist ?? "Artist details unavailable"}</p>
 								{corrections &&
 									eligibleSkips.has(result.decisionId) &&
 									(() => {

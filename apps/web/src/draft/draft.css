@@ -1242,32 +1242,6 @@ dd {
 .d-import-layout dl {
 	margin-top: 30px;
 }
-.d-toast {
-	position: fixed;
-	z-index: 30;
-	bottom: 90px;
-	left: calc(50% + 108px);
-	translate: -50% 0;
-	max-width: calc(100vw - 40px);
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 12px 14px;
-	background: var(--d-ink);
-	color: var(--d-ground);
-	border-radius: 12px;
-	box-shadow: 0 8px 24px color-mix(in srgb, var(--d-ink) 15%, transparent);
-	font-size: 12px;
-}
-.d-toast > span {
-	min-width: 0;
-}
-.d-toast > svg {
-	flex-shrink: 0;
-}
-.d-toast button {
-	flex-shrink: 0;
-}
 .d-dialog {
 	background: var(--d-paper);
 	color: var(--d-ink);
@@ -1343,9 +1317,6 @@ dd {
 	}
 	.d-player {
 		left: 180px;
-	}
-	.d-toast {
-		left: calc(50% + 90px);
 	}
 	.d-review-grid {
 		grid-template-columns: minmax(0, 1fr) 190px;
@@ -1429,12 +1400,6 @@ dd {
 	.d-player {
 		left: 0;
 		padding-inline: 22px;
-	}
-	.d-toast {
-		left: 20px;
-		right: 20px;
-		transform: none;
-		width: auto;
 	}
 	.d-player-end {
 		display: none;
@@ -1707,19 +1672,6 @@ dd {
 	}
 	.d-player small {
 		font-size: 9px;
-	}
-	.d-toast {
-		font-size: 10px;
-		padding: 10px;
-		gap: 8px;
-		bottom: 82px;
-	}
-	.d-toast > svg {
-		display: none;
-	}
-	.d-toast button {
-		padding-inline: 4px;
-		font-size: 10px;
 	}
 	.d-page > .d-page-heading {
 		margin-bottom: 25px;
@@ -2471,18 +2423,6 @@ body {
 .playback-hidden .d-content {
 	padding-bottom: 0;
 }
-.playback-hidden .d-toast {
-	bottom: 20px;
-}
-.d-toast {
-	left: calc(50% + 102px);
-	border: 1px solid var(--d-line);
-	border-radius: 7px;
-}
-.d-toast button {
-	color: var(--d-ink);
-	background: var(--d-paper);
-}
 .d-page {
 	padding: 26px 28px 30px;
 	background: color-mix(in srgb, var(--d-paper) 88%, transparent);
@@ -2593,9 +2533,6 @@ body {
 	.d-topbar {
 		padding-inline: 24px;
 	}
-	.d-toast {
-		left: calc(50% + 90px);
-	}
 	.d-home-hero {
 		gap: 30px;
 	}
@@ -2636,10 +2573,6 @@ body {
 	}
 	.d-content main {
 		padding: 23px 20px 30px;
-	}
-	.d-toast {
-		left: 20px;
-		translate: none;
 	}
 	.d-home-hero {
 		min-height: 550px;

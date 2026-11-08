@@ -27,6 +27,7 @@ import {
 	createSpotifySdkPlayer,
 	supportsBrowserVolume,
 } from "./data/spotify-sdk";
+import { ModelLab } from "./components/ModelLab";
 import { Insights } from "./components/Insights";
 import { Dashboard } from "./components/Dashboard";
 import { ModelPanel } from "./components/ModelPanel";
@@ -37,6 +38,7 @@ const routes = [
 	"review",
 	"history",
 	"insights",
+	"model",
 	"dashboard",
 ] as const;
 type Route = "landing" | (typeof routes)[number];
@@ -151,7 +153,7 @@ export default function App({
 	useEffect(() => {
 		if (
 			!live ||
-			!["insights", "dashboard", "history", "review"].includes(route)
+			!["insights", "model", "dashboard", "history", "review"].includes(route)
 		)
 			return;
 		void store.refresh();
@@ -352,9 +354,9 @@ export default function App({
 				<Logo />
 				<nav aria-label="Workspace navigation">
 					{[
-						["review", "Sort music", "music"],
-						["calibrate", "Teach your taste", "spark"],
-						["dashboard", "Your library", "library"],
+						["review", "Sort", "music"],
+						["calibrate", "Teach", "spark"],
+						["dashboard", "Library", "library"],
 						["history", "History", "clock"],
 					].map(([path, label, icon]) => (
 						<a
@@ -398,8 +400,8 @@ export default function App({
 						fictional library. Nothing changes on Spotify.
 					</>
 				)}
-				<a href="#/insights">
-					Model inspector <Icon name="arrow" size={13} />
+				<a href="#/model">
+					Model Lab <Icon name="arrow" size={13} />
 				</a>
 			</div>
 			<main id="main" tabIndex={-1}>
@@ -442,6 +444,12 @@ export default function App({
 					<Library state={state} onRetry={() => void store.load()} />
 				) : route === "history" ? (
 					<History state={state} onUndo={(id) => void store.undo(id)} />
+				) : route === "model" ? (
+					<ModelLab
+						state={state}
+						onRefresh={() => void store.refresh()}
+						onRetrain={() => void store.retrain()}
+					/>
 				) : route === "insights" ? (
 					<Insights
 						state={state}

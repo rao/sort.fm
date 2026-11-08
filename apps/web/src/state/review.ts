@@ -192,11 +192,13 @@ export class ReviewStore {
 					? (previous?.metrics ?? null)
 					: null
 				: snapshot.insights.metrics;
+		// Undo may requeue the same track with a new exposure. Preserve the
+		// original prediction and policy attached to each historical decision.
 		const known = new Map<string, QueueItem>();
 		for (const entry of this.state.history)
-			if (entry.item) known.set(entry.item.track.trackId, entry.item);
+			if (entry.item) known.set(entry.item.exposure.exposureId, entry.item);
 		for (const item of [...this.state.queue, ...snapshot.queue.items])
-			known.set(item.track.trackId, item);
+			known.set(item.exposure.exposureId, item);
 		this.update({
 			bootstrap: {
 				session: snapshot.session,
@@ -213,7 +215,7 @@ export class ReviewStore {
 					? this.state.history
 					: snapshot.history.map((result) => ({
 							result,
-							item: known.get(result.trackId) ?? null,
+							item: known.get(result.exposureId) ?? null,
 						})),
 			historyHasMore: snapshot.historyHasMore,
 			warnings: snapshot.warnings,

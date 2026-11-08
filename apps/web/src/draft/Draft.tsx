@@ -21,7 +21,7 @@ import {
 	RiArrowRightUpLine,
 	RiHeartLine,
 	RiArchiveLine,
-	RiSubtractLine,
+	RiThumbDownLine,
 	RiMusic2Line,
 	RiFolderMusicLine,
 	RiHistoryLine,
@@ -38,7 +38,7 @@ import {
 } from "@remixicon/react";
 import { Button, ButtonLink } from "#ui/components/base/buttons/button";
 import { SearchField } from "#ui/components/base/search-field/search-field";
-import { demoTracks, emptyMetrics } from "@sortfm/contracts/fixtures";
+import { demoTracks } from "@sortfm/contracts/fixtures";
 import type { ReviewAction, TrackCard } from "@sortfm/contracts";
 import { createDemoClient } from "../data/demo-client";
 import {
@@ -47,6 +47,7 @@ import {
 	actionFromKey,
 	actionPast,
 } from "../state/review";
+import { ModelLab } from "../components/ModelLab";
 import { cx } from "#ui/utils/cx";
 
 const screens = [
@@ -60,15 +61,15 @@ const screens = [
 ] as const;
 type Screen = (typeof screens)[number];
 const nav = [
-	{ id: "review", label: "Sort music", icon: RiMusic2Line },
-	{ id: "calibrate", label: "Teach your taste", icon: RiHeartLine },
-	{ id: "dashboard", label: "Your library", icon: RiFolderMusicLine },
+	{ id: "review", label: "Sort", icon: RiMusic2Line },
+	{ id: "calibrate", label: "Teach", icon: RiHeartLine },
+	{ id: "dashboard", label: "Library", icon: RiFolderMusicLine },
 	{ id: "history", label: "History", icon: RiHistoryLine },
-	{ id: "insights", label: "Model inspector", icon: RiEqualizerLine },
+	{ id: "insights", label: "Model", icon: RiEqualizerLine },
 ] as const;
 const decisions = [
 	{ action: "ARCHIVE", label: "Archive", icon: RiArchiveLine, key: "←" },
-	{ action: "UNLIKE", label: "Unlike", icon: RiSubtractLine, key: "↓" },
+	{ action: "UNLIKE", label: "Unlike", icon: RiThumbDownLine, key: "↓" },
 	{ action: "SKIP", label: "Skip", icon: RiArrowUpLine, key: "↑" },
 	{ action: "KEEP", label: "Keep", icon: RiHeartLine, key: "→" },
 ] as const;
@@ -212,7 +213,7 @@ export function Draft() {
 	);
 	const [screen, setScreen] = useState<Screen>(readScreen);
 	const [night, setNight] = useState(false);
-	const [showPanels, setShowPanels] = useState(false);
+	const [showPanels, setShowPanels] = useState(() => window.innerWidth >= 1100);
 	const [showPlayback, setShowPlayback] = useState(
 		() => window.innerWidth > 600,
 	);
@@ -251,7 +252,6 @@ export function Draft() {
 	const dialogRef = useRef<HTMLDialogElement>(null);
 	const [transitioning, setTransitioning] = useState(false);
 	const [direction, setDirection] = useState<ReviewAction>("KEEP");
-	const [dismissed, setDismissed] = useState(0);
 	const [practiceIndex, setPracticeIndex] = useState(0);
 	const [practiceNotice, setPracticeNotice] = useState("");
 	const reduced = useReducedMotion();
@@ -356,7 +356,7 @@ export function Draft() {
 				</a>
 				<div className="d-draft-strip">
 					<span>
-						<i /> Pocket player · design draft 02
+						<i /> sort.fm music desk · draft 03
 					</span>
 					<span>Fictional library. No Spotify changes.</span>
 				</div>
@@ -382,7 +382,9 @@ export function Draft() {
 						<main id="draft-main" tabIndex={-1} className="d-home">
 							<section className="d-home-hero">
 								<div className="d-home-copy">
-									<p className="d-kicker">THE PERSONAL MUSIC SORTER</p>
+									<p className="d-kicker">
+										A LITTLE DESKTOP FOR YOUR BIG MUSIC FEELINGS
+									</p>
 									<h1>
 										Old favorites.
 										<br />
@@ -515,7 +517,7 @@ export function Draft() {
 					<div className="d-shell">
 						<aside className="d-sidebar">
 							<Mark />
-							<span className="d-nav-caption">Your pocket collection</span>
+							<span className="d-nav-caption">PICK A CHANNEL</span>
 							<nav aria-label="Workspace navigation">
 								{nav.map((n) => (
 									<a
@@ -524,7 +526,9 @@ export function Draft() {
 										className={cx(screen === n.id && "is-current")}
 										aria-current={screen === n.id ? "page" : undefined}
 									>
-										<n.icon size={19} />
+										<span className="d-nav-glyph">
+											<n.icon size={21} />
+										</span>
 										<span>{n.label}</span>
 										{screen === n.id && <motion.i layoutId="nav-dot" />}
 									</a>
@@ -559,7 +563,7 @@ export function Draft() {
 						<div className="d-content">
 							<header className="d-topbar">
 								<span>
-									Workspace <span>/</span>{" "}
+									MUSIC DESK <span>▸</span>{" "}
 									<strong>
 										{nav.find((n) => n.id === screen)?.label ??
 											"Import library"}
@@ -567,7 +571,7 @@ export function Draft() {
 								</span>
 								<div>
 									<span className="d-demo-label">
-										<i /> Demo session
+										<i /> DEMO TAPE
 									</span>
 									<Button
 										variant="secondary"
@@ -615,7 +619,7 @@ export function Draft() {
 											<div className="d-review-page">
 												<div className="d-review-heading">
 													<PageHeading
-														eyebrow="Now sorting / your demo collection"
+														eyebrow="Now sorting"
 														title="Does it still hit?"
 													>
 														<p>Give it a moment. Go with your gut.</p>
@@ -665,6 +669,14 @@ export function Draft() {
 																</span>
 															</motion.div>
 														)}
+													</div>
+													<div className="d-desk-sticker" aria-hidden="true">
+														<RiHeadphoneLine size={30} />
+														<span>
+															GOOD EARS.
+															<br />
+															NO PRESSURE.
+														</span>
 													</div>
 												</div>
 												{current ? (
@@ -832,8 +844,7 @@ export function Draft() {
 															</div>
 															<p className="d-risk-note">
 																Archive keeps a playlist copy before unliking.
-																Unlike removes directly. Change your mind? Undo
-																your last choice.
+																Unlike removes directly.
 															</p>
 														</section>
 														{showPanels && (
@@ -1218,110 +1229,7 @@ export function Draft() {
 												</div>
 											</div>
 										)}
-										{screen === "insights" && (
-											<div className="d-page">
-												<PageHeading
-													eyebrow="Model inspector"
-													title="A clear view of the thinking."
-												>
-													<p>
-														Useful suggestions need honest numbers. Here’s what
-														is—and isn’t—available.
-													</p>
-												</PageHeading>
-												<div className="d-inspector-hero">
-													<div>
-														<span className="d-status">
-															{emptyMetrics.modelVersion}
-														</span>
-														<h2>
-															Ready to learn.
-															<br />
-															Nothing to claim yet.
-														</h2>
-														<p>
-															The draft uses synthetic songs and an untrained
-															model. Review choices are local demo feedback, not
-															evidence of model quality.
-														</p>
-														<Button
-															variant="secondary"
-															onClick={() => go("calibrate")}
-														>
-															Explore calibration <RiArrowRightLine size={17} />
-														</Button>
-													</div>
-													<div className="d-inspector-stats">
-														<div>
-															<strong>
-																{
-																	completed.filter(
-																		(e) => e.result.labelState === "active",
-																	).length
-																}
-															</strong>
-															<span>local demo labels</span>
-														</div>
-														<div>
-															<strong>{emptyMetrics.trainedExamples}</strong>
-															<span>trained examples</span>
-														</div>
-														<div>
-															<strong>{emptyMetrics.heldOutExamples}</strong>
-															<span>held-out examples</span>
-														</div>
-													</div>
-												</div>
-												<section className="d-evaluation">
-													<header>
-														<h2>Evaluation</h2>
-														<span>
-															Available when a connected model supplies it
-														</span>
-													</header>
-													{[
-														[
-															"Balanced accuracy",
-															"Performance across both keep and remove classes",
-														],
-														[
-															"ROC-AUC / PR-AUC",
-															"Ranking quality on held-out examples",
-														],
-														[
-															"Log loss / Brier score",
-															"How well predicted probabilities match outcomes",
-														],
-														[
-															"Precision at k",
-															"How useful the first suggestions are",
-														],
-													].map(([name, desc]) => (
-														<div key={name}>
-															<strong>{name}</strong>
-															<p>{desc}</p>
-															<span>Not evaluated</span>
-														</div>
-													))}
-												</section>
-												<div className="d-inspector-footer">
-													<div>
-														<h3>Audio enrichment</h3>
-														<p>
-															SoundNet is not connected in this demo. Missing
-															features remain visible.
-														</p>
-													</div>
-													<div>
-														<h3>Suggestions, with context</h3>
-														<p>
-															Keep the served model version, uncertainty, and
-															selection method beside each prediction.
-														</p>
-													</div>
-												</div>
-											</div>
-										)}
+										{screen === "insights" && <ModelLab state={state} />}
 										{screen === "library" && (
 											<div className="d-page">
 												<PageHeading
@@ -1423,41 +1331,9 @@ export function Draft() {
 						</div>
 					</div>
 				)}
-				<AnimatePresence>
-					{state.notice &&
-						state.noticeRevision !== dismissed &&
-						screen !== "home" && (
-							<motion.div
-								className="d-toast"
-								role="status"
-								initial={{ opacity: 0, y: reduced ? 0 : 12 }}
-								animate={{ opacity: 1, y: 0 }}
-								exit={{ opacity: 0, y: reduced ? 0 : 8 }}
-								transition={{ duration: 0.18 }}
-							>
-								<RiCheckLine size={19} />
-								<span>{state.notice}</span>
-								{state.noticeUndoId && (
-									<Button
-										variant="secondary"
-										size="small"
-										disabled={state.busy}
-										onClick={() => void store.undo(state.noticeUndoId!)}
-									>
-										Undo
-									</Button>
-								)}
-								<Button
-									variant="secondary"
-									iconOnly
-									size="small"
-									leadingIcon={RiCloseLine}
-									aria-label="Dismiss notification"
-									onClick={() => setDismissed(state.noticeRevision)}
-								/>
-							</motion.div>
-						)}
-				</AnimatePresence>
+				<span className="sr-only" role="status" aria-live="polite">
+					{state.notice}
+				</span>
 				<dialog
 					ref={dialogRef}
 					className="d-dialog"

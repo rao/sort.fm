@@ -1,6 +1,7 @@
 import {CalibrationBatchCreateSchema,CalibrationBatchSkipSchema,CalibrationBatchSchema,CalibrationBatchReadSchema} from './calibration-batch';
 import {CalibrationExperimentReadSchema,CalibrationExperimentReadySchema,CalibrationExperimentSkipSchema} from './calibration-experiment';
 import { z } from "zod";
+import {TasteConstellationLiveSchema} from './constellation';
 import { AccountSessionSchema, DecisionHistorySchema, DemoBootstrapSchema, HealthSchema, LibraryImportStatusSchema, LibrarySummarySchema, ModelInsightsSchema, ModelMetricsSchema, OkSchema, PlayRequestSchema, PlayerStatusSchema, QueueQuerySchema, QueueResultSchema, ReviewRequestSchema, ReviewResultSchema, UndoRequestSchema } from "./schemas";
 import { EvaluationQuerySchema, ExplainQuerySchema, ExplainResponseSchema, FitRequestSchema, FitResponseSchema, ObserveRequestSchema, ObserveResponseSchema, ScoreRequestSchema, ScoreResponseSchema } from "./features";
 import {CalibrationHistorySchema, CalibrationLabelRequestSchema, CalibrationLabelResultSchema, CalibrationQueueQuerySchema, CalibrationQueueResultSchema} from "./calibration";
@@ -32,6 +33,7 @@ export const PUBLIC_ROUTES = {
   calibrationHistory: {method: "GET", path: "/api/calibration/history", response: CalibrationHistorySchema, auth: "owner"},
   analytics: {method: "GET", path: "/api/analytics/summary", response: z.strictObject({library: LibrarySummarySchema, metrics: ModelMetricsSchema}), auth: "session"},
   insights: {method: "GET", path: "/api/ml/insights", response: ModelInsightsSchema, auth: "session"},
+  constellation: {method:'GET',path:'/api/ml/constellation',query:z.strictObject({}),response:TasteConstellationLiveSchema,auth:'owner'},
   retrain: {method: "POST", path: "/api/ml/retrain", response: FitResponseSchema, auth: "owner"},
   playerStatus: {method: "GET", path: "/api/player/status", response: PlayerStatusSchema, auth: "owner"},
   play: {method: "POST", path: "/api/player/play", body: PlayRequestSchema, response: OkSchema, auth: "owner"},

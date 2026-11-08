@@ -5,3 +5,4 @@ export {prepareListeningContext,readCachedTasteContext,type ListeningContextRead
 export {createRepositoryMl,type RepositoryMl,type RepositoryMlOptions,type MlRepositoryPort} from './repository';
 export {createMlReadModule,type MlReadOptions} from './reads';
 export {createMlRetrainModule,type MlRetrainOptions} from './retrain';
+export {createTasteConstellationModule,type TasteConstellationOptions} from './constellation';

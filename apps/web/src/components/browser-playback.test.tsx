@@ -86,6 +86,32 @@ test("iOS uses hardware volume and only matching actual playback enables seeking
 	expect(html).toContain("Play this song");
 	expect(html).toMatch(/aria-label="Seek within this song"[^>]*disabled/);
 });
+test("only explicit linked identity enables selected-song controls for a different actual URI", () => {
+	const p = props();
+	p.state = {
+		...p.state,
+		connection: "ready",
+		actualUri: `spotify:track:${"2".repeat(22)}`,
+		actualLinkedFromUri: p.track.spotifyUri,
+		selectedUri: p.track.spotifyUri,
+		paused: false,
+		canPause: true,
+		canSeek: true,
+		durationMs: 200000,
+	};
+	const linked = renderToStaticMarkup(<BrowserPlaybackView {...p} />);
+	expect(linked).toMatch(/<button(?![^>]*disabled)[^>]*>Pause<\/button>/);
+	expect(linked).not.toMatch(/aria-label="Seek within this song"[^>]*disabled/);
+	const unmatched = renderToStaticMarkup(
+		<BrowserPlaybackView
+			{...p}
+			state={{ ...p.state, actualLinkedFromUri: null }}
+		/>,
+	);
+	expect(unmatched).not.toContain(">Pause<");
+	expect(unmatched).toContain("Play this song");
+	expect(unmatched).toMatch(/aria-label="Seek within this song"[^>]*disabled/);
+});
 
 test("lost playback grant offers consent even while the local SDK is still ready", () => {
 	const p = props();

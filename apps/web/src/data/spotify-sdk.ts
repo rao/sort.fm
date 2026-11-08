@@ -3,7 +3,14 @@ export type SpotifyPlaybackState = {
 	paused: boolean;
 	position: number;
 	duration: number;
-	track_window: { current_track: { uri: string } };
+	track_window: {
+		current_track: {
+			uri: string;
+			// Web API-compatible metadata may identify a relinked original track.
+			// The SDK does not guarantee this field; never infer it from a play response.
+			linked_from?: { uri?: string } | null;
+		};
+	};
 	disallows?: { pausing?: boolean; resuming?: boolean; seeking?: boolean };
 };
 export type SpotifySdkEvents = {

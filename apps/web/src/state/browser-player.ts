@@ -20,6 +20,7 @@ export type BrowserPlayerState = {
 	selectedUri: string | null;
 	playable: boolean;
 	actualUri: string | null;
+	actualLinkedFromUri: string | null;
 	paused: boolean;
 	positionMs: number;
 	durationMs: number;
@@ -34,6 +35,16 @@ export type BrowserPlayerState = {
 	error: string | null;
 	message: string;
 };
+export function playbackMatchesTrack(
+	state: BrowserPlayerState,
+	uri: string | null,
+) {
+	return (
+		!!uri &&
+		!!state.actualUri &&
+		(state.actualUri === uri || state.actualLinkedFromUri === uri)
+	);
+}
 export class BrowserPlayerStore {
 	private state: BrowserPlayerState;
 	private listeners = new Set<() => void>();
@@ -42,6 +53,7 @@ export class BrowserPlayerStore {
 	private selection = 0;
 	private stateRevision = 0;
 	private autoSelection: number | null = null;
+	private pauseForSelectionChange = false;
 	private disposed = false;
 	private retainCount = 0;
 	private armed = false;
@@ -68,6 +80,7 @@ export class BrowserPlayerStore {
 			selectedUri: null,
 			playable: false,
 			actualUri: null,
+			actualLinkedFromUri: null,
 			paused: true,
 			positionMs: 0,
 			durationMs: 0,
@@ -157,6 +170,7 @@ export class BrowserPlayerStore {
 			busy: false,
 			deviceId: null,
 			actualUri: null,
+			actualLinkedFromUri: null,
 			paused: true,
 			canSeek: false,
 			canPause: false,
@@ -183,6 +197,8 @@ export class BrowserPlayerStore {
 	select(uri: string | null, playable: boolean) {
 		if (uri === this.state.selectedUri && playable === this.state.playable)
 			return;
+		if (this.state.selectedUri !== null && uri !== this.state.selectedUri)
+			this.pauseForSelectionChange = true;
 		this.selection++;
 		this.autoSelection =
 			this.state.autoAdvance && this.armed ? this.selection : null;
@@ -205,7 +221,7 @@ export class BrowserPlayerStore {
 			this.armed &&
 			this.state.selectedUri &&
 			this.state.playable &&
-			this.state.actualUri !== this.state.selectedUri &&
+			!playbackMatchesTrack(this.state, this.state.selectedUri) &&
 			this.autoSelection === this.selection
 		) {
 			this.autoSelection = null;
@@ -213,8 +229,9 @@ export class BrowserPlayerStore {
 			return;
 		}
 		if (
+			this.pauseForSelectionChange &&
 			this.state.actualUri &&
-			this.state.actualUri !== this.state.selectedUri &&
+			!playbackMatchesTrack(this.state, this.state.selectedUri) &&
 			!this.state.paused
 		) {
 			const player = this.player,
@@ -347,6 +364,7 @@ export class BrowserPlayerStore {
 		if (!value) {
 			this.update({
 				actualUri: null,
+				actualLinkedFromUri: null,
 				paused: true,
 				positionMs: 0,
 				durationMs: 0,
@@ -362,8 +380,16 @@ export class BrowserPlayerStore {
 			value.duration < 0
 		)
 			return;
+		const track = value.track_window.current_track;
+		const identity = {
+			actualUri: track.uri,
+			actualLinkedFromUri:
+				typeof track.linked_from?.uri === "string"
+					? track.linked_from.uri
+					: null,
+		};
 		this.update({
-			actualUri: value.track_window.current_track.uri,
+			...identity,
 			paused: value.paused,
 			positionMs: Math.max(0, Math.min(value.position, value.duration)),
 			durationMs: value.duration,
@@ -371,20 +397,28 @@ export class BrowserPlayerStore {
 			canSeek: !value.disallows?.seeking,
 			canPause: !value.disallows?.pausing,
 			canResume: !value.disallows?.resuming,
-			message:
-				value.track_window.current_track.uri === this.state.selectedUri
-					? value.paused
-						? "Paused."
-						: "Playing this song in your browser."
-					: "The player is on another song. Choose Play for the displayed song.",
+			message: playbackMatchesTrack(
+				{ ...this.state, ...identity },
+				this.state.selectedUri,
+			)
+				? value.paused
+					? "Paused."
+					: "Playing this song in your browser."
+				: "The player is on another song. Choose Play for the displayed song.",
 		});
-		if (value.track_window.current_track.uri !== this.state.selectedUri)
-			void this.reconcileSelection();
+		if (this.pauseForSelectionChange) void this.reconcileSelection();
 	}
 	private async readState(player: SpotifySdkPlayer, epoch: number) {
 		const selection = this.selection,
 			revision = this.stateRevision;
-		const value = await this.deadline(player.getCurrentState());
+		let value: SpotifyPlaybackState | null;
+		try {
+			value = await this.deadline(player.getCurrentState());
+		} catch {
+			// A metadata read cannot undo an accepted play/control or a newer SDK event.
+			// Keep the last observation until an event or the next explicit/poll read.
+			return;
+		}
 		if (
 			!this.disposed &&
 			epoch === this.epoch &&
@@ -451,6 +485,9 @@ export class BrowserPlayerStore {
 			if (activationError) throw activationError;
 			if (!isCurrent()) return;
 			this.armed = true;
+			// Only a real card change may pause previous audio. Spotify can report a
+			// relinked URI or delayed previous-track metadata after accepting this play.
+			this.pauseForSelectionChange = false;
 			await this.deadline(this.gateway.play(uri, device, isCurrent));
 			if (epoch !== this.epoch || this.disposed) return;
 			if (!isCurrent()) {
@@ -458,7 +495,7 @@ export class BrowserPlayerStore {
 				return;
 			}
 			await this.readState(player, epoch);
-			if (this.state.actualUri !== uri || this.state.paused)
+			if (!playbackMatchesTrack(this.state, uri) || this.state.paused)
 				this.update({
 					message:
 						"Playback requested; waiting for Spotify to confirm this song.",
@@ -508,7 +545,7 @@ export class BrowserPlayerStore {
 	async togglePause() {
 		if (
 			!this.state.selectedUri ||
-			this.state.actualUri !== this.state.selectedUri
+			!playbackMatchesTrack(this.state, this.state.selectedUri)
 		)
 			return this.play();
 		if (
@@ -541,7 +578,7 @@ export class BrowserPlayerStore {
 				this.disposed ||
 				epoch !== this.epoch ||
 				selection !== this.selection ||
-				this.state.actualUri !== this.state.selectedUri ||
+				!playbackMatchesTrack(this.state, this.state.selectedUri) ||
 				(pause ? !this.state.canPause : !this.state.canResume)
 			)
 				return;
@@ -551,7 +588,7 @@ export class BrowserPlayerStore {
 	async seek(position: number) {
 		if (
 			!this.state.canSeek ||
-			this.state.actualUri !== this.state.selectedUri ||
+			!playbackMatchesTrack(this.state, this.state.selectedUri) ||
 			!Number.isFinite(position)
 		)
 			return;
@@ -561,7 +598,7 @@ export class BrowserPlayerStore {
 		);
 		return this.control(async (player) => {
 			if (
-				this.state.actualUri !== this.state.selectedUri ||
+				!playbackMatchesTrack(this.state, this.state.selectedUri) ||
 				!this.state.canSeek
 			)
 				return;
@@ -595,6 +632,7 @@ export class BrowserPlayerStore {
 			busy: false,
 			deviceId: null,
 			actualUri: null,
+			actualLinkedFromUri: null,
 			paused: true,
 			positionMs: 0,
 			durationMs: 0,

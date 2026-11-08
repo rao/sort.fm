@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { TrackCard, PlaybackConnectionStatus } from "@sortfm/contracts";
-import type {
-	BrowserPlayerStore,
-	BrowserPlayerState,
+import {
+	type BrowserPlayerStore,
+	type BrowserPlayerState,
+	playbackMatchesTrack,
 } from "../state/browser-player";
 import { Cover, Icon } from "./ui";
 
@@ -166,7 +167,7 @@ export function BrowserPlaybackView(props: Props) {
 	const { state, track, connection, checking, error, now } = props;
 	const matching =
 		!!track?.spotifyUri &&
-		state.actualUri === track.spotifyUri &&
+		playbackMatchesTrack(state, track.spotifyUri) &&
 		state.selectedUri === track.spotifyUri;
 	const sdkReady = state.connection === "ready";
 	const ready = sdkReady && connection?.status === "ready";

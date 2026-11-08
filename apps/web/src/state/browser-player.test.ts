@@ -122,6 +122,177 @@ test("selection never plays until a user gesture and only matching SDK state con
 	expect(f.store.getSnapshot().actualUri).toBe(uri);
 	expect(f.store.getSnapshot().paused).toBe(false);
 });
+test.each(["read", "event"] as const)(
+	"delayed previous-track %s cannot stop an explicitly requested song on the same card",
+	async (source) => {
+		const f = fixture();
+		f.store.select(uri, true);
+		await f.store.enable();
+		f.gateway.play = async () => {
+			f.calls.push(`play:${uri}:browser-device`);
+			f.confirm(uri);
+		};
+		const previous = {
+			paused: false,
+			position: 1,
+			duration: 200000,
+			track_window: { current_track: { uri: next } },
+		};
+		if (source === "read") f.player.getCurrentState = async () => previous;
+		await f.store.play();
+		if (source === "event") f.emit("player_state_changed", previous);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(f.calls).not.toContain("pause");
+		expect(f.calls).not.toContain("disconnect");
+		// Unmatched metadata must stay honest and cannot grant selected-song controls.
+		expect(f.store.getSnapshot().actualUri).toBe(next);
+		await f.store.seek(60000);
+		expect(f.calls).not.toContain("seek:60000");
+		f.confirm(uri);
+		expect(f.store.getSnapshot().paused).toBe(false);
+		f.store.dispose();
+	},
+);
+test("a Spotify-relinked song keeps playing and supports controls using its explicit original identity", async () => {
+	const f = fixture();
+	f.store.select(uri, true);
+	await f.store.enable();
+	f.gateway.play = async () => {
+		f.calls.push(`play:${uri}:browser-device`);
+		const relinked = {
+			paused: false,
+			position: 1,
+			duration: 200000,
+			track_window: { current_track: { uri: next, linked_from: { uri } } },
+		};
+		f.emit("player_state_changed", relinked);
+	};
+	await f.store.play();
+	expect(f.calls).not.toContain("pause");
+	expect(f.store.getSnapshot().actualUri).toBe(next);
+	expect(f.store.getSnapshot().paused).toBe(false);
+	await f.store.seek(60000);
+	expect(f.calls).toContain("seek:60000");
+	await f.store.togglePause();
+	await f.store.togglePause();
+	expect(f.calls).toContain("pause");
+	expect(f.calls).toContain("resume");
+	expect(f.calls.filter((call) => call.startsWith("play:"))).toHaveLength(1);
+	f.store.dispose();
+});
+test("a failed follow-up SDK read cannot disconnect accepted and event-confirmed playback", async () => {
+	const f = fixture();
+	f.store.select(uri, true);
+	await f.store.enable();
+	f.gateway.play = async () => f.confirm(uri);
+	f.player.getCurrentState = async () => {
+		throw new Error("SDK state is temporarily unavailable");
+	};
+	await f.store.play();
+	expect(f.calls).not.toContain("disconnect");
+	expect(f.store.getSnapshot().connection).toBe("ready");
+	expect(f.store.getSnapshot().actualUri).toBe(uri);
+	expect(f.store.getSnapshot().paused).toBe(false);
+	expect(f.store.getSnapshot().busy).toBe(false);
+	f.store.dispose();
+});
+test.each(["pause", "resume", "seek", "mute"] as const)(
+	"a failed follow-up SDK read after %s keeps the player connected",
+	async (control) => {
+		const f = fixture();
+		f.store.select(uri, true);
+		await f.store.enable();
+		f.confirm(uri);
+		if (control === "resume") await f.store.togglePause();
+		f.player.getCurrentState = async () => {
+			throw new Error("SDK state is temporarily unavailable");
+		};
+		if (control === "seek") await f.store.seek(60000);
+		else if (control === "mute") await f.store.toggleMute();
+		else await f.store.togglePause();
+		expect(f.calls).toContain(
+			control === "seek"
+				? "seek:60000"
+				: control === "mute"
+					? "volume:0"
+					: control,
+		);
+		expect(f.calls).not.toContain("disconnect");
+		expect(f.store.getSnapshot().connection).toBe("ready");
+		expect(f.store.getSnapshot().busy).toBe(false);
+		f.store.dispose();
+	},
+);
+test("a genuine card change still pauses previous audio reported after the first pause", async () => {
+	const f = fixture();
+	f.store.select(uri, true);
+	await f.store.enable();
+	await f.store.play();
+	f.confirm(uri);
+	f.store.select(next, true);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(f.calls.filter((call) => call === "pause")).toHaveLength(1);
+	f.confirm(uri);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(f.calls.filter((call) => call === "pause")).toHaveLength(2);
+	expect(f.store.getSnapshot().paused).toBe(true);
+	expect(f.calls.filter((call) => call.startsWith("play:"))).toHaveLength(1);
+	f.store.dispose();
+});
+test.each(["seek", "mute"] as const)(
+	"a card change while %s authorization is pending still stops the previous song",
+	async (control) => {
+		const f = fixture();
+		f.store.select(uri, true);
+		await f.store.enable();
+		await f.store.play();
+		f.confirm(uri);
+		let release!: () => void;
+		f.gateway.authorize = () =>
+			new Promise<void>((resolve) => {
+				release = resolve;
+			});
+		const operation =
+			control === "seek" ? f.store.seek(60000) : f.store.toggleMute();
+		f.store.select(next, true);
+		release();
+		await operation;
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(f.calls).not.toContain(
+			control === "seek" ? "seek:60000" : "volume:0",
+		);
+		expect(f.calls.filter((call) => call === "pause")).toHaveLength(1);
+		expect(f.store.getSnapshot().paused).toBe(true);
+		expect(f.calls.filter((call) => call.startsWith("play:"))).toHaveLength(1);
+		f.store.dispose();
+	},
+);
+test.each(["different song", "null state", "device loss", "dispose"] as const)(
+	"a previous linked identity cannot authorize seeking after %s",
+	async (change) => {
+		const f = fixture();
+		f.store.select(uri, true);
+		await f.store.enable();
+		f.emit("player_state_changed", {
+			paused: false,
+			position: 1,
+			duration: 200000,
+			track_window: { current_track: { uri: next, linked_from: { uri } } },
+		});
+		await f.store.seek(60000);
+		expect(f.calls).toContain("seek:60000");
+		if (change === "different song")
+			f.confirm(`spotify:track:${"2".repeat(22)}`);
+		else if (change === "null state") f.emit("player_state_changed", null);
+		else if (change === "device loss")
+			f.emit("not_ready", { device_id: "browser-device" });
+		else f.store.dispose();
+		expect(f.store.getSnapshot().actualLinkedFromUri).toBeNull();
+		await f.store.seek(90000);
+		expect(f.calls).not.toContain("seek:90000");
+		f.store.dispose();
+	},
+);
 test("seek, pause and mute are playback-only and obey track identity", async () => {
 	const f = fixture();
 	f.store.select(uri, true);
@@ -299,7 +470,8 @@ test.each(["resume", "seek"] as const)(
 		expect(f.calls).not.toContain(
 			control === "resume" ? "resume" : "seek:90000",
 		);
-		expect(f.store.getSnapshot().paused).toBe(true);
+		expect(f.calls).not.toContain("pause");
+		expect(f.store.getSnapshot().actualUri).toBe(next);
 	},
 );
 

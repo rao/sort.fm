@@ -57,3 +57,10 @@ LinUCB can be selected in the same isolated instance after the first lifecycle p
 Root reran the guarded runtime against actual local Python ML and disposable PostgreSQL:162 assertions passed, including committed reward/fit receipts, Skip, Undo revocation, restart persistence, select-only outage fallback and explicit C1 rollback. The full merged regression passed1,027 tests /5,550 assertions plus13 actual database/runtime/Batch3 tests /818 assertions. Browser nonmutating Undo is corrected; real browser verification remains outstanding.
 
 Private real-account setup is prepared and copied under fresh restricted roles with migration016 only in the pilot schema. Target-only copy receipts and common eligibility/exclusion preflight passed. Production is still on015 and C1. No live pilot has started and no fresh login or real policy action is claimed. Local model bootstrap, source pause coordination and the browser acceptance sequence above are the remaining activation gates.
+
+
+## Final absence cleanup checkpoint
+
+The database correction in `923c747` passed independent review, root regression and actual PostgreSQL/local-ML checks. The real unpublished outage reservation then completed through the normal worker: both typed404 responses were observed and the release-absence acknowledgement succeeded. Passive readback found no pending delivery, forbidden training/review selection, duplicate live reservation or Spotify mutation; model and feedback state were synchronized and restored.
+
+The isolated API remains stopped after its original pause deadline. Engineering/browser lifecycle gates have passed, but a new user interaction window still requires a current source/exclusion manifest and explicit bounded coordination. Batch3 reservations must be included before restarting a copied pilot. Production remains deterministic C1 with C2 disabled.

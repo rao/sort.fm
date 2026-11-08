@@ -1,5 +1,5 @@
 import {expect,test} from 'bun:test';
-import {ExposureSchema,QueueItemSchema} from '../src';
+import {ExposureSchema,QueueItemSchema,PolicyReservationSnapshotSchema} from '../src';
 import {demoQueue} from '../src/fixtures';
 
 const telemetry={
@@ -31,4 +31,18 @@ test('policy telemetry rejects incoherent counts and reservation state',()=>{
 test('a committed Skip closes its original reservation without claiming an Undo',()=>{
  const result=ExposureSchema.safeParse({...demoQueue.items[0]!.exposure,policyTelemetry:{...telemetry,reservation:{...telemetry.reservation,status:'released',closedAt:telemetry.reservation.evaluatedAt,closureReason:'skip'}}});
  expect(result.success).toBe(true);
+});
+test('server clock rollback preserves durable reservation closure and the original deadline',()=>{
+ const r=telemetry.reservation,early='2026-11-08T01:59:59.000Z';
+ for(const snapshot of [
+  {...r,evaluatedAt:early},
+  {...r,evaluatedAt:early,status:'released',closedAt:early,closureReason:'explicit_release'},
+  {...r,evaluatedAt:early,status:'released',closedAt:r.evaluatedAt,closureReason:'undo'},
+  {...r,evaluatedAt:r.evaluatedAt,status:'expired',closedAt:r.expiresAt,closureReason:'expiry'},
+ ])expect<unknown>(PolicyReservationSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+ for(const snapshot of [
+  {...r,status:'released',closedAt:'2026-11-08T02:06:00.000Z',closureReason:'explicit_release'},
+  {...r,status:'expired',closedAt:r.evaluatedAt,closureReason:'expiry'},
+  {...r,status:'expired',closedAt:r.expiresAt,closureReason:'undo'},
+ ])expect(PolicyReservationSnapshotSchema.safeParse(snapshot).success).toBe(false);
 });

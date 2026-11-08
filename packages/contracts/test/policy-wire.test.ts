@@ -37,3 +37,10 @@ test('policy release never accepts model feedback or client expiry controls',()=
  expect(c.PolicyReleaseRequestSchema.safeParse({...request,label:0}).success).toBe(false);
  expect(c.PolicyReleaseRequestSchema.safeParse({...request,expiresAt:'2026-11-09T00:00:00Z'}).success).toBe(false);
 });
+test('a revision-pinned selection requires its actual model while legacy unpinned requests remain valid',()=>{
+ const request={userId:'demo:owner',featureVersion:contracts.FEATURE_VERSION,exposureId:id(3),candidates:[{trackId:'demo:track',features}]};
+ expect(c.PolicySelectRequestSchema.safeParse(request).success).toBe(true);
+ expect(c.PolicySelectRequestSchema.safeParse({...request,feedbackRevision:0}).success).toBe(false);
+ expect(c.PolicySelectRequestSchema.safeParse({...request,feedbackRevision:4,modelVersion:null}).success).toBe(false);
+ expect(c.PolicySelectRequestSchema.safeParse({...request,feedbackRevision:4,modelVersion:'c1-current'}).success).toBe(true);
+});

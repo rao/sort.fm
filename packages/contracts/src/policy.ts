@@ -17,7 +17,10 @@ export const PolicySelectRequestSchema=z.strictObject({
  userId:IdSchema,featureVersion:z.literal(FEATURE_VERSION),exposureId:UuidSchema,
  candidates:z.array(PolicyCandidateSchema).min(1).max(10000),modelVersion:version.nullable().default(null),
  feedbackRevision:count.optional(),seed:z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER).default(42),config:PolicyConfigSchema.default(()=>PolicyConfigSchema.parse({})),
-}).superRefine((r,ctx)=>{if(new Set(r.candidates.map(c=>c.trackId)).size!==r.candidates.length)ctx.addIssue({code:'custom',message:'Policy candidates require unique track identities'});});
+}).superRefine((r,ctx)=>{
+ if(new Set(r.candidates.map(c=>c.trackId)).size!==r.candidates.length)ctx.addIssue({code:'custom',message:'Policy candidates require unique track identities'});
+ if(r.feedbackRevision!==undefined&&r.modelVersion===null)ctx.addIssue({code:'custom',message:'A feedback revision requires its actual C1 model version'});
+});
 export type PolicySelectRequest=z.infer<typeof PolicySelectRequestSchema>;
 export const PolicySelectionSchema=z.strictObject({
  index:count,trackId:IdSchema,strategy:z.enum(['explore','exploit']),selectionMethod:z.enum(['linucb','epsilon_greedy','c1','random']),

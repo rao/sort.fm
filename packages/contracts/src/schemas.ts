@@ -81,12 +81,14 @@ export const PolicyReservationSnapshotSchema = z.strictObject({
   const start=Date.parse(r.reservedAt),end=Date.parse(r.expiresAt),at=Date.parse(r.evaluatedAt);
   const closed=r.closedAt===null?null:Date.parse(r.closedAt);
   const validDuration=end-start>=30_000&&end-start<=900_000;
+  // Wall clocks can move backward, including before a durable release. Keep
+  // terminal state and its original deadline; inspection never reopens a lease.
   const coherent=r.status==='active'
     ? closed===null&&r.closureReason===null&&at<end
     : r.status==='expired'
-      ? closed===end&&r.closureReason==='expiry'&&at>=end
-      : closed!==null&&closed>=start&&closed<=end&&closed<=at&&['explicit_release','undo','skip'].includes(r.closureReason??'');
-  if(!validDuration||at<start||!coherent)ctx.addIssue({code:'custom',message:'Policy reservation snapshot must preserve its bounded lifecycle'});
+      ? closed===end&&r.closureReason==='expiry'
+      : closed!==null&&closed<=end&&['explicit_release','undo','skip'].includes(r.closureReason??'');
+  if(!validDuration||!coherent)ctx.addIssue({code:'custom',message:'Policy reservation snapshot must preserve its bounded lifecycle'});
 });
 export type PolicyReservationSnapshot = z.infer<typeof PolicyReservationSnapshotSchema>;
 /** C2 utility/design quantities are not classifier probabilities or calibrated confidence. */

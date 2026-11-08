@@ -26,3 +26,6 @@ secrets/
 *.p12
 *.pfx
 *.joblib
+
+# Isolated UI design preview
+dist-draft/

@@ -22,6 +22,9 @@ dev = [
     "jsonschema>=4.23,<5",
     "pytest>=8,<10",
 ]
+research = [
+    "matplotlib>=3.9,<4",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sortfm_ml"]

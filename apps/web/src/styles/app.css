@@ -1,0 +1,6 @@
+/* Keep legacy screens below component utilities while migrating incrementally. */
+@layer theme, base, legacy, components, utilities;
+@import "./globals.css";
+@import "../styles.css" layer(legacy);
+@import "./sortfm-theme.css";
+@source "../";

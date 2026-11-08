@@ -1,0 +1,74 @@
+/* The desktop and its nested tables share the same square, inset scroll rails. */
+:where(
+		html:has(.draft-root),
+		html:has(.model-lab),
+		.draft-root *,
+		.model-lab *
+	) {
+	--scroll-track: var(--d-soft, var(--color-background-secondary-default));
+	--scroll-thumb: var(--r-chrome, var(--color-text-tertiary));
+	--scroll-edge: var(--r-edge, var(--color-border-button-default));
+	--scroll-light: var(--r-highlight, var(--color-background-primary-default));
+}
+:where(
+		html:has(.draft-root),
+		html:has(.model-lab),
+		.draft-root *,
+		.model-lab *
+	)::-webkit-scrollbar {
+	width: 12px;
+	height: 12px;
+}
+:where(
+		html:has(.draft-root),
+		html:has(.model-lab),
+		.draft-root *,
+		.model-lab *
+	)::-webkit-scrollbar-track {
+	background: var(--scroll-track);
+	border: 1px solid var(--scroll-edge);
+}
+:where(
+		html:has(.draft-root),
+		html:has(.model-lab),
+		.draft-root *,
+		.model-lab *
+	)::-webkit-scrollbar-thumb {
+	background: var(--scroll-thumb);
+	border: 2px solid var(--scroll-track);
+	border-radius: 2px;
+	box-shadow: inset 1px 1px 0 var(--scroll-light);
+}
+:where(
+		html:has(.draft-root),
+		html:has(.model-lab),
+		.draft-root *,
+		.model-lab *
+	)::-webkit-scrollbar-corner {
+	background: var(--scroll-track);
+}
+@supports not selector(::-webkit-scrollbar) {
+	:where(
+			html:has(.draft-root),
+			html:has(.model-lab),
+			.draft-root *,
+			.model-lab *
+		) {
+		scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+		scrollbar-width: thin;
+	}
+}
+@media (forced-colors: active) {
+	:where(
+			html:has(.draft-root),
+			html:has(.model-lab),
+			.draft-root *,
+			.model-lab *
+		) {
+		--scroll-track: Canvas;
+		--scroll-thumb: ButtonText;
+		--scroll-edge: ButtonText;
+		--scroll-light: Canvas;
+		scrollbar-color: auto;
+	}
+}

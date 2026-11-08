@@ -2,6 +2,21 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { ReviewAction } from "@sortfm/contracts";
 import { actionFromDrag, actionLabels, type QueueItem } from "../state/review";
 import { Cover, Icon, duration, savedDate, type IconName } from "./ui";
+import {
+	RiArchiveLine,
+	RiArrowUpLine,
+	RiHeartLine,
+	RiSubtractLine,
+} from "@remixicon/react";
+import { Button } from "#ui/components/base/buttons/button";
+import { cx } from "#ui/utils/cx";
+
+const actionStyles = {
+	ARCHIVE: { icon: RiArchiveLine, color: "text-review-archive" },
+	UNLIKE: { icon: RiSubtractLine, color: "text-review-unlike" },
+	SKIP: { icon: RiArrowUpLine, color: "text-review-skip" },
+	KEEP: { icon: RiHeartLine, color: "text-button-primary-foreground" },
+} as const;
 const icons: Record<ReviewAction, IconName> = {
 	KEEP: "heart",
 	ARCHIVE: "archive",
@@ -24,30 +39,48 @@ export function ActionButtons({
 	onAction: (action: ReviewAction) => void;
 }) {
 	return (
-		<div className="action-buttons">
+		<fieldset
+			className="mt-6 grid min-w-0 grid-cols-4 gap-2 border-0 p-0 sm:gap-3"
+			aria-label="Song decisions"
+		>
 			{(["ARCHIVE", "UNLIKE", "SKIP", "KEEP"] as const).map((action) => (
-				<button
-					type="button"
-					key={action}
-					disabled={
-						disabled ||
-						(!canRemove && (action === "ARCHIVE" || action === "UNLIKE"))
-					}
-					className={`action-button ${action.toLowerCase()}`}
-					onClick={() => onAction(action)}
-					aria-label={`${actionLabels[action]} song (${keys[action]})`}
-				>
-					<span className="action-circle">
-						<Icon name={icons[action]} size={23} />
+				<div key={action} className="flex min-w-0 flex-col items-center gap-2">
+					<Button
+						variant={action === "KEEP" ? "primary" : "secondary"}
+						leadingIcon={actionStyles[action].icon}
+						disabled={
+							disabled ||
+							(!canRemove && (action === "ARCHIVE" || action === "UNLIKE"))
+						}
+						className={cx(
+							"h-16 w-full flex-col gap-1 px-0 text-caption-1-semibold sm:px-1",
+							actionStyles[action].color,
+						)}
+						onClick={() => onAction(action)}
+						aria-label={`${actionLabels[action]} song (${keys[action]})`}
+						aria-keyshortcuts={
+							{
+								KEEP: "ArrowRight",
+								ARCHIVE: "ArrowLeft",
+								SKIP: "ArrowUp",
+								UNLIKE: "ArrowDown",
+							}[action]
+						}
+					>
+						{actionLabels[action]}
+					</Button>
+					<span
+						aria-hidden="true"
+						className="text-caption-2-medium text-text-tertiary"
+					>
+						{keys[action]}
 					</span>
-					<span>
-						{actionLabels[action]} <kbd>{keys[action]}</kbd>
-					</span>
-				</button>
+				</div>
 			))}
-		</div>
+		</fieldset>
 	);
 }
+
 export function SwipeCard({
 	item,
 	next,

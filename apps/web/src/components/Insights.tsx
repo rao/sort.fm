@@ -85,6 +85,9 @@ export function Insights({
 		<div className="page insights-page">
 			<header className="page-heading">
 				<span className="eyebrow">THE THINKING BEHIND THE QUEUE</span>
+				<a className="text-button" href="#/model">
+					Open Model Lab →
+				</a>
 				<h1>No black boxes. Just your taste.</h1>
 				<p>A clear view of what the model knows, and what it doesn't.</p>
 			</header>

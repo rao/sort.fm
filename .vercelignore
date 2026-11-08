@@ -23,6 +23,9 @@
 **/.env.*
 **/node_modules/**
 **/dist/**
+**/dist-draft/**
+**/.local
+**/.local/**
 **/coverage/**
 **/artifacts/**
 **/backups/**

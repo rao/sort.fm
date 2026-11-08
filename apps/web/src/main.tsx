@@ -3,7 +3,8 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ConnectedRoot } from "./components/Connected";
 import { createDemoClient, type DemoScenario } from "./data/demo-client";
-import "./styles.css";
+import { DirectionProvider } from "#ui/components/foundations/direction/direction";
+import "./styles/app.css";
 
 // Demo is an explicit entry point and never constructs a live client.
 // Fault fixtures are opt-in and scoped to this local demo adapter.
@@ -21,6 +22,8 @@ const isDemo =
 const client = isDemo ? createDemoClient({ scenario }) : null;
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>
-		{client ? <App client={client} /> : <ConnectedRoot />}
+		<DirectionProvider locale="en-US">
+			{client ? <App client={client} /> : <ConnectedRoot />}
+		</DirectionProvider>
 	</StrictMode>,
 );

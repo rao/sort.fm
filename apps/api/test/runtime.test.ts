@@ -25,3 +25,10 @@ test('invalid database configuration is isolated from the demo without disclosin
  expect((await runtime.app.inject({url:'/api/demo/bootstrap'})).statusCode).toBe(200);
  expect((await runtime.app.inject({url:'/api/health'})).json().capabilities.database).toBe(false);
 });
+
+test('configured adaptive policy cannot activate without durable policy storage',async()=>{
+ const runtime=await buildRuntime({env:{NODE_ENV:'test',C2_POLICY_ENABLED:'true',REVIEW_SELECTION_POLICY:'linucb'}});runtimes.push(runtime);
+ expect(runtime.startupIssues).toContain('POLICY_DATABASE_UNAVAILABLE');
+ expect((await runtime.app.inject({url:'/api/health'})).json().capabilities).toEqual({demo:true,spotify:false,database:false,ml:false});
+ expect((await runtime.app.inject({url:'/api/demo/bootstrap'})).statusCode).toBe(200);
+});

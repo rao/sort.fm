@@ -1,3 +1,4 @@
+import {ListeningContextSnapshotSchema,type CandidateAssemblySnapshot} from '@sortfm/contracts';
 import {CalibrationBatchCreateSchema,CalibrationBatchDraftSchema,CalibrationBatchSkipSchema,FeatureVectorSchema,IdSchema,ScoreResponseSchema,type CalibrationBatchStore,type CalibrationLibraryRow,type ScoringCandidate,type ScoreResponse} from '@sortfm/contracts';
 import {assembleLibraryCandidates} from '../ml/features';
 import {CalibrationError} from './errors';
@@ -5,6 +6,8 @@ import {BATCH_ALGORITHM,selectCalibrationBatch} from './batch-selection';
 export interface CalibrationBatchOptions {
  now?:()=>number;
  assemble?:(rows:CalibrationLibraryRow[],context:{userId:string;now:number})=>ScoringCandidate[];
+  /** Loads cached context once for a new batch; saved batches never invoke it. */
+  load?:(rows:CalibrationLibraryRow[],context:{userId:string;now:number})=>Promise<CandidateAssemblySnapshot>;
  score?:(userId:string,candidates:ScoringCandidate[],modelVersion?:string|null)=>Promise<ScoreResponse>;
  scoreTimeoutMs?:number;
 }
@@ -22,7 +25,9 @@ export class CalibrationBatchService {
   if(byId.size!==snapshot.library.length||eligible.size!==snapshot.eligibleTrackIds.length||[...eligible].some(id=>!byId.has(id)))throw new CalibrationError('BATCH_INVALID_SNAPSHOT','The candidate snapshot could not be verified.',503,true);
   if(eligible.size<70)throw new CalibrationError('BATCH_INSUFFICIENT_CANDIDATES','Batch 2 needs at least 70 never-reviewed eligible songs.',409);
   const context={userId,now:Date.parse(selectedAt)};
-  const assembled=this.options.assemble?this.options.assemble(snapshot.library,context):assembleLibraryCandidates(snapshot.library,{userId,now:selectedAt});
+  const loaded=this.options.load?await this.options.load(structuredClone(snapshot.library),context):{candidates:this.options.assemble?this.options.assemble(snapshot.library,context):assembleLibraryCandidates(snapshot.library,{userId,now:selectedAt})};
+  const assembled=loaded.candidates;
+  const listeningContext=loaded.listeningContext===undefined?undefined:ListeningContextSnapshotSchema.parse(loaded.listeningContext);
   if(assembled.length!==byId.size||new Set(assembled.map(c=>c.trackId)).size!==byId.size||assembled.some(c=>!byId.has(c.trackId)))throw new CalibrationError('BATCH_INVALID_SNAPSHOT','The candidate snapshot could not be verified.',503,true);
   const candidates=assembled.filter(c=>eligible.has(c.trackId)).map(c=>({trackId:c.trackId,features:FeatureVectorSchema.parse(c.features)}));
   let response:ScoreResponse;let timer:ReturnType<typeof setTimeout>|undefined;
@@ -32,7 +37,7 @@ export class CalibrationBatchService {
    if(response.userId!==userId||response.predictions.length!==candidates.length||new Set(response.predictions.map(p=>p.trackId)).size!==candidates.length||response.predictions.some(p=>!eligible.has(p.trackId)||p.prediction.modelVersion!==response.modelVersion||!['logistic','sgd_logistic'].includes(p.prediction.modelKind)||p.prediction.removalProbability===null))throw Error('incoherent model');
   }catch{throw new CalibrationError('BATCH_SCORING_UNAVAILABLE','Batch 2 needs a complete frozen C1 probability snapshot. Retry when the trained model is available.',503,true);}finally{clearTimeout(timer);}
   const scores=new Map(response.predictions.map(p=>[p.trackId,p.prediction]));
-  const frozen=candidates.map(c=>({track:byId.get(c.trackId)!.track,features:c.features,prediction:scores.get(c.trackId)!}));
+  const frozen=candidates.map(c=>({track:byId.get(c.trackId)!.track,features:c.features,prediction:scores.get(c.trackId)!,...(listeningContext?{listeningContext:structuredClone(listeningContext)}:{})}));
   let selection:ReturnType<typeof selectCalibrationBatch>;
   try{selection=selectCalibrationBatch(frozen,seed);}catch{throw new CalibrationError('BATCH_INSUFFICIENT_AMBIGUITY','Fewer than 20 unused songs have sufficiently ambiguous frozen C1 probabilities. No partial batch was saved.',409);}
   return this.store.createCalibrationBatch(userId,CalibrationBatchDraftSchema.parse({batchId:crypto.randomUUID(),seed,selectedAt,algorithmVersion:BATCH_ALGORITHM,modelVersion:response.modelVersion,candidates:frozen,...selection}));

@@ -1,3 +1,4 @@
+import {listeningSnapshot} from '../reviews/listening-test-fixtures';
 import {test,expect} from 'bun:test';
 import {CalibrationBatchService} from './batch-service';
 import {row,prediction,owner,now} from './test-fixtures';
@@ -23,4 +24,20 @@ test('resume uses the persisted batch without calling model or candidate source'
  const f=fixture();f.store.calibrationBatch=async()=>({seed:42,batchId:'saved'} as never);f.store.calibrationBatchCandidates=async()=>{throw Error('must not redraw');};
  expect(await new CalibrationBatchService(f.store,{score:f.score}).create(owner,{seed:42})).toMatchObject({batchId:'saved'});expect(f.calls()).toBe(0);
  await expect(new CalibrationBatchService(f.store,{score:f.score}).create(owner,{seed:43})).rejects.toMatchObject({code:'BATCH_SEED_CONFLICT'});
+});
+
+test('loads new batch candidates once, freezes values and never loads when resuming',async()=>{
+ const f=fixture();let loads=0;
+ const service=new CalibrationBatchService(f.store,{now:()=>now,score:f.score,
+  load:async(library,ctx)=>{loads++;await Bun.sleep(1);return {listeningContext:listeningSnapshot(ctx.now),candidates:library.map(r=>({trackId:r.track.trackId,features:{featureVersion:'sortfm.features.v1' as const,provenance:'spotify' as const,permittedForTraining:false,values:{recent_play_count:2}}}))};},
+  assemble:()=>{throw Error('legacy assembly must not run');},
+ });
+ await service.create(owner,{seed:42});expect(loads).toBe(1);expect(f.published()!.candidates.every(c=>c.features.values.recent_play_count===2)).toBe(true);expect(f.published()!.candidates.map(c=>c.listeningContext)).toEqual(f.published()!.candidates.map(()=>listeningSnapshot(now)));
+ f.store.calibrationBatch=async()=>({seed:42,batchId:'saved'} as never);
+ await service.create(owner,{seed:42});expect(loads).toBe(1);expect(f.calls()).toBe(1);
+});
+
+test('async assembly failure does not score or save a partial durable batch',async()=>{
+ const f=fixture();await expect(new CalibrationBatchService(f.store,{score:f.score,load:async()=>{throw Error('failed snapshot');}}).create(owner,{seed:42})).rejects.toThrow('failed snapshot');
+ expect(f.calls()).toBe(0);expect(f.published()).toBeUndefined();
 });

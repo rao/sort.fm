@@ -1,4 +1,4 @@
-import {CONTRACT_VERSION,FEATURE_VERSION,FeatureVectorSchema,PolicyConfigSchema,PolicySelectRequestSchema,QueueQuerySchema,QueueResultSchema,
+import {CONTRACT_VERSION,FEATURE_VERSION,ListeningContextSnapshotSchema,FeatureVectorSchema,PolicyConfigSchema,PolicySelectRequestSchema,QueueQuerySchema,QueueResultSchema,
   type AdaptiveSelectionDraft,type ExposureInput,type PolicyConfig,type PolicyStore,type QueuePolicy,type QueueResult,type ReviewCandidateSnapshot,type SelectionIntent} from '@sortfm/contracts';
 import {assembleLibraryCandidates} from '../../ml/features';
 import type {PolicyClient} from '../../ml/client';
@@ -74,7 +74,9 @@ export class PolicyQueueService {
     if(this.strategy!=='c1'&&this.options.client&&snapshot.fitReceipt
       &&snapshot.fitReceipt.synchronizedFeedbackRevision===snapshot.feedbackRevision&&snapshot.eligibleTrackIds.length<=10000) {
       const rows=snapshot.library,ids=new Set(snapshot.eligibleTrackIds),at=this.now();
-      const assembled=this.assemble(structuredClone(rows),{userId,now:at});
+      const loaded=this.options.load?await this.options.load(structuredClone(rows),{userId,now:at}):{candidates:this.assemble(structuredClone(rows),{userId,now:at})};
+      const assembled=loaded.candidates;
+      const listeningContext=loaded.listeningContext===undefined?undefined:ListeningContextSnapshotSchema.parse(loaded.listeningContext);
       const assembledIds=new Set(assembled.map(c=>c.trackId));
       if(assembled.length!==rows.length||assembledIds.size!==rows.length
         ||rows.some(row=>!assembledIds.has(row.track.trackId))||snapshot.eligibleTrackIds.some(id=>!assembledIds.has(id)))throw new Error('Candidate assembly must preserve queue identity');
@@ -84,7 +86,7 @@ export class PolicyQueueService {
         modelVersion:snapshot.fitReceipt.modelVersion,feedbackRevision:snapshot.fitReceipt.synchronizedFeedbackRevision,
         seed:this.options.seed??42,config,candidates:assembled.filter(c=>ids.has(c.trackId)).map(c=>({trackId:c.trackId,
           features:FeatureVectorSchema.parse(c.features),artistIds:[...new Set(tracks.get(c.trackId)!.artists.flatMap(a=>a.id?[a.id]:[]))].slice(0,20)}))});
-      const draft:AdaptiveSelectionDraft={kind:'adaptive',queuePolicy:query.policy,request:{...request,
+      const draft:AdaptiveSelectionDraft={kind:'adaptive',queuePolicy:query.policy,...(listeningContext?{listeningContext}:{}),request:{...request,
         modelVersion:snapshot.fitReceipt.modelVersion,feedbackRevision:snapshot.fitReceipt.synchronizedFeedbackRevision,config}};
       let intent:SelectionIntent|undefined;
       try {

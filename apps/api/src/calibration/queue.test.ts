@@ -1,3 +1,4 @@
+import {listeningSnapshot} from '../reviews/listening-test-fixtures';
 import {expect,test} from 'bun:test';
 import {FEATURE_VERSION,type ScoringCandidate} from '@sortfm/contracts';
 import {assembleLibraryCandidates} from '../ml/features';
@@ -77,4 +78,14 @@ test('empty queue does not score and a 2768-track missing-audio library remains 
  expect(result.items).toHaveLength(0);expect(result.fallbackReason).toBeNull();expect(calls).toBe(0);
  const f=fixture(Array.from({length:2768},(_,i)=>row(i+1)));
  const large=await new CalibrationQueue(f.store).get(owner,{limit:100});expect(large.items).toHaveLength(100);expect(large.remaining).toBe(2768);
+});
+
+test('awaits one full-library async load and keeps its features through scoring failure',async()=>{
+ const f=fixture();let loads=0;
+ await new CalibrationQueue(f.store,{now:()=>now,
+  load:async(rows,ctx)=>{loads++;expect(rows).toHaveLength(f.rows.length);await Bun.sleep(1);return {listeningContext:listeningSnapshot(ctx.now),candidates:assembleLibraryCandidates(rows,{userId:ctx.userId,now:new Date(ctx.now).toISOString()}).map(c=>({...c,features:{...c.features,values:{...c.features.values,recent_play_count:2}}}))};},
+  assemble:()=>{throw Error('legacy assembly must not run');},
+  score:async(_owner,candidates)=>{expect(loads).toBe(1);candidates[0]!.features.values.recent_play_count=99;throw Error('offline');},
+ }).get(owner,{limit:2});
+ expect(loads).toBe(1);expect(f.exposures).toHaveLength(2);expect(f.exposures.every(e=>e.features.values.recent_play_count===2)).toBe(true);expect(f.exposures.map(e=>e.listeningContext)).toEqual(f.exposures.map(()=>listeningSnapshot(now)));
 });

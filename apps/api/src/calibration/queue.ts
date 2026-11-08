@@ -1,3 +1,4 @@
+import {ListeningContextSnapshotSchema,type CandidateAssemblySnapshot} from '@sortfm/contracts';
 import {CALIBRATION_SELECTION_POLICY as POLICY,selectDiverseCalibrationRows} from './selection';
 import {CONTRACT_VERSION,FEATURE_VERSION,CalibrationQueueQuerySchema,CalibrationQueueResultSchema,FeatureVectorSchema,IdSchema,ScoreResponseSchema,type CalibrationStore,type CalibrationLibraryRow,type ScoringCandidate,type ScoreResponse,type Prediction} from '@sortfm/contracts';
 import {assembleLibraryCandidates} from '../ml/features';
@@ -5,6 +6,8 @@ import {CalibrationError} from './errors';
 export interface CalibrationQueueOptions {
  now?:()=>number;
  assemble?:(rows:CalibrationLibraryRow[],context:{userId:string;now:number})=>ScoringCandidate[];
+  /** Loads cached context once for a new batch; saved batches never invoke it. */
+  load?:(rows:CalibrationLibraryRow[],context:{userId:string;now:number})=>Promise<CandidateAssemblySnapshot>;
  score?:(userId:string,candidates:ScoringCandidate[])=>Promise<ScoreResponse>;
  scoreTimeoutMs?:number;
 }
@@ -26,7 +29,9 @@ export class CalibrationQueue {
    return row;
   });
   const now=(this.options.now??Date.now)(),context={userId,now};
-  const assembled=this.options.assemble?this.options.assemble(snapshot.library,context):assembleLibraryCandidates(snapshot.library,{userId,now:new Date(now).toISOString()});
+  const loaded=this.options.load?await this.options.load(structuredClone(snapshot.library),context):{candidates:this.options.assemble?this.options.assemble(snapshot.library,context):assembleLibraryCandidates(snapshot.library,{userId,now:new Date(now).toISOString()})};
+  const assembled=loaded.candidates;
+  const listeningContext=loaded.listeningContext===undefined?undefined:ListeningContextSnapshotSchema.parse(loaded.listeningContext);
   const features=new Map(assembled.map(c=>[c.trackId,c.features]));
   if(features.size!==byId.size||assembled.length!==byId.size||snapshot.library.some(r=>!features.has(r.track.trackId)))throw badSnapshot();
   const selected=selectDiverseCalibrationRows(rows,userId,query.limit);
@@ -60,7 +65,7 @@ export class CalibrationQueue {
   const result=CalibrationQueueResultSchema.parse({contractVersion:CONTRACT_VERSION,mode:'calibration',items,remaining:rows.length,nextCursor:null,fallbackReason:items.length?fallbackReason:null});
   // D rechecks purpose and current eligibility under its owner lock before insert.
   // A concurrent label may invalidate a partial page: do not return undurable IDs.
-  for(const [i,item] of result.items.entries())await this.store.insertCalibrationExposure({userId,exposure:item.exposure,prediction:item.prediction,features:candidates[i]!.features});
+  for(const [i,item] of result.items.entries())await this.store.insertCalibrationExposure({userId,exposure:item.exposure,prediction:item.prediction,features:candidates[i]!.features,...(listeningContext?{listeningContext:structuredClone(listeningContext)}:{})});
   return result;
  }
 }

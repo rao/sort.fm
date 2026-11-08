@@ -178,6 +178,8 @@ export class LibraryImporter {
       const seen = new Set<string>();
       for (const event of parsed.data.items) if (event.track && !seen.has(`${event.track.id}/${event.played_at}`)) {seen.add(`${event.track.id}/${event.played_at}`); context.events.push({trackId:event.track.id, playedAt:event.played_at});}
     } catch (error) {context.error = safeError(error).envelope();}
+    // The fetched sample may include plays that happened while the request was in flight.
+    context.fetchedAt = this.timestamp();
     return context;
   }
 }

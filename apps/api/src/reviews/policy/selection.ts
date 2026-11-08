@@ -33,6 +33,7 @@ export async function publishAdaptive(
     ||Date.parse(intent.expiresAt)<=now())throw new Error('POLICY_RESERVATION_UNAVAILABLE');
   const selection=decision.selection,prediction=decision.prediction;
   const item=ExposureInputSchema.parse({userId:intent.userId,features:decision.candidate.features,prediction,
+    ...(intent.draft.listeningContext?{listeningContext:structuredClone(intent.draft.listeningContext)}:{}),
     exposure:{exposureId:decision.exposureId,trackId:decision.trackId,policy:queuePolicy,
       selectionMethod:selection.selectionMethod==='c1'
         ? (prediction.removalProbability===null?'deterministic_baseline':'logistic_rank'):selection.selectionMethod,

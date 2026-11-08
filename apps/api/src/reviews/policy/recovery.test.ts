@@ -1,3 +1,4 @@
+import {listeningSnapshot} from '../listening-test-fixtures';
 import {expect,test} from 'bun:test';
 import type {PolicyStore,SelectionIntent,PublishSelectionInput} from '@sortfm/contracts';
 import type {PolicyClient} from '../../ml/client';
@@ -63,4 +64,13 @@ test('backward wall-clock movement does not invalidate an inspected active reser
   const s=setup();await new PolicySelectionRecoveryWorker(s.store,s.client,{now:()=>now-1000}).runOnce();
   expect(s.published).toHaveLength(1);expect(s.releases).toHaveLength(0);
   expect(s.published[0]).toMatchObject({kind:'adaptive',providerExpiresAt:policyInspection.reservation.expiresAt});
+});
+
+
+test('recovery publishes the original frozen listening coverage without loading a new sample',async()=>{
+ const s=setup();if(s.intent.draft.kind!=='adaptive')throw Error('fixture');
+ s.intent.draft.listeningContext=listeningSnapshot(now);
+ await new PolicySelectionRecoveryWorker(s.store,s.client,{now:()=>now+1000}).runOnce();
+ expect(s.published[0]).toMatchObject({kind:'adaptive',item:{listeningContext:listeningSnapshot(now)}});
+ expect(s.selected).toEqual([policyRequest]);
 });

@@ -244,3 +244,20 @@ test('pending destructive membership blocks publication and retries a fresh pass
   expect(await importer.status(userId)).toMatchObject({status:'failed',error:{code:'MEMBERSHIP_MUTATION_PENDING',retryable:true}});expect((await importer.summary(userId)).total).toBe(1);
   const before=store.data.jobs.get(userId)!.pass;blocked=false;now=30001;await importer.run(userId);expect((await importer.status(userId)).status).toBe('complete');expect(store.data.jobs.get(userId)!.pass).toBe(before+1);
 });
+
+test.each([false, true])('recent cache timestamp describes response completion (failure=%s)', async failure => {
+  let now = Date.parse('2026-11-07T12:00:00Z');
+  const store = new TestStore(), api = source(1), originalGet = api.get;
+  api.get = async (owner, path) => {
+    if (!path.startsWith('/me/player/recently-played')) return originalGet(owner, path);
+    now += 5_000;
+    if (failure) throw new SpotifyError('SPOTIFY_UNAVAILABLE', 'Unavailable', 503, true);
+    return {items:[{track:{id:id(0)}, played_at:new Date(now - 1_000).toISOString()}]};
+  };
+  const importer = worker(store, api, {now:() => now});
+  await importer.requestSync(userId); await importer.run(userId);
+  const context = store.data.taste.get(userId)!;
+  expect(context.fetchedAt).toBe(new Date(now).toISOString());
+  expect(context.error === null).toBe(!failure);
+  if (!failure) expect(Date.parse(context.events[0]!.playedAt)).toBeLessThanOrEqual(Date.parse(context.fetchedAt));
+});

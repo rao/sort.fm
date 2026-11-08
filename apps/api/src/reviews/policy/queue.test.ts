@@ -1,3 +1,4 @@
+import {listeningSnapshot} from '../listening-test-fixtures';
 import {expect,test} from 'bun:test';
 import {FEATURE_VERSION,type PolicyStore,type SelectionIntent,type ReviewCandidateSnapshot,type ExposureInput,type PolicyDecision} from '@sortfm/contracts';
 import {PolicyQueueService} from './queue';
@@ -208,4 +209,30 @@ test('a different concurrent prepare returns retryable409 without another select
       expect(preparations).toBe(1);expect(s.requests).toHaveLength(0);expect(s.published).toHaveLength(0);expect(s.released).toHaveLength(0);
     } finally {await app.close();}
   }
+});
+
+for(const strategy of ['c1','linucb'] as const)test(`${strategy} awaits one async full-library load; replay never reloads`,async()=>{
+ const s=setup();let loads=0;
+ const queue=new PolicyQueueService(s.store,{now:()=>now,enabled:true,strategy,client:s.client,
+  load:async(rows,ctx)=>{loads++;expect(rows).toHaveLength(3);expect(ctx.userId).toBe(owner);await Bun.sleep(1);return {listeningContext:listeningSnapshot(ctx.now),candidates:rows.map(r=>({trackId:r.track.trackId,features:{featureVersion:FEATURE_VERSION,provenance:'spotify',permittedForTraining:false,values:{recent_play_count:2}}}))};},
+  assemble:()=>{throw Error('legacy assembly must not run');},
+ });
+ const first=await queue.get(owner,query),second=await queue.get(owner,query);
+ expect(loads).toBe(1);expect(second.items).toEqual(first.items);
+ expect(s.current()!.publication!.items.every(item=>item.features.values.recent_play_count===2)).toBe(true);
+ expect(s.current()!.publication!.items.map(item=>item.listeningContext)).toEqual(s.current()!.publication!.items.map(()=>listeningSnapshot(now)));
+ if(strategy==='linucb')expect(s.current()!.draft).toMatchObject({listeningContext:listeningSnapshot(now)});
+ expect(JSON.stringify(first)).not.toContain('listeningContext');
+});
+
+test('a fresh C1 fallback may load a new batch while the abandoned adaptive draft stays frozen',async()=>{
+ const s=setup();let loads=0;
+ s.client.select=async()=>{throw Error('offline');};
+ await new PolicyQueueService(s.store,{now:()=>now,enabled:true,strategy:'linucb',client:s.client,
+  load:async rows=>{const count=++loads;return {listeningContext:listeningSnapshot(now),candidates:rows.map(r=>({trackId:r.track.trackId,features:{featureVersion:FEATURE_VERSION,provenance:'spotify',permittedForTraining:false,values:{recent_play_count:count}}}))};},
+ }).get(owner,query);
+ expect(loads).toBe(2);const first=s.intents[0]!.draft,last=s.intents[1]!.draft;
+ if(first.kind!=='adaptive'||last.kind!=='c1')throw Error('wrong draft kinds');
+ expect(first.request.candidates.every(c=>c.features.values.recent_play_count===1)).toBe(true);
+ expect(last.items.every(c=>c.features.values.recent_play_count===2)).toBe(true);
 });

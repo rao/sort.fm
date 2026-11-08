@@ -1,3 +1,4 @@
+import {ListeningContextSnapshotSchema,type CandidateAssemblySnapshot} from '@sortfm/contracts';
 import {CONTRACT_VERSION, FEATURE_VERSION, FeatureVectorSchema, QueueQuerySchema, QueueResultSchema, ScoreResponseSchema, type ExposureInput, type FeatureVector, type Prediction, type QueuePolicy, type QueueResult, type ScoringCandidate, type ScoreResponse, type TrackCard, type ReviewResult, type SavedTrackInput} from '@sortfm/contracts';
 import {SpotifyError} from '../spotify/errors';
 
@@ -10,6 +11,8 @@ export interface QueueRepository {
 export interface QueueOptions {
   now?:()=>number;
   assemble?:(rows:LibraryRow[],context:{userId:string;now:number})=>ScoringCandidate[];
+  /** Loads cached context once for a new batch; saved batches never invoke it. */
+  load?:(rows:LibraryRow[],context:{userId:string;now:number})=>Promise<CandidateAssemblySnapshot>;
   score?:(userId:string,candidates:ScoringCandidate[],modelVersion?:string|null)=>Promise<ScoreResponse>;
   /** One total deadline for pool scoring and the pinned selected-page snapshot. */
   scoreTimeoutMs?:number;
@@ -74,7 +77,9 @@ export class QueueService {
     const now=(this.options.now??Date.now)();
     // Context such as artist counts comes from the full current library, including
     // kept tracks. Only eligible rows enter ranking. No scorer can mutate snapshots.
-    const assembled=(this.options.assemble??assemble)(library,{userId,now});
+    const loaded=this.options.load?await this.options.load(structuredClone(library),{userId,now}):{candidates:(this.options.assemble??assemble)(library,{userId,now})};
+    const assembled=loaded.candidates;
+    const listeningContext=loaded.listeningContext===undefined?undefined:ListeningContextSnapshotSchema.parse(loaded.listeningContext);
     const byId=new Map(assembled.map(candidate=>[candidate.trackId,candidate]));
     if(byId.size!==library.length || assembled.length!==library.length || library.some(row=>!byId.has(row.track.trackId))) throw new Error('Candidate assembly must preserve queue identity');
     const pool=rows.map(({track})=>({trackId:track.trackId,features:FeatureVectorSchema.parse(byId.get(track.trackId)!.features)}));
@@ -122,7 +127,7 @@ export class QueueService {
     const result=QueueResultSchema.parse({contractVersion:CONTRACT_VERSION,mode:'spotify',items,remaining:rows.length,nextCursor:null,fallbackReason:items.length?fallbackReason:null});
     // Await durability before exposing IDs to a browser; partial writes are harmless
     // immutable observations if a later insert fails. Never return an unpersisted ID.
-    for(const [index,item] of items.entries()) await this.repository.insertExposure({userId,exposure:item.exposure,prediction:item.prediction,features:candidates[index]!.features});
+    for(const [index,item] of items.entries()) await this.repository.insertExposure({userId,exposure:item.exposure,prediction:item.prediction,features:candidates[index]!.features,...(listeningContext?{listeningContext:structuredClone(listeningContext)}:{})});
     return result;
   }
 }

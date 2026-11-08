@@ -1,3 +1,4 @@
+import {listeningSnapshot} from './listening-test-fixtures';
 import {expect, test} from 'bun:test';
 import Fastify from 'fastify';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
@@ -235,4 +236,36 @@ test('empty and oversized pools avoid upstream calls; large pools remain usable'
     expect(result.items).toHaveLength(Math.min(2,rows.length));
     if(rows.length)expect(result.fallbackReason).toContain('pool');
   }
+});
+
+test('awaits one async candidate load and preserves its features across pinned scoring', async () => {
+  let loads=0,scores=0;
+  const {service,stored}=setup(undefined,{
+    load:async(rows,ctx)=>{loads++;await Bun.sleep(1);return {listeningContext:listeningSnapshot(ctx.now),candidates:assembleLibraryCandidates(rows,{userId:ctx.userId,now:new Date(ctx.now).toISOString()}).map(c=>({...c,features:{...c.features,values:{...c.features.values,recent_play_count:3}}}))};},
+    assemble:()=>{throw Error('legacy assembly must not run');},
+    score:async(userId,candidates)=>{scores++;expect(loads).toBe(1);expect(candidates.every(c=>c.features.values.recent_play_count===3)).toBe(true);candidates[0]!.features.values.recent_play_count=99;return {userId,modelVersion:prediction.modelVersion,featureVersion:FEATURE_VERSION,predictions:candidates.map(c=>({trackId:c.trackId,prediction}))};},
+  });
+  await service.get('spotify:owner',{limit:2,policy:'balanced',mode:'spotify'});
+  expect(loads).toBe(1);expect(scores).toBe(2);expect(stored.every(e=>e.features.values.recent_play_count===3)).toBe(true);expect(stored.map(e=>e.listeningContext)).toEqual(stored.map(()=>listeningSnapshot(now)));
+});
+
+test('loader failures and corrupt coverage cannot publish misleading exposures',async()=>{
+ for(const invalid of [false,true]){
+  const f=setup(undefined,{load:async(rows,ctx)=>{
+   if(!invalid)throw Error('cache loader failed');
+   return {candidates:assembleLibraryCandidates(rows,{userId:ctx.userId,now:new Date(ctx.now).toISOString()}),listeningContext:{...listeningSnapshot(now),completeHistory:true} as never};
+  }});
+  await expect(f.service.get('spotify:owner',{limit:1,policy:'balanced',mode:'spotify'})).rejects.toThrow();expect(f.stored).toHaveLength(0);
+ }
+});
+
+test('coverage is detached from the loader before scoring and from each persisted exposure',async()=>{
+ const coverage=listeningSnapshot(now),expected=structuredClone(coverage);
+ const f=setup(undefined,{load:async(rows,ctx)=>({candidates:assembleLibraryCandidates(rows,{userId:ctx.userId,now:new Date(ctx.now).toISOString()}),listeningContext:coverage}),
+  score:async(userId,candidates)=>{coverage.cachedEventCount=50;return {userId,modelVersion:prediction.modelVersion,featureVersion:FEATURE_VERSION,predictions:candidates.map(c=>({trackId:c.trackId,prediction}))};},
+ });
+ const originalInsert=f.repository.insertExposure;
+ f.repository.insertExposure=async input=>{await originalInsert(input);input.listeningContext!.cachedEventCount=49;};
+ await f.service.get('spotify:owner',{limit:2,policy:'balanced',mode:'spotify'});
+ expect(f.stored.map(e=>e.listeningContext)).toEqual([expected,expected]);
 });

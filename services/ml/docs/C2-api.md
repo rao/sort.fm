@@ -1,4 +1,10 @@
-# C2 service-local API and integration gates
+# Historical C2 v1/v2 API and integration gates
+
+This records the original online-observation client and lease implementation.
+For current v3 snapshot integration, revision pinning, common eligibility,
+association-only feedback, and storage migration, use [C2-association-api.md](C2-association-api.md).
+In particular, the historical C1 filtering bypass and pending adapter proposal
+below are superseded; current integrated clients use `/fit` + `/policy/associate`.
 
 Implemented and tested inside `services/ml`; public API/TypeScript/Tiger Data adoption belongs to the integration lead. No shared contracts or other owners' modules were changed. Contract `1.0.0`, feature version `sortfm.features.v1` and C1 model/engine formats remain unchanged. Exact local schemas are in `src/sortfm_ml/policy_schemas.py` and the service's OpenAPI document.
 

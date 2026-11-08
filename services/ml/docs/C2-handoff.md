@@ -1,5 +1,9 @@
 # C2 integration handoff
 
+This is the historical 0.3.1 handoff. The follow-up snapshot integration protocol
+and verification are documented in [C2-protocol-handoff.md](C2-protocol-handoff.md); its v3 decisions
+and schema 3 supersede the adapter gate and C1 filtering bypass described below.
+
 Branch `c2-contextual-bandit`, worktree `sort.fm-c2`, approved starting foundation `9dab2fa` (includes C1/A1). Package `0.3.1`. Changes are confined to `services/ml/**`; no merge performed. C1 ENGINE_VERSION/model formats, shared contract `1.0.0` and feature version `sortfm.features.v1` remain unchanged. **Production C2 activation remains disabled.**
 
 ## Delivered

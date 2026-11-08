@@ -75,6 +75,27 @@ const playerControls = {
 	showDetails: true,
 };
 
+test("the review footer distinguishes a pending save from loading the next card", async () => {
+	const { state } = await playerState();
+	const saving = renderToStaticMarkup(
+		<ReviewPlayer
+			{...playerControls}
+			state={{ ...state, busy: true }}
+			canRemove
+		/>,
+	);
+	expect(saving).toContain("Saving your choice…");
+	const loading = renderToStaticMarkup(
+		<ReviewPlayer
+			{...playerControls}
+			state={{ ...state, refreshing: true }}
+			canRemove
+		/>,
+	);
+	expect(loading).toContain("Loading your next song…");
+	expect(loading).not.toContain("Saving your choice…");
+});
+
 test("real review device displays Spotify metadata without fictional artwork substitution", async () => {
 	const { state } = await playerState();
 	state.queue[0]!.track.title = "Actual saved song";

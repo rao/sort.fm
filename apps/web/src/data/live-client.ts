@@ -71,6 +71,14 @@ export type LiveSnapshot = {
 	insights: InsightsData | null;
 	warnings: string[];
 };
+export type LiveReviewSnapshot = Pick<
+	LiveSnapshot,
+	"session" | "queue" | "summary"
+>;
+export type LiveDetails = Pick<
+	LiveSnapshot,
+	"history" | "historyHasMore" | "insights" | "warnings"
+>;
 export interface Journal {
 	read(): PendingCommand | null;
 	write(command: PendingCommand): void;
@@ -78,6 +86,8 @@ export interface Journal {
 }
 export interface LiveGateway {
 	snapshot(): Promise<LiveSnapshot>;
+	reviewSnapshot(): Promise<LiveReviewSnapshot>;
+	details(): Promise<LiveDetails>;
 	journal: Journal;
 	api: LiveApi;
 	session: AccountSession;
@@ -176,8 +186,12 @@ export function createLiveApi(
 	const shared = createApiClient({ baseUrl: base, fetch: boundedFetch });
 	const inFlight = new Map<string, Promise<unknown>>();
 	// Deduplicate concurrent reads only. No account data survives this API instance.
-	function read<T>(key: string, operation: () => Promise<T>): Promise<T> {
-		const existing = inFlight.get(key);
+	function read<T>(
+		key: string,
+		operation: () => Promise<T>,
+		fresh = false,
+	): Promise<T> {
+		const existing = !fresh && inFlight.get(key);
 		if (existing) return existing as Promise<T>;
 		const request = operation()
 			.catch(async (error) => {
@@ -189,8 +203,10 @@ export function createLiveApi(
 					throw error;
 				return operation();
 			})
-			.finally(() => inFlight.delete(key));
-		inFlight.set(key, request);
+			.finally(() => {
+				if (inFlight.get(key) === request) inFlight.delete(key);
+			});
+		if (!fresh) inFlight.set(key, request);
 		return request;
 	}
 	async function extra<T>(
@@ -241,7 +257,8 @@ export function createLiveApi(
 			return read(`queue:${JSON.stringify(parsed)}`, () => shared.queue(parsed));
 		},
 		authUrl: `${base}${PUBLIC_ROUTES.authStart.path}`,
-		session: () => read("session", shared.session),
+		session: (options?: { fresh?: boolean }) =>
+			read("session", shared.session, options?.fresh),
 		summary: () => read("summary", () => extra(PUBLIC_ROUTES.librarySummary)),
 		importStatus: () => read("import", () => extra(PUBLIC_ROUTES.syncStatus)),
 		startImport: () => extra(PUBLIC_ROUTES.sync),
@@ -250,8 +267,10 @@ export function createLiveApi(
 		play: async (trackUri: string) =>
 			extra(PUBLIC_ROUTES.play, PlayRequestSchema.parse({ trackUri })),
 		retrain: () => extra(PUBLIC_ROUTES.retrain),
-		insights: () => read("insights", shared.insights),
-		history: () => read("history", shared.history),
+		insights: (options?: { fresh?: boolean }) =>
+			read("insights", shared.insights, options?.fresh),
+		history: (options?: { fresh?: boolean }) =>
+			read("history", shared.history, options?.fresh),
 	};
 }
 export type LiveApi = ReturnType<typeof createLiveApi>;
@@ -265,7 +284,9 @@ export function createLiveClient(
 		throw new Error("Connect Spotify to review your library.");
 	const ownerId = session.user.id;
 	async function assertOwner(write = false) {
-		const current = await api.session();
+		// A prior background read must not authorize a later mutation after an
+		// account switch. Check the owner anew at every operation boundary.
+		const current = await api.session({ fresh: true });
 		if (current.mode !== "spotify" || current.user?.id !== ownerId)
 			throw new ApiError(401, {
 				code: "SESSION_CHANGED",
@@ -283,19 +304,10 @@ export function createLiveClient(
 			});
 		return current;
 	}
-	async function snapshot(): Promise<LiveSnapshot> {
-		const current = await assertOwner();
-		const [queue, summary, history, insights] = await Promise.all([
+	async function readReview(current: AccountSession): Promise<LiveReviewSnapshot> {
+		const [queue, summary] = await Promise.all([
 			api.queue({ mode: "spotify", limit: 20, policy: "balanced" }),
 			api.summary(),
-			api
-				.history()
-				.then((data) => ({ data, error: null }))
-				.catch((error) => ({ data: null, error })),
-			api
-				.insights()
-				.then((data) => ({ data, error: null }))
-				.catch((error) => ({ data: null, error })),
 		]);
 		if (
 			queue.mode !== "spotify" ||
@@ -306,6 +318,21 @@ export function createLiveClient(
 			)
 		)
 			throw new Error("A live queue returned demo data. Review is paused.");
+		return { session: current, queue, summary };
+	}
+	async function readDetails(): Promise<LiveDetails> {
+		// These reads may outlive a confirmed command. Never reuse an earlier
+		// refresh's in-flight metadata for a newer command or recovery snapshot.
+		const [history, insights] = await Promise.all([
+			api
+				.history({ fresh: true })
+				.then((data) => ({ data, error: null }))
+				.catch((error) => ({ data: null, error })),
+			api
+				.insights({ fresh: true })
+				.then((data) => ({ data, error: null }))
+				.catch((error) => ({ data: null, error })),
+		]);
 		for (const result of [history, insights])
 			if (isUnauthorized(result.error)) throw result.error;
 		let safeInsights: InsightsData | null = insights.data;
@@ -321,9 +348,6 @@ export function createLiveClient(
 		if (history.data?.items.some((item) => item.mode !== "spotify"))
 			throw new Error("Live history returned demo decisions.");
 		return {
-			session: current,
-			queue,
-			summary,
 			history: history.data?.items ?? null,
 			historyHasMore: !!history.data?.nextCursor,
 			insights: safeInsights,
@@ -333,8 +357,26 @@ export function createLiveClient(
 			].filter(Boolean) as string[],
 		};
 	}
+	async function snapshot(): Promise<LiveSnapshot> {
+		const current = await assertOwner();
+		const [review, details] = await Promise.all([
+			readReview(current),
+			readDetails(),
+		]);
+		return { ...review, ...details };
+	}
 	return {
-		live: { snapshot, journal, api, session },
+		live: {
+			snapshot,
+			reviewSnapshot: async () => readReview(await assertOwner()),
+			details: async () => {
+				await assertOwner();
+				return readDetails();
+			},
+			journal,
+			api,
+			session,
+		},
 		demoBootstrap: async () => {
 			throw new Error("Demo bootstrap is not available in a live session.");
 		},

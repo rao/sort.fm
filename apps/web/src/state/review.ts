@@ -13,6 +13,8 @@ import {
 	errorMessage,
 	isUnauthorized,
 	type LiveSnapshot,
+	type LiveDetails,
+	type LiveReviewSnapshot,
 	type LibrarySummary,
 	type InsightsData,
 	isEmptyModelEvaluation,
@@ -119,6 +121,7 @@ export class ReviewStore {
 	};
 	private listeners = new Set<() => void>();
 	private ownerId: string | null;
+	private readRevision = 0;
 	constructor(
 		private client: ReviewClient,
 		private settleMs = 0,
@@ -144,6 +147,7 @@ export class ReviewStore {
 			this.state.bootstrap
 		)
 			return;
+		this.readRevision++;
 		this.update({ loading: true, error: null });
 		try {
 			if (this.client.live) {
@@ -223,6 +227,66 @@ export class ReviewStore {
 			refreshError: null,
 		});
 	}
+	private async refreshDetails(revision: number) {
+		const live = this.client.live;
+		if (!live || revision !== this.readRevision) return;
+		try {
+			const details = await live.details();
+			if (revision !== this.readRevision) return;
+			this.applyDetails(details);
+		} catch (error) {
+			if (revision === this.readRevision)
+				this.update({ refreshError: errorMessage(error) });
+		}
+	}
+	private applyReviewSnapshot(snapshot: LiveReviewSnapshot) {
+		this.update({
+			bootstrap: {
+				session: snapshot.session,
+				queue: snapshot.queue,
+				metrics: this.state.bootstrap?.metrics ?? null,
+				notice: "Connected to Spotify. Confirmed changes update your library.",
+			},
+			queue: snapshot.queue.items,
+			summary: snapshot.summary,
+			remaining: snapshot.queue.remaining,
+			refreshError: null,
+		});
+	}
+	private applyDetails(details: LiveDetails) {
+		const bootstrap = this.state.bootstrap;
+		if (
+			bootstrap?.session.mode !== "spotify" ||
+			bootstrap.session.user?.id !== this.ownerId
+		)
+			return;
+		const known = new Map<string, QueueItem>();
+		for (const entry of this.state.history)
+			if (entry.item) known.set(entry.item.exposure.exposureId, entry.item);
+		for (const item of this.state.queue)
+			known.set(item.exposure.exposureId, item);
+		// Background reads only update optional views. They cannot restore an old
+		// queue, clear a command's journal/lock, or dismiss a foreground error.
+		this.update({
+			bootstrap: {
+				...bootstrap,
+				metrics:
+					details.insights === null ? bootstrap.metrics : details.insights.metrics,
+			},
+			insights: details.insights,
+			history:
+				details.history === null
+					? this.state.history
+					: details.history.map((result) => ({
+							result,
+							item: known.get(result.exposureId) ?? null,
+						})),
+			historyHasMore:
+				details.history === null ? this.state.historyHasMore : details.historyHasMore,
+			warnings: details.warnings,
+			...(details.insights?.metrics ? { retrainError: null } : {}),
+		});
+	}
 	async retrain() {
 		const live = this.client.live;
 		if (
@@ -237,6 +301,7 @@ export class ReviewStore {
 			this.state.retrainError
 		)
 			return;
+		this.readRevision++;
 		this.update({ retraining: true, retrainError: null, retrainNotice: "" });
 		try {
 			const session = await live.api.session();
@@ -286,6 +351,7 @@ export class ReviewStore {
 			this.state.retry
 		)
 			return;
+		this.readRevision++;
 		this.update({ refreshing: true });
 		try {
 			this.applySnapshot(await this.client.live.snapshot());
@@ -305,6 +371,7 @@ export class ReviewStore {
 			!this.state.retry
 		)
 			return;
+		this.readRevision++;
 		this.update({ refreshing: true });
 		try {
 			const command = this.state.retry;
@@ -381,6 +448,8 @@ export class ReviewStore {
 	}
 	private async run(command: RetryCommand) {
 		const recovering = this.state.retry !== null;
+		const revision = ++this.readRevision;
+		let refreshDetails = false;
 		// Set the guard before the first await: keyboard, pointer and clicks share one lock.
 		this.update({
 			busy: true,
@@ -426,6 +495,7 @@ export class ReviewStore {
 					setTimeout(resolve, this.settleMs),
 				);
 				this.update({
+					departure: null,
 					queue: this.state.queue.filter(
 						(candidate) => candidate.track.trackId !== command.request.trackId,
 					),
@@ -485,7 +555,9 @@ export class ReviewStore {
 			if (this.client.live) {
 				try {
 					this.client.live.journal.clear();
-					this.applySnapshot(await this.client.live.snapshot());
+					this.update({ busy: false, refreshing: true, departure: null });
+					this.applyReviewSnapshot(await this.client.live.reviewSnapshot());
+					refreshDetails = true;
 				} catch (error) {
 					this.update({
 						refreshError: `Your command was confirmed. Refresh the library before continuing: ${errorMessage(error)}`,
@@ -570,7 +642,8 @@ export class ReviewStore {
 				}
 			}
 		} finally {
-			this.update({ busy: false, departure: null });
+			this.update({ busy: false, refreshing: false, departure: null });
 		}
+		if (refreshDetails) void this.refreshDetails(revision);
 	}
 }

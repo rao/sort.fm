@@ -570,10 +570,23 @@ test("C1 empty evaluation preserves audio through first feedback, Undo-to-empty 
 		);
 		expect(store.getSnapshot().warnings).toEqual([]);
 	};
+	const waitForLabels = (count: number) =>
+		new Promise<void>((resolve) => {
+			const unsubscribe = store.subscribe(() => {
+				if (store.getSnapshot().bootstrap?.metrics?.labeledExamples === count) {
+					unsubscribe();
+					resolve();
+				}
+			});
+		});
 	expectEmpty();
+	const feedbackReady = waitForLabels(1);
 	await store.decide("KEEP");
+	await feedbackReady;
 	expect(store.getSnapshot().bootstrap?.metrics?.labeledExamples).toBe(1);
+	const emptyReady = waitForLabels(0);
 	await store.undo(f.history[0]!.decisionId);
+	await emptyReady;
 	expect(store.getSnapshot().history[0]?.result.labelState).toBe("revoked");
 	expectEmpty();
 	await store.refresh();

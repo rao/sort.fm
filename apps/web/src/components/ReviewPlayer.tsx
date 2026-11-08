@@ -179,7 +179,9 @@ export function ReviewPlayer({
 					<span>
 						{state.busy
 							? "Saving your choice…"
-							: "Drag the sleeve. Follow your instinct."}
+							: state.refreshing
+								? "Loading your next song…"
+								: "Drag the sleeve. Follow your instinct."}
 					</span>
 					<button
 						type="button"

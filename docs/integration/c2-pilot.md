@@ -4,6 +4,14 @@ Production continues to use `C2_POLICY_ENABLED=false` and `REVIEW_SELECTION_POLI
 
 ## Evidence and limits
 
+### Real-account verification checkpoint
+
+The isolated loopback stack now has real browser/account evidence: fresh OAuth, C1 queue replay, adaptive KEEP with exactly one new supervised example and one eligible reward, Undo removing both effects, Skip with no reward, and duplicate command replay without duplicate durable effects. An ordinary held-out cleanup label supplied neither training nor a policy reward. A subsequent selection recorded actual epsilon-greedy exploitation telemetry with a known propensity; this does not demonstrate improved policy performance or a random exploratory selection.
+
+API and ML process restarts preserved stored decisions, model identity and revoked rewards. Natural expiry closed the original reservation. A real expired-card submission produced no decision, and the UI refreshed without repeating the rejected write. Injecting failure only into policy selection yielded usable C1 fallback cards; explicit C1-only rollback also rendered the signed-in review queue. Model Lab displayed the current model and recorded policy quantities without fabricated evaluation values. Permanent exclusion, duplicate-live-reservation and Spotify-mutation violation counts remained zero in every captured report. Private account evidence, IDs and artifacts remain outside Git.
+
+The API stopped automatically at the acknowledged source-pause deadline. The original expiry release and both Undo deliveries completed. One *different*, unpublished failed-selection cleanup event remained. A release-only check after its grace period obtained both required typed404 responses, but database acknowledgement rejected the receipt. A read-only clock measurement found the database slightly ahead of the local worker: a fast local inspection can therefore appear earlier than the database lease start. A/D are reviewing a narrow correction with database-authoritative grace and bounded clock-skew handling. No model feedback was lost, and no receipt was fabricated. This remains a pilot NO-GO until corrected and verified. New pilot selections require fresh source coordination. Production remains C1 on its existing database/ML deployment. The earlier table below retains the component-test evidence; its browser-only gaps are superseded by this checkpoint.
+
 | Gate | Verified evidence | Remaining live proof |
 | --- | --- | --- |
 | Expired card recovery | API409 is emitted before command creation; frontend refreshes only a definitively rejected first attempt. Ambiguous, pending, and restored journals retain their command identity. Fresh verification passed seven API tests and41 web recovery/telemetry tests. The combined lifecycle test expires a real ML lease, verifies409 creates no decision or association, and reselects with a fresh exposure ID. | Observe a real pilot card expire and refresh in the browser without repeating a write. |

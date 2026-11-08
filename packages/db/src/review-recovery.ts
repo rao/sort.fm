@@ -1,3 +1,4 @@
+import {assertPilotDecision} from './review-exclusions';
 import type {ReviewResult,MutationTransitionInput,UndoCommandInput} from '@sortfm/contracts';
 import {Database,PersistenceError,json,type Transaction} from './client';
 export type ReviewLeaseIdentity={userId:string;leaseId:string};
@@ -30,13 +31,13 @@ export class ReviewRecoveryRepository {
   duration(leaseMs);validTime(now);if(!workerId||workerId.length>128)fail('INVALID_REVIEW_LEASE');
   return this.db.transaction(async tx=>{
    // Lock the owner first, consistently with command creation and settlement. SKIP LOCKED permits independent users.
-   const [owner]=await tx`SELECT u.id FROM users u WHERE EXISTS(SELECT 1 FROM review_work w WHERE w.user_id=u.id AND w.completed_at IS NULL AND w.available_at<=clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM review_work_leases l WHERE l.user_id=u.id AND l.lease_until>clock_timestamp()) ORDER BY u.id FOR UPDATE OF u SKIP LOCKED LIMIT 1`;
+   const [owner]=await tx`SELECT u.id FROM users u WHERE (${this.db.reviewExclusions?.ownerId??null}::text IS NULL OR u.id=${this.db.reviewExclusions?.ownerId??null}) AND EXISTS(SELECT 1 FROM review_work w WHERE w.user_id=u.id AND w.completed_at IS NULL AND w.available_at<=clock_timestamp()) AND NOT EXISTS(SELECT 1 FROM review_work_leases l WHERE l.user_id=u.id AND l.lease_until>clock_timestamp()) ORDER BY u.id FOR UPDATE OF u SKIP LOCKED LIMIT 1`;
    if(!owner)return null;
    // Recheck in a new statement snapshot after taking the owner lock. A competing claim may
    // have committed between the selection snapshot and acquisition of this lock.
    if((await tx`SELECT 1 FROM review_work_leases WHERE user_id=${owner.id} AND lease_until>clock_timestamp()`).length)return null;
    const [work]=await tx`SELECT w.*,d.result FROM review_work w JOIN review_decisions d USING(user_id,decision_id) WHERE w.user_id=${owner.id} AND w.completed_at IS NULL AND w.available_at<=clock_timestamp() ORDER BY w.created_at,w.command_id LIMIT 1`;
-   if(!work)return null;const leaseId=crypto.randomUUID();
+   if(!work)return null;await assertPilotDecision(tx,this.db.reviewExclusions,owner.id,work.decision_id);const leaseId=crypto.randomUUID();
    await tx`INSERT INTO review_work_leases(user_id,command_id,lease_id,lease_until,worker_id) VALUES(${owner.id},${work.command_id},${leaseId},clock_timestamp()+${leaseMs}*interval '1 millisecond',${workerId}) ON CONFLICT(user_id) DO UPDATE SET command_id=excluded.command_id,lease_id=excluded.lease_id,lease_until=excluded.lease_until,worker_id=excluded.worker_id`;
    const mutation=snapshot((await tx`SELECT * FROM spotify_mutations WHERE user_id=${owner.id} AND decision_id=${work.decision_id}`)[0]);
    return {userId:owner.id,decisionId:work.decision_id,operation:work.operation,commandId:work.command_id,leaseId,result:work.result,mutation};
@@ -62,8 +63,8 @@ export class ReviewRecoveryRepository {
  });}
  async getMutation(userId:string,decisionId:string):Promise<MutationSnapshot|null>{return this.db.transaction(async tx=>snapshot((await tx`SELECT * FROM spotify_mutations WHERE user_id=${userId} AND decision_id=${decisionId}`)[0]));}
  async getPendingUndo(userId:string,decisionId:string):Promise<UndoCommandInput|null>{return this.db.transaction(async tx=>(await tx`SELECT payload FROM undo_commands WHERE user_id=${userId} AND decision_id=${decisionId} AND settled_at IS NULL`)[0]?.payload??null);}
- async getDecisionByIdempotencyKey(userId:string,key:string):Promise<ReviewResult|null>{return this.db.transaction(async tx=>(await tx`SELECT result FROM review_decisions WHERE user_id=${userId} AND idempotency_key=${key}`)[0]?.result??null);}
- async getUndoByIdempotencyKey(userId:string,key:string):Promise<UndoCommandInput|null>{return this.db.transaction(async tx=>(await tx`SELECT payload FROM undo_commands WHERE user_id=${userId} AND idempotency_key=${key}`)[0]?.payload??null);}
+ async getDecisionByIdempotencyKey(userId:string,key:string):Promise<ReviewResult|null>{return this.db.transaction(async tx=>{this.db.reviewExclusions?.assertOwner(userId);const [d]=await tx`SELECT decision_id,result FROM review_decisions WHERE user_id=${userId} AND idempotency_key=${key}`;if(d)await assertPilotDecision(tx,this.db.reviewExclusions,userId,d.decision_id);return d?.result??null;});}
+ async getUndoByIdempotencyKey(userId:string,key:string):Promise<UndoCommandInput|null>{return this.db.transaction(async tx=>{this.db.reviewExclusions?.assertOwner(userId);const [u]=await tx`SELECT decision_id,payload FROM undo_commands WHERE user_id=${userId} AND idempotency_key=${key}`;if(u)await assertPilotDecision(tx,this.db.reviewExclusions,userId,u.decision_id);return u?.payload??null;});}
  async getReviewEffect(lease:ReviewLeaseIdentity,kind:ReviewEffectRequest['kind']):Promise<ReviewEffect|null>{return this.db.transaction(async tx=>{
   const work=await assertReviewLease(tx,lease.userId,null,lease);const key=effectKey(work,kind);
   const [row]=await tx`SELECT * FROM review_effects WHERE user_id=${lease.userId} AND effect_key=${key}`;return row?effect(row):null;

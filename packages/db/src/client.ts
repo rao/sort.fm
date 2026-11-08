@@ -1,10 +1,14 @@
 import {SQL, type TransactionSQL} from 'bun';
+import {createReviewExclusionPolicy,type ReviewExclusionManifest,type ReviewExclusionPolicy} from './review-exclusions';
 export type Transaction = TransactionSQL;
 export class Database {
  readonly sql: SQL;
- constructor(url: string, readonly schema='sortfm') {
+ readonly reviewExclusions:ReviewExclusionPolicy|undefined;
+ constructor(url: string, readonly schema='sortfm',options:{reviewExclusions?:ReviewExclusionManifest}={}) {
   if(!/^[a-z][a-z0-9_]{0,62}$/.test(schema)) throw new Error('INVALID_DATABASE_SCHEMA');
   if(!/^postgres(?:ql)?:\/\//.test(url)) throw new Error('DATABASE_URL_REQUIRED');
+  this.reviewExclusions=options.reviewExclusions===undefined?undefined:createReviewExclusionPolicy(schema,options.reviewExclusions);
+  if(this.reviewExclusions){Object.defineProperty(this,'reviewExclusions',{value:this.reviewExclusions,writable:false,configurable:false});Object.defineProperty(this,'schema',{value:schema,writable:false,configurable:false});}
   this.sql=new SQL(url,{prepare:false,max:8,connectionTimeout:10,idleTimeout:30});
  }
  async transaction<T>(work:(tx:Transaction)=>Promise<T>,serializable=false):Promise<T> {

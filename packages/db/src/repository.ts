@@ -1,3 +1,4 @@
+import {assertPublishedReviewExposure,assertPilotAction,assertPilotDecision} from './review-exclusions';
 import {
  TrackInputSchema,SavedTrackInputSchema,ExposureInputSchema,DecisionInputSchema,UndoCommandInputSchema,ReviewResultSchema,MutationTransitionInputSchema,
  ModelRunInputSchema,ImportProgressInputSchema,TelemetryInputSchema,FEATURE_VERSION,AccountSessionSchema,
@@ -45,16 +46,16 @@ export class Repository extends ReviewRecoveryRepository {
  async reservedCalibrationTrackIds(userId:string){return this.db.transaction(tx=>reservedCalibrationTrackIds(tx,userId));}
  async isSealedCalibrationTrack(userId:string,trackId:string){return this.db.transaction(async tx=>{if(!await batchStorageReady(tx))return false;return (await tx`SELECT 1 FROM calibration_batch_items WHERE user_id=${userId} AND track_id=${trackId} AND assignment='sealed_evaluation'`).length>0;});}
  async insertExposure(input:ExposureInput){const v=ExposureInputSchema.parse(input);await this.db.transaction(async tx=>{
-  await lockUser(tx,v.userId);await assertNotBatchReserved(tx,v.userId,v.exposure.trackId);
+  await lockUser(tx,v.userId);if(this.db.reviewExclusions){this.db.reviewExclusions.assertTrack(v.userId,v.exposure.trackId);fail('REVIEW_EXPOSURE_NOT_PUBLISHED');}await assertNotBatchReserved(tx,v.userId,v.exposure.trackId);
   const [saved]=await tx`SELECT 1 FROM saved_tracks WHERE user_id=${v.userId} AND track_id=${v.exposure.trackId}`;if(!saved)fail('TRACK_NOT_OWNED');
   const rows=await tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at) VALUES(${v.exposure.exposureId},${v.userId},${v.exposure.trackId},${json(v)}::jsonb,${v.exposure.servedAt}) ON CONFLICT DO NOTHING RETURNING exposure_id`;
   if(!rows.length){const [same]=await tx`SELECT 1 FROM exposures WHERE exposure_id=${v.exposure.exposureId} AND user_id=${v.userId} AND payload=${json(v)}::jsonb AND purpose='review'`;if(!same)fail('EXPOSURE_CONFLICT');}
  });}
- async getExposure(userId:string,id:string):Promise<ExposureInput|null>{return this.db.transaction(async tx=>(await tx`SELECT payload FROM exposures WHERE user_id=${userId} AND exposure_id=${id}`)[0]?.payload??null);}
+ async getExposure(userId:string,id:string):Promise<ExposureInput|null>{return this.db.transaction(async tx=>{await assertPublishedReviewExposure(tx,this.db.reviewExclusions,userId,id);return (await tx`SELECT payload FROM exposures WHERE user_id=${userId} AND exposure_id=${id}`)[0]?.payload??null;});}
  async createDecision(input:DecisionInput):Promise<ReviewResult>{const v=DecisionInputSchema.parse(input);return this.db.transaction(async tx=>{
-  const owner=await lockUser(tx,v.userId);
+  this.db.reviewExclusions?.assertOwner(v.userId);const owner=await lockUser(tx,v.userId);assertPilotAction(this.db.reviewExclusions,v.userId,v.request.trackId,v.request.action);await assertPublishedReviewExposure(tx,this.db.reviewExclusions,v.userId,v.request.exposureId,v.request.trackId);
   const [old]=await tx`SELECT * FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
-  if(old){if(old.request_fingerprint!==v.requestFingerprint || json(old.request)!==json(v.request)){
+  if(old){await assertPilotDecision(tx,this.db.reviewExclusions,v.userId,old.decision_id);if(old.request_fingerprint!==v.requestFingerprint || json(old.request)!==json(v.request)){
    const [same]=await tx`SELECT 1 FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey} AND request_fingerprint=${v.requestFingerprint} AND request=${json(v.request)}::jsonb`;if(!same)fail('IDEMPOTENCY_CONFLICT');}return old.result;}
   await assertNotBatchReserved(tx,v.userId,v.request.trackId);
   const [exposure]=await tx`SELECT track_id,served_at,purpose FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`;
@@ -81,13 +82,13 @@ export class Repository extends ReviewRecoveryRepository {
   if(v.request.action==='ARCHIVE'||v.request.action==='UNLIKE')await tx`UPDATE users SET membership_revision=membership_revision WHERE id=${v.userId}`;
   return result;
  });}
- async getDecision(userId:string,id:string):Promise<ReviewResult|null>{return this.db.transaction(async tx=>(await tx`SELECT result FROM review_decisions WHERE user_id=${userId} AND decision_id=${id}`)[0]?.result??null);}
+ async getDecision(userId:string,id:string):Promise<ReviewResult|null>{return this.db.transaction(async tx=>{this.db.reviewExclusions?.assertOwner(userId);const [row]=await tx`SELECT result FROM review_decisions WHERE user_id=${userId} AND decision_id=${id}`;if(row)await assertPilotDecision(tx,this.db.reviewExclusions,userId,id);return row?.result??null;});}
  async getCurrentDecision(userId:string,trackId:string):Promise<ReviewResult|null>{return this.db.transaction(async tx=>(await tx`SELECT d.result FROM current_decisions c JOIN review_decisions d USING(user_id,decision_id) WHERE c.user_id=${userId} AND c.track_id=${trackId}`)[0]?.result??null);}
  async history(userId:string,limit=100):Promise<ReviewResult[]>{if(!Number.isInteger(limit)||limit<1||limit>1000)fail('INVALID_LIMIT');return this.db.transaction(async tx=>(await tx`SELECT result FROM review_decisions WHERE user_id=${userId} ORDER BY created_at DESC LIMIT ${limit}`).map((r:any)=>r.result));}
  async createUndo(input:UndoCommandInput):Promise<UndoCommandInput>{const v=UndoCommandInputSchema.parse(input);return this.db.transaction(async tx=>{
-  await lockUser(tx,v.userId);
+  this.db.reviewExclusions?.assertOwner(v.userId);await lockUser(tx,v.userId);await assertPilotDecision(tx,this.db.reviewExclusions,v.userId,v.decisionId);
   const [old]=await tx`SELECT payload FROM undo_commands WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
-  if(old){if(old.payload.decisionId!==v.decisionId||old.payload.requestFingerprint!==v.requestFingerprint)fail('IDEMPOTENCY_CONFLICT');return old.payload;}
+  if(old){await assertPilotDecision(tx,this.db.reviewExclusions,v.userId,old.payload.decisionId);if(old.payload.decisionId!==v.decisionId||old.payload.requestFingerprint!==v.requestFingerprint)fail('IDEMPOTENCY_CONFLICT');return old.payload;}
   const [d]=await tx`SELECT d.result,c.decision_id AS current_id FROM review_decisions d LEFT JOIN current_decisions c USING(user_id,track_id) WHERE d.user_id=${v.userId} AND d.decision_id=${v.decisionId}`;
   if(!d)fail('DECISION_NOT_FOUND');if(d.current_id!==v.decisionId)fail('STALE_DECISION');if(!d.result.canUndo)fail('MUTATION_PENDING');
   const [pending]=await tx`SELECT 1 FROM undo_commands WHERE user_id=${v.userId} AND decision_id=${v.decisionId} AND settled_at IS NULL`;if(pending)fail('MUTATION_PENDING');
@@ -99,7 +100,7 @@ export class Repository extends ReviewRecoveryRepository {
  async settleDecision(userId:string,input:ReviewResult,expectedStatus:ReviewResult['status'],split:'train'|'holdout',lease?:ReviewLeaseIdentity){
   const v=ReviewResultSchema.parse(input);if(!['train','holdout'].includes(split))fail('INVALID_SPLIT');
   await this.db.transaction(async tx=>{
-   const user=await lockUser(tx,userId);
+   this.db.reviewExclusions?.assertOwner(userId);const user=await lockUser(tx,userId);await assertPilotDecision(tx,this.db.reviewExclusions,userId,v.decisionId);
    const work=await assertReviewLease(tx,userId,v.decisionId,lease);
    if(work&&((v.status==='UNDONE')!==(work.operation==='undo')))fail('REVIEW_OPERATION_CONFLICT');
    const [d]=await tx`SELECT d.result,c.decision_id AS current_id,d.result=${json(v)}::jsonb AS identical FROM review_decisions d LEFT JOIN current_decisions c USING(user_id,track_id) WHERE d.user_id=${userId} AND d.decision_id=${v.decisionId} FOR UPDATE OF d`;

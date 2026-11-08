@@ -94,10 +94,12 @@ function ConnectedCalibration({ store }: { store: CalibrationStore }) {
 			onUndo={(id) => void store.undo(id)}
 			onRetrain={() => void store.retrain()}
 			onShowSkipped={() => void store.showSkipped()}
+   onSession={(session,seed)=>void store.selectSession(session,seed)}
 		/>
 	);
 }
 type ViewProps = {
+ onSession?:(session:"ordinary"|"batch2",seed?:number)=>void;
 	state: CalibrationState;
 	onAction: (action: CalibrationAction) => void;
 	onRefresh: () => void;
@@ -114,8 +116,10 @@ export function CalibrationView({
 	onUndo,
 	onRetrain,
 	onShowSkipped,
+ onSession,
 }: ViewProps) {
-	const locked = calibrationLocked(state);
+	const [seed,setSeed]=useState(42);
+ const locked = calibrationLocked(state);
 	const reading =
 		state.loading || state.busy || state.refreshing || state.retraining;
 	const current = state.queue[0];
@@ -127,11 +131,25 @@ export function CalibrationView({
 					<span className="eyebrow">TEACH YOUR TASTE · LABELS ONLY</span>
 					<h1>Start with a feeling.</h1>
 					<p>
-						Would you keep this song today? Your answer trains your model. Your
+						Would you keep this song today? Your answers teach your preferences. Your
 						Spotify library stays unchanged.
 					</p>
 				</div>
 			</div>
+            <section className="calibration-banner" aria-label="Calibration session">
+                <div>
+                    <div className="playback-actions">
+                        <button type="button" className="button secondary small" aria-pressed={state.session==="ordinary"} disabled={state.busy||state.loading||state.refreshing||state.retraining||!!state.pending} onClick={()=>onSession?.("ordinary")}>Open calibration</button>
+                        <button type="button" className="button secondary small" aria-pressed={state.session==="batch2"} disabled={state.busy||state.loading||state.refreshing||state.retraining||!!state.pending} onClick={()=>onSession?.("batch2",seed)}>Start / resume Batch 2</button>
+                        {!state.batch && <label className="fine-print">Sampling seed <input aria-label="Batch 2 sampling seed" type="number" min="0" max="2147483647" value={seed} disabled={reading||!!state.pending} onChange={e=>{const value=Number(e.target.value);if(Number.isInteger(value)&&value>=0&&value<=2147483647)setSeed(value);}} /></label>}
+                    </div>
+                    {state.batch ? <>
+                        <p><strong>Batch 2 · {state.batch.labeled} / 70 labels saved</strong></p>
+                        <p className="fine-print">{state.batch.trainingLabeled} / 45 training labels · {state.batch.sealedLabeled} / 25 sealed evaluation labels. Evaluation labels stay outside training and routine model metrics.</p>
+                        <p className="fine-print">Your selection is saved. Skip records no preference and requests a replacement from the same group.</p>
+                    </> : <p className="fine-print">Batch 2 saves 70 songs: 25 random, 25 diverse, and 20 uncertain. It resumes the same selection after refresh.</p>}
+                </div>
+            </section>
 			<div className="calibration-banner">
 				<span>
 					<Icon name="spark" size={17} />
@@ -258,17 +276,17 @@ export function CalibrationView({
 					) : (
 						<EmptyState
 							title={
-								state.skipped
+								state.batch ? (state.batch.labeled===70?"Batch 2 is complete":"No replacement available") : state.skipped
 									? "A little room to reconsider"
 									: "This selection is complete"
 							}
 						>
 							<p>
-								{state.skipped
+								{state.batch ? `${state.batch.labeled} of 70 preference labels saved. Skipped songs remain unlabeled.` : state.skipped
 									? `${state.skipped} songs skipped locally. No labels were saved for those skips.`
 									: `${state.remaining ?? 0} eligible songs remain on the server.`}
 							</p>
-							{state.skipped > 0 && (
+							{state.skipped > 0 && !state.batch && (
 								<button
 									type="button"
 									className="button secondary"
@@ -292,8 +310,7 @@ export function CalibrationView({
 						<p className="fine-print">{state.fallbackReason}</p>
 					)}
 					<p className="fine-print">
-						Skip is local to this session. Labels and Undo never save, remove,
-						or archive a Spotify song.
+						{state.batch ? "Batch skips are saved and replaced within their original group." : "Skip is local to this session."} Labels and Undo never save, remove, or archive a Spotify song.
 					</p>
 				</section>
 				<aside className="workspace-aside">
@@ -359,8 +376,7 @@ export function CalibrationView({
 							Refresh model data
 						</button>
 						<p className="fine-print">
-							This is an online selection across your library. It is not the
-							offline sealed evaluation cohort.
+							{state.batch ? "Batch 2 reserves 25 random songs for later evaluation. Those labels never enter C1 fitting or routine evaluation metrics." : "This is an online selection across your library. It is not the offline sealed evaluation cohort."}
 						</p>
 					</section>
 				</aside>

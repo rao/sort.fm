@@ -4,6 +4,7 @@ import {SpotifyError} from '../spotify/errors';
 export type LibraryRow = {track:TrackCard; currentStatus:SavedTrackInput['currentStatus']; audioFeatures:FeatureVector|null; currentDecision:ReviewResult|null};
 export interface QueueRepository {
   library(userId:string):Promise<LibraryRow[]>;
+  reservedCalibrationTrackIds?(userId:string):Promise<string[]>;
   insertExposure(input:ExposureInput):Promise<void>;
 }
 export interface QueueOptions {
@@ -68,7 +69,8 @@ export class QueueService {
     const query=QueueQuerySchema.parse(input);
     if(query.mode!=='spotify') throw new SpotifyError('MODE_NOT_SUPPORTED','Use the explicit demo endpoint for demo data.',400);
     const library=[...new Map((await this.repository.library(userId)).filter(row=>row.track.source==='spotify').map(row=>[row.track.trackId,row])).values()];
-    const rows=library.filter(row=>row.track.isPlayable && ['saved','deferred'].includes(row.currentStatus) && (!row.currentDecision || ['COMPLETE','UNDONE','FAILED_TERMINAL'].includes(row.currentDecision.status))).sort(stable);
+    const reserved=new Set(await this.repository.reservedCalibrationTrackIds?.(userId)??[]);
+    const rows=library.filter(row=>!reserved.has(row.track.trackId) && row.track.isPlayable && ['saved','deferred'].includes(row.currentStatus) && (!row.currentDecision || ['COMPLETE','UNDONE','FAILED_TERMINAL'].includes(row.currentDecision.status))).sort(stable);
     const now=(this.options.now??Date.now)();
     // Context such as artist counts comes from the full current library, including
     // kept tracks. Only eligible rows enter ranking. No scorer can mutate snapshots.

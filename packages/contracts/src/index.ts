@@ -7,3 +7,5 @@ export * from "./routes";
 export type * from "./persistence";
 export type * from "./calibration-persistence";
 export type * from "./playback-persistence";
+
+export * from "./calibration-batch";

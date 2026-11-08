@@ -1,9 +1,11 @@
+import {calibrationBatchFixture} from "../src/test-support/calibration-batch-fixture";
 /** Loopback-only, explicitly labeled QA fixture. Never contacts Spotify/ML or loads secrets. */
 import { resolve, sep } from "node:path";
 import { calibrationFixture } from "../src/test-support/calibration-fixture";
 if (process.env.SORTFM_TEST_FIXTURE !== "1")
 	throw new Error("Set SORTFM_TEST_FIXTURE=1 for controlled QA.");
-let fixture = calibrationFixture();
+const makeFixture=()=>process.env.SORTFM_BATCH2_FIXTURE==="1"?calibrationBatchFixture():calibrationFixture();
+let fixture=makeFixture();
 const root = resolve(import.meta.dir, "../dist");
 const port = Number(process.env.SORTFM_FIXTURE_PORT ?? 5196);
 const panel = `<aside style="position:fixed;bottom:8px;left:8px;z-index:10000;background:#362722;color:#fff;padding:8px;border:1px solid #b98964;border-radius:8px;font:11px sans-serif"><details><summary>CALIBRATION TEST FIXTURE · NO SPOTIFY CONNECTION</summary><nav style="display:flex;gap:10px;flex-wrap:wrap"><a href="/__fixture/reset">Reset</a><a href="/__fixture/lose">Lose next response</a><a href="/__fixture/offline">Disable calibration</a><a href="/__fixture/queue-fail">Fail queue</a><a href="/__fixture/recover">Recover service</a><a href="/__fixture/fit-fail">Fail fit</a><a href="/__fixture/audit">Request audit</a></nav></details></aside>`;
@@ -13,7 +15,7 @@ Bun.serve({
 	async fetch(request) {
 		const url = new URL(request.url);
 		if (url.pathname.startsWith("/__fixture/")) {
-			if (url.pathname.endsWith("/reset")) fixture = calibrationFixture();
+			if (url.pathname.endsWith("/reset")) fixture = makeFixture();
 			if (url.pathname.endsWith("/lose")) fixture.loseResponse();
 			if (url.pathname.endsWith("/offline")) fixture.unavailable(true);
 			if (url.pathname.endsWith("/queue-fail")) fixture.failQueue(true);
@@ -37,6 +39,8 @@ Bun.serve({
 		}
 		if (url.pathname.startsWith("/api/")) {
 			try {
+    if(process.env.SORTFM_BATCH2_FIXTURE==="1"&&url.pathname==="/api/calibration/batch2")return Response.json(request.method==="POST"?await fixture.api.calibrationBatchCreate(await request.json() as {seed:number}):await fixture.api.calibrationBatch());
+    if(process.env.SORTFM_BATCH2_FIXTURE==="1"&&url.pathname==="/api/calibration/batch2/skip")return Response.json(await fixture.api.calibrationBatchSkip(await request.json() as never));
 				return await fixture.transport(url.pathname + url.search, {
 					method: request.method,
 					credentials: "include",

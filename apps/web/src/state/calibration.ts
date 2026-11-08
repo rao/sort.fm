@@ -1,3 +1,5 @@
+import {CalibrationBatchSchema,type CalibrationBatch} from '@sortfm/contracts';
+import type {CalibrationSession} from '../data/calibration-client';
 import {
 	CalibrationLabelResultSchema,
 	type CalibrationLabelResult,
@@ -33,6 +35,8 @@ export function calibrationActionFromDrag(
 }
 type Item = CalibrationQueueResult["items"][number];
 export type CalibrationState = {
+ session:CalibrationSession;
+ batch:CalibrationBatch|null;
 	ready: boolean;
 	loading: boolean;
 	busy: boolean;
@@ -65,7 +69,8 @@ export function calibrationLocked(state: CalibrationState) {
 	);
 }
 function matches(command: CalibrationCommand, result: CalibrationLabelResult) {
-	return command.kind === "label"
+	if(command.kind==="skip")return false;
+ return command.kind === "label"
 		? result.idempotencyKey === command.request.idempotencyKey &&
 				result.trackId === command.request.trackId &&
 				result.exposureId === command.request.exposureId &&
@@ -90,11 +95,13 @@ function rejectedBeforeCommit(error: unknown) {
 			"TRACK_NOT_IN_LIBRARY",
 			"STALE_CALIBRATION_LABEL",
 			"MUTATION_PENDING",
+   "BATCH_ITEM_NOT_PENDING", "BATCH_TRACK_RESERVED",
 		].includes(error.error.code)
 	);
 }
 export class CalibrationStore {
 	private state: CalibrationState = {
+		session:"ordinary",batch:null,
 		ready: false,
 		loading: false,
 		busy: false,
@@ -117,7 +124,7 @@ export class CalibrationStore {
 	};
 	private listeners = new Set<() => void>();
 	private skipped = new Set<string>();
-	constructor(private client: CalibrationClient) {}
+	constructor(private client: CalibrationClient) {this.state.session=client.journal.readSession?.()??"ordinary";}
 	getSnapshot = () => this.state;
 	subscribe = (listener: () => void) => {
 		this.listeners.add(listener);
@@ -130,16 +137,17 @@ export class CalibrationStore {
 		for (const listener of this.listeners) listener();
 	}
 	private async reconcile() {
-		const snapshot = await this.client.snapshot();
+		const snapshot = await this.client.snapshot(this.state.session);
 		const pending = this.state.pending;
-		const settled =
-			pending && snapshot.history.items.find((item) => matches(pending, item));
+		const settled = pending && (pending.kind==="skip" ? snapshot.batch?.entries.some(e=>e.exposureId===pending.request.exposureId&&e.status==="skipped") : snapshot.history.items.find((item) => matches(pending, item)));
 		if (settled) this.client.journal.clear();
 		const tracks = { ...this.state.tracks };
 		for (const item of snapshot.queue.items)
 			tracks[item.track.trackId] = item.track;
 		this.update({
 			ready: true,
+   batch:snapshot.batch,
+   skipped:snapshot.batch?snapshot.batch.groups.reduce((n,g)=>n+g.skipped,0):this.skipped.size,
 			queue: snapshot.queue.items.filter(
 				(item) => !this.skipped.has(item.track.trackId),
 			),
@@ -160,7 +168,7 @@ export class CalibrationStore {
 			refreshError: null,
 			...(settled
 				? {
-						notice: `Saved calibration outcome: ${settled.state}. No Spotify changes.`,
+						notice: typeof settled==="object" ? `Saved calibration outcome: ${settled.state}. No Spotify changes.` : "Saved Skip confirmed. No label was saved.",
 					}
 				: {}),
 		});
@@ -190,10 +198,11 @@ export class CalibrationStore {
 			this.update({ refreshing: false, loading: false });
 		}
 	}
-	skip() {
+	async skip() {
 		if (calibrationLocked(this.state)) return;
 		const item = this.state.queue[0];
 		if (!item) return;
+		if(this.state.session==="batch2")return this.run({kind:"skip",request:{exposureId:item.exposure.exposureId,idempotencyKey:createIdempotencyKey()}});
 		this.skipped.add(item.track.trackId);
 		this.update({
 			queue: this.state.queue.slice(1),
@@ -201,8 +210,16 @@ export class CalibrationStore {
 			notice: "Skipped in this session. No label was saved.",
 		});
 	}
+	async selectSession(session:CalibrationSession,seed=42){
+  if(this.state.busy||this.state.loading||this.state.refreshing||this.state.retraining||this.state.pending)return;
+  this.update({busy:true,error:null});
+  try{
+   if(session==="batch2")await this.client.startBatch(seed);
+   this.client.journal.selectSession?.(session);this.skipped.clear();this.update({session,batch:null,skipped:0,notice:"",queue:[],remaining:null,refreshError:"Loading the selected calibration session."});await this.reconcile();
+  }catch(error){this.update({error:errorMessage(error)});}finally{this.update({busy:false});}
+ }
 	async showSkipped() {
-		if (calibrationLocked(this.state)) return;
+		if (calibrationLocked(this.state)||this.state.session==="batch2") return;
 		this.skipped.clear();
 		this.update({ skipped: 0 });
 		await this.refresh();
@@ -253,6 +270,13 @@ export class CalibrationStore {
 		try {
 			this.client.journal.write(command);
 			this.update({ pending: command });
+			if(command.kind==="skip"){
+    const batch=CalibrationBatchSchema.parse(await this.client.skip(command.request));
+    if(!batch.entries.some(e=>e.exposureId===command.request.exposureId&&e.status==="skipped"))throw new Error("The saved Skip outcome could not be verified.");
+    this.client.journal.clear();this.update({pending:null,batch,notice:"Skipped without a label. A replacement is drawn from the same group when available."});
+    try{await this.reconcile();}catch(error){this.update({refreshError:errorMessage(error)});}
+    return;
+   }
 			const result = CalibrationLabelResultSchema.parse(
 				command.kind === "label"
 					? await this.client.label(command.request)

@@ -1,3 +1,4 @@
+import {CalibrationBatchCreateSchema,CalibrationBatchSkipSchema,CalibrationBatchSchema,CalibrationBatchReadSchema} from './calibration-batch';
 import { z } from "zod";
 import { AccountSessionSchema, DecisionHistorySchema, DemoBootstrapSchema, HealthSchema, LibraryImportStatusSchema, LibrarySummarySchema, ModelInsightsSchema, ModelMetricsSchema, OkSchema, PlayRequestSchema, PlayerStatusSchema, QueueQuerySchema, QueueResultSchema, ReviewRequestSchema, ReviewResultSchema, UndoRequestSchema } from "./schemas";
 import { EvaluationQuerySchema, ExplainQuerySchema, ExplainResponseSchema, FitRequestSchema, FitResponseSchema, ObserveRequestSchema, ObserveResponseSchema, ScoreRequestSchema, ScoreResponseSchema } from "./features";
@@ -18,6 +19,9 @@ export const PUBLIC_ROUTES = {
   decide: {method: "POST", path: "/api/decisions", body: ReviewRequestSchema, response: ReviewResultSchema, auth: "owner_or_demo"},
   undo: {method: "POST", path: "/api/decisions/:id/undo", body: UndoRequestSchema, response: ReviewResultSchema, auth: "owner_or_demo"},
   history: {method: "GET", path: "/api/decisions/history", response: DecisionHistorySchema, auth: "session"},
+  calibrationBatch: {method: 'GET', path: '/api/calibration/batch2', response: CalibrationBatchReadSchema, auth: 'owner'},
+  calibrationBatchCreate: {method: 'POST', path: '/api/calibration/batch2', body: CalibrationBatchCreateSchema, response: CalibrationBatchSchema, auth: 'owner'},
+  calibrationBatchSkip: {method: 'POST', path: '/api/calibration/batch2/skip', body: CalibrationBatchSkipSchema, response: CalibrationBatchSchema, auth: 'owner'},
   calibrationQueue: {method: "GET", path: "/api/calibration/queue", query: CalibrationQueueQuerySchema, response: CalibrationQueueResultSchema, auth: "owner"},
   calibrationLabel: {method: "POST", path: "/api/calibration/labels", body: CalibrationLabelRequestSchema, response: CalibrationLabelResultSchema, auth: "owner"},
   calibrationUndo: {method: "POST", path: "/api/calibration/labels/:id/undo", body: UndoRequestSchema, response: CalibrationLabelResultSchema, auth: "owner"},

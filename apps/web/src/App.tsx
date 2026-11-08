@@ -351,8 +351,7 @@ export default function App({
 			<div className="demo-strip">
 				{route === "calibrate" ? (
 					<>
-						<span>Calibration only.</span> Labels train your model. Spotify
-						stays unchanged.
+						<span>Calibration only.</span> Your Spotify library stays unchanged.
 					</>
 				) : live ? (
 					<>

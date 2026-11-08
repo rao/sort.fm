@@ -6,6 +6,7 @@ import {
 } from '@sortfm/contracts';
 import type {z} from 'zod';
 import {Database,PersistenceError,json,type Transaction} from './client';
+import {assertNotBatchReserved,reservedCalibrationTrackIds,batchStorageReady} from './calibration-reservations';
 import {ReviewRecoveryRepository,assertReviewLease,type ReviewLeaseIdentity} from './review-recovery';
 export type FeedbackSyncLease={userId:string;feedbackRevision:number;leaseId:string};
 const fail=(code:string):never=>{throw new PersistenceError(code);};
@@ -39,7 +40,10 @@ export class Repository extends ReviewRecoveryRepository {
  upsertTrack(v:TrackInput){return this.db.transaction(tx=>upsertTrack(tx,v));}
  upsertSavedTracks(v:SavedTrackInput[]){return this.db.transaction(tx=>upsertSavedTracks(tx,v));}
  async library(userId:string,includeHistory=false){return this.db.transaction(tx=>readLibrary(tx,userId,includeHistory));}
+ async reservedCalibrationTrackIds(userId:string){return this.db.transaction(tx=>reservedCalibrationTrackIds(tx,userId));}
+ async isSealedCalibrationTrack(userId:string,trackId:string){return this.db.transaction(async tx=>{if(!await batchStorageReady(tx))return false;return (await tx`SELECT 1 FROM calibration_batch_items WHERE user_id=${userId} AND track_id=${trackId} AND assignment='sealed_evaluation'`).length>0;});}
  async insertExposure(input:ExposureInput){const v=ExposureInputSchema.parse(input);await this.db.transaction(async tx=>{
+  await lockUser(tx,v.userId);await assertNotBatchReserved(tx,v.userId,v.exposure.trackId);
   const [saved]=await tx`SELECT 1 FROM saved_tracks WHERE user_id=${v.userId} AND track_id=${v.exposure.trackId}`;if(!saved)fail('TRACK_NOT_OWNED');
   const rows=await tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at) VALUES(${v.exposure.exposureId},${v.userId},${v.exposure.trackId},${json(v)}::jsonb,${v.exposure.servedAt}) ON CONFLICT DO NOTHING RETURNING exposure_id`;
   if(!rows.length){const [same]=await tx`SELECT 1 FROM exposures WHERE exposure_id=${v.exposure.exposureId} AND user_id=${v.userId} AND payload=${json(v)}::jsonb AND purpose='review'`;if(!same)fail('EXPOSURE_CONFLICT');}
@@ -50,6 +54,7 @@ export class Repository extends ReviewRecoveryRepository {
   const [old]=await tx`SELECT * FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;
   if(old){if(old.request_fingerprint!==v.requestFingerprint || json(old.request)!==json(v.request)){
    const [same]=await tx`SELECT 1 FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey} AND request_fingerprint=${v.requestFingerprint} AND request=${json(v.request)}::jsonb`;if(!same)fail('IDEMPOTENCY_CONFLICT');}return old.result;}
+  await assertNotBatchReserved(tx,v.userId,v.request.trackId);
   const [exposure]=await tx`SELECT track_id,served_at,purpose FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`;
   if(!exposure)fail('EXPOSURE_NOT_FOUND');if(exposure.purpose!=='review')fail('EXPOSURE_PURPOSE_MISMATCH');if(exposure.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
   if((await tx`SELECT 1 FROM exposure_consumptions WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`).length)fail('EXPOSURE_ALREADY_CONSUMED');

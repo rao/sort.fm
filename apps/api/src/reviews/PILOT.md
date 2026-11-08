@@ -1,7 +1,7 @@
 # Isolated review pilot integration
 
 These server-only helpers are opt-in. Default application behavior is unchanged.
-There is no new public DTO or runtime configuration in this change.
+There is no new public DTO. Runtime activation is an explicit programmatic option.
 
 ## Required runtime composition (integration lead)
 
@@ -74,3 +74,48 @@ provider transports. No real Spotify credentials, provider calls, pilot database
 copy, live migrations or runtime launch were performed. D's actual persisted
 membership implementation and root's runtime wiring require their own integration
 verification before use. Existing full tests/typecheck/build remain required.
+
+## Programmatic runtime activation
+
+`buildRuntime` now composes these requirements when given an explicit pilot option:
+
+```ts
+const runtime = await buildRuntime({
+  env: privatePilotEnvironment,
+  pilot: {manifest, approvedManifestSha256: privateReceipt.reviewExclusionSha256},
+});
+```
+
+No environment variable enables the mode. The caller supplies an independently
+approved digest; supplying a self-computed matching digest does not establish
+approval. Root remains responsible for receipt authenticity, fresh isolated secrets,
+artifact directories, restricted database credentials, the verified initial copy
+with zero inherited work/policy state, and the separate browser profile.
+
+Startup validates the exact schema/manifest/Spotify owner allowlist, explicit demo
+opt-out, distinct loopback API/web/ML origins, matching loopback host/API port, and
+explicit usable token/session/ML secrets. Missing/mismatched configuration rejects
+before connection. The manifest and environment are copied across startup awaits.
+Database startup requires all foundation runtime relations through migration016 in
+that exact schema (no public-schema fallback), no foreign users, and full policy
+columns plus migration readiness. Missing/partial storage closes the connection
+and rejects startup before Fastify/worker startup. C1 rollback and adaptive fallback
+both retain PolicyQueueService and the same D fence; no legacy queue bypass exists.
+
+Pilot runtime internally disables importer recovery, installs the top-level HTTP
+guard, separates allowlisted primary OAuth from denied mutation reads/writes and
+playback, and advertises `spotifyWrite:false`. Legitimate review, feedback and
+policy workers remain enabled. No audio/provider worker is constructed. Existing
+unguarded `spotifyHttp`, `spotifyMutationFetch` and `playbackTransport` options are
+rejected in pilot mode. For synthetic tests, optional `pilot.oauthFetch` remains
+wrapped by the OAuth allowlist, and `pilot.mlFetch` is injected into the validated
+loopback ML clients.
+
+Only pilot mode returns `runtime.pilot = {repository, ml, policyStore}` for private
+operator bootstrap and verification. These server ports are not HTTP routes;
+manual fit remains forbidden in the browser. Default runtime behavior is unchanged.
+Combined tests exercise real disposable PostgreSQL schemas and synthetic transports
+for C1, LinUCB, epsilon-greedy and C1 fallback, including OAuth, publication, KEEP,
+SKIP, replay and Undo. This does not claim a live Spotify or real classifier run.
+
+Runtime branch verification: general suite985passed/178skipped/0failed (5269assertions); focused disposable PostgreSQL runtime suite5passed/0failed (257assertions). Typecheck, web/API build and diff check passed. Independent read-only review found no actionable issues. No real account, provider calls, production copy, service launch or deployment was performed.

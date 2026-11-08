@@ -19,8 +19,8 @@ export class Database {
  }
  close(){return this.sql.close();}
 }
-export function connectDatabase(url=process.env.DATABASE_URL,schema=process.env.DATABASE_SCHEMA??'sortfm') {
- if(!url) throw new Error('DATABASE_URL_REQUIRED');return new Database(url,schema);
+export function connectDatabase(url=process.env.DATABASE_URL,schema=process.env.DATABASE_SCHEMA??'sortfm',options:{reviewExclusions?:ReviewExclusionManifest}={}) {
+ if(!url) throw new Error('DATABASE_URL_REQUIRED');return new Database(url,schema,options);
 }
 export class PersistenceError extends Error { constructor(readonly code:string){super(code);} }
 export const json=(value:unknown)=>JSON.stringify(value);

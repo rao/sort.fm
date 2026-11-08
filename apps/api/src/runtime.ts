@@ -15,7 +15,10 @@ import {buildApp} from './app';
 import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
 import {createSpotifyModule} from './auth/module';
-import type {SpotifyHttp,Fetch} from './spotify/http';
+import {SpotifyHttp,type Fetch} from './spotify/http';
+import {installPilotGuards} from './reviews/pilot';
+import {assertPilotStorage,validatePilotRuntime,type PilotRuntimeOptions} from './reviews/pilot-runtime';
+import {createPilotOAuthFetch,denyPilotProviderFetch,createPilotPlaybackTransport} from './spotify/pilot-transport';
 import {CalibrationQueue,CalibrationService,CalibrationBatchService,CalibrationExperimentService,createCalibrationModule} from './calibration';
 import {createPlaybackModule,PlaybackService,PlaybackControls,type PlaybackTransport} from './playback';
 
@@ -23,17 +26,20 @@ import {createPlaybackModule,PlaybackService,PlaybackControls,type PlaybackTrans
 export async function buildRuntime(options: {
  env?: Record<string,string|undefined>;
  logger?: boolean;
+ pilot?: PilotRuntimeOptions;
  spotifyHttp?: SpotifyHttp;
  spotifyMutationFetch?: Fetch;
  playbackTransport?: PlaybackTransport;
 } = {}) {
- const env=options.env??process.env;
+ const env=options.pilot?{...(options.env??process.env)}:options.env??process.env;
  const config=loadConfig(env);
+ const pilot=options.pilot?validatePilotRuntime(env,config,options.pilot):undefined;
+ if(pilot&&(options.spotifyHttp||options.spotifyMutationFetch||options.playbackTransport))throw Error('PILOT_TRANSPORT_OVERRIDE');
  const startupIssues:string[]=[];
  let database:Database|null=null;
  if(env.DATABASE_URL?.trim()) {
   try {
-   database=connectDatabase(env.DATABASE_URL,env.DATABASE_SCHEMA??'sortfm');
+   database=connectDatabase(env.DATABASE_URL,env.DATABASE_SCHEMA??'sortfm',pilot?{reviewExclusions:pilot.manifest}:{});
    // Startup is read-only: migrations are an explicit operator step.
    await database.transaction(async tx=>{
     await tx`SELECT id FROM users LIMIT 0`;
@@ -71,6 +77,11 @@ export async function buildRuntime(options: {
   }catch{policyDatabaseStatus='unavailable';startupIssues.push('POLICY_DATABASE_UNAVAILABLE');}
  }
  if(config.effectiveReviewSelectionPolicy!=='c1'&&(!database||policyDatabaseStatus==='legacy'))startupIssues.push('POLICY_DATABASE_UNAVAILABLE');
+
+ if(pilot){
+  try{if(!database||policyDatabaseStatus!=='ready')throw Error();await assertPilotStorage(database);}
+  catch{await database?.close().catch(()=>{});throw Error('PILOT_STORAGE_UNAVAILABLE');}
+ }
 
  // Playback is optional: an unapplied 014 must not disable library or feedback.
  let playbackDatabaseReady=false;
@@ -135,12 +146,12 @@ export async function buildRuntime(options: {
  if(a1Store&&missing.length===0) {
   try {
    const spotifyConfig=loadSpotifyConfig(env);
-   spotify=createSpotifyModule({config:spotifyConfig,store:a1Store,...(options.spotifyHttp?{http:options.spotifyHttp}:{}),
+   spotify=createSpotifyModule({config:spotifyConfig,store:a1Store,...(pilot?{backgroundImportEnabled:false,http:new SpotifyHttp({fetch:createPilotOAuthFetch(pilot.oauthFetch??fetch),timeoutMs:spotifyConfig.requestTimeoutMs})}:options.spotifyHttp?{http:options.spotifyHttp}:{}),
     ...(playbackDatabaseReady?{playbackCallback:(...args:Parameters<ReturnType<typeof createPlaybackModule>['callback']>)=>playback!.callback(...args)}:{}),
    });
    if(playbackDatabaseReady&&database&&repository) {
     const service=new PlaybackService({config:spotifyConfig,store:new PostgresPlaybackStore(database),auth:spotify.auth,
-     ...(options.playbackTransport?{transport:options.playbackTransport}:{}),
+     ...(pilot?{transport:createPilotPlaybackTransport()}:options.playbackTransport?{transport:options.playbackTransport}:{}),
     });
     const controls=new PlaybackControls(service,{
      // Playback requires a completed import and current membership. The shared
@@ -164,7 +175,7 @@ export async function buildRuntime(options: {
  let policyClient:PolicyClient|null=null;
  if(repository&&env.ML_SERVICE_URL&&env.ML_SERVICE_SHARED_SECRET) {
   try {
-   const transport:MlClientOptions={serviceUrl:env.ML_SERVICE_URL,sharedSecret:env.ML_SERVICE_SHARED_SECRET,allowRailwayPrivateHttp:env.ML_ALLOW_RAILWAY_PRIVATE_HTTP==='true'};
+   const transport:MlClientOptions={serviceUrl:env.ML_SERVICE_URL,sharedSecret:env.ML_SERVICE_SHARED_SECRET,allowRailwayPrivateHttp:env.ML_ALLOW_RAILWAY_PRIVATE_HTTP==='true',...(pilot?.mlFetch?{fetch:pilot.mlFetch}:{})};
    ml=createRepositoryMl({repository,client:createMlClient(transport)});
    if(policyStore){
     policyClient=createPolicyClient(transport);
@@ -188,6 +199,9 @@ export async function buildRuntime(options: {
   ? {get:async()=>{throw new SpotifyError('POLICY_STORAGE_UNAVAILABLE','Review selection is temporarily unavailable.',503,true);}}
   : policyStore?new PolicyQueueService(policyStore,{...queueOptions,enabled:config.c2PolicyEnabled,strategy:config.effectiveReviewSelectionPolicy,...(policyClient?{client:policyClient}:{})})
   :new QueueService(repository,queueOptions)):null;
+ if(pilot&&(!repository||!spotify||!ml||!policyClient||!policyStore||!(queue instanceof PolicyQueueService))){
+  await database?.close().catch(()=>{});throw Error('PILOT_COMPONENTS_UNAVAILABLE');
+ }
  const reviews=spotify&&queue?createReviewQueueModule({
   queue,auth:spotify.auth,
   config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
@@ -201,12 +215,12 @@ export async function buildRuntime(options: {
  const policyDelivery=policyStore&&policyClient?new PolicyDeliveryWorker(policyStore,policyClient,{onError:code=>{if(options.logger)console.warn(code);}}):null;
  const policyRecovery=policyStore&&policyClient?new PolicySelectionRecoveryWorker(policyStore,policyClient,{onError:code=>{if(options.logger)console.warn(code);}}):null;
  const reviewWorker=spotify&&repository?new ReviewWorker(repository,
-  new SpotifyMutations(spotify.auth,spotify.auth.http,options.spotifyMutationFetch?{fetch:options.spotifyMutationFetch}:{}),
+  new SpotifyMutations(spotify.auth,pilot?new SpotifyHttp({fetch:denyPilotProviderFetch}):spotify.auth.http,pilot?{fetch:denyPilotProviderFetch}:options.spotifyMutationFetch?{fetch:options.spotifyMutationFetch}:{}),
   {auth:spotify.auth,...(feedback?{feedback}:{}),onError:code=>{if(options.logger)console.warn(code);}}):null;
  const mutations=spotify&&repository&&reviewWorker?createReviewMutationModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
   service:new ReviewService(repository,{auth:spotify.auth,worker:reviewWorker}),worker:reviewWorker,
-  enableWrites:()=>spotify!.auth.enableReviewWrites(),
+  enableWrites:()=>{if(!pilot)spotify!.auth.enableReviewWrites();},
  }):null;
  const audio=database?new MusicaeQueue(database):null;
  const modelReads=spotify&&repository&&a1Store&&audio?createMlReadModule({
@@ -241,7 +255,12 @@ export async function buildRuntime(options: {
  }):null;
 
  try {
-  const app=await buildApp({config,logger:options.logger,capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
+  const app=await buildApp({config,logger:options.logger,...(pilot?{beforeRoutes:(app:import('fastify').FastifyInstance)=>installPilotGuards(app,{config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},auth:spotify!.auth,admission:{
+    getPublishedExposure:(user,id)=>repository!.getExposure(user,id),
+    getDecision:(user,id)=>repository!.getDecision(user,id),
+    getDecisionByIdempotencyKey:(user,key)=>repository!.getDecisionByIdempotencyKey(user,key),
+    getUndoByIdempotencyKey:(user,key)=>repository!.getUndoByIdempotencyKey(user,key),
+   }})}:{}),capabilities:{database:database!==null,spotify:spotify!==null,ml:ml!==null&&reviews!==null},registerRoutes:async app=>{
    if(feedback){app.addHook('onReady',async()=>{feedback.start();});app.addHook('onClose',async()=>{await feedback.close();});}
    if(policyDelivery){app.addHook('onReady',async()=>{policyDelivery.start();});app.addHook('onClose',async()=>{await policyDelivery.close();});}
    if(policyRecovery){app.addHook('onReady',async()=>{policyRecovery.start();});app.addHook('onClose',async()=>{await policyRecovery.close();});}
@@ -252,6 +271,6 @@ export async function buildRuntime(options: {
   }});
   let closing:Promise<void>|undefined;
   const close=()=>closing??=(async()=>{try{await app.close();}finally{await database?.close();}})();
-  return {app,config,startupIssues,calibrationExperiment,close};
+  return {app,config,startupIssues,calibrationExperiment,close,...(pilot?{pilot:{repository:repository!,ml:ml!,policyStore:policyStore!}}:{})};
  } catch(error) {await reviewWorker?.close();await policyRecovery?.close();await policyDelivery?.close();await feedback?.close();await database?.close();throw error;}
 }

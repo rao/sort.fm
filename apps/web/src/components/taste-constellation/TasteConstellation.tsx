@@ -186,7 +186,7 @@ export function TrackDetails({
 				</div>
 			</div>
 			<span
-				className="tc-label text-caption-1-semibold"
+				className="tc-label text-caption-2-medium"
 				data-label={track.label ?? "unlabeled"}
 			>
 				{labelName(track.label)}

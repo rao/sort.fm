@@ -239,6 +239,52 @@ test("a genuine card change still pauses previous audio reported after the first
 	expect(f.calls.filter((call) => call.startsWith("play:"))).toHaveLength(1);
 	f.store.dispose();
 });
+test("resuming a revisited card clears its previous selection pause guard", async () => {
+	const f = fixture();
+	f.store.select(uri, true);
+	await f.store.enable();
+	await f.store.play();
+	f.confirm(uri);
+	f.store.select(next, true);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	f.store.select(uri, true);
+	await f.store.togglePause();
+	f.confirm(next);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(
+		f.calls.filter((call) => call === "pause" || call === "resume"),
+	).toEqual(["pause", "resume"]);
+	expect(f.store.getSnapshot().actualUri).toBe(next);
+	expect(f.calls.filter((call) => call.startsWith("play:"))).toHaveLength(1);
+	f.store.dispose();
+});
+test("a new card change during dispatched resume still stops the previous song", async () => {
+	const f = fixture();
+	f.store.select(uri, true);
+	await f.store.enable();
+	await f.store.play();
+	f.confirm(uri);
+	await f.store.togglePause();
+	const resume = f.player.resume;
+	let release!: () => void;
+	f.player.resume = async () => {
+		await resume();
+		await new Promise<void>((resolve) => {
+			release = resolve;
+		});
+	};
+	const operation = f.store.togglePause();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	f.store.select(next, true);
+	release();
+	await operation;
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(
+		f.calls.filter((call) => call === "pause" || call === "resume"),
+	).toEqual(["pause", "resume", "pause"]);
+	expect(f.store.getSnapshot().paused).toBe(true);
+	f.store.dispose();
+});
 test.each(["seek", "mute"] as const)(
 	"a card change while %s authorization is pending still stops the previous song",
 	async (control) => {

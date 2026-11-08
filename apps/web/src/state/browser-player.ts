@@ -582,6 +582,9 @@ export class BrowserPlayerStore {
 				(pause ? !this.state.canPause : !this.state.canResume)
 			)
 				return;
+			// Explicit resume authorizes this card again, just like a targeted play.
+			// Clear only after all asynchronous authorization/activation fences pass.
+			if (!pause) this.pauseForSelectionChange = false;
 			await (pause ? player.pause() : player.resume());
 		});
 	}

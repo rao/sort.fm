@@ -83,7 +83,7 @@ def test_policy_id_conflict_and_owner_isolation(tmp_path):
     assert choose(app, selection(user="demo:bob"))["userId"] == "demo:bob"
 
 
-def test_policy_off_returns_exact_c1_rank_and_does_not_filter_history(tmp_path):
+def test_c1_returns_exact_rank_within_common_available_pool(tmp_path):
     app = create_app(shared_secret="test-service-secret", storage_dir=tmp_path)
     payload = selection(strategy="c1")
     selected = choose(app, payload)
@@ -94,7 +94,9 @@ def test_policy_off_returns_exact_c1_rank_and_does_not_filter_history(tmp_path):
     assert selected["rankedTrackIds"] == [item["trackId"] for item in expected]
     assert selected["trackId"] == expected[0]["trackId"]
     again = choose(app, selection(1001, strategy="c1"))
-    assert again["rankedTrackIds"] == selected["rankedTrackIds"]
+    available = [row for row in payload["candidates"] if row["trackId"] != selected["trackId"]]
+    expected = bundle["model"].rank(available, bundle["version"], limit=10)
+    assert again["rankedTrackIds"] == [item["trackId"] for item in expected]
 
 
 def test_feedback_updates_policy_once_and_undo_removes_reward(tmp_path):

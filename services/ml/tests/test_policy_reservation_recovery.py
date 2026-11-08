@@ -69,7 +69,7 @@ def write_state(folder, state):
 def legacy_artifact(folder):
     """Create an actual checksum-valid pre-lifecycle ledger without changing retry identity."""
     state = read_state(folder)
-    for key in ("schemaVersion", "reservations", "releaseRequests"):
+    for key in ("schemaVersion", "reservations", "releaseRequests", "associations"):
         state.pop(key, None)
     state["version"] = "c2-linucb-v1"
     state["decisions"] = {
@@ -77,6 +77,8 @@ def legacy_artifact(folder):
               "response": {**entry["response"], "policyVersion": "c2-linucb-v1"}}
         for key, entry in state["decisions"].items()
     }
+    for entry in state["decisions"].values():
+        entry["response"].pop("feedbackRevision", None)
     write_state(folder, state)
     snapshots_path = next(folder.glob("*/exposures.json"))
     snapshots = json.loads(snapshots_path.read_text())
@@ -105,8 +107,8 @@ def test_legacy_migration_uses_original_deadline_and_preserves_decisions_snapsho
 
     assert choose(restored, one_candidate()) == old_decision
     migrated = read_state(tmp_path)
-    assert migrated["schemaVersion"] == 2
-    assert migrated["version"] == "c2-linucb-v2"
+    assert migrated["schemaVersion"] == 3
+    assert migrated["version"] == "c2-linucb-v3"
     assert migrated["decisions"] == old["decisions"]
     assert migrated["events"] == old["events"]
     assert snapshots_path.read_bytes() == original_snapshots
@@ -116,7 +118,7 @@ def test_legacy_migration_uses_original_deadline_and_preserves_decisions_snapsho
     assert reservation["closedAt"] == reservation["expiresAt"]
     newer = choose(restored, one_candidate(1001))
     assert newer["trackId"] == old_decision["trackId"]
-    assert newer["policyVersion"] == "c2-linucb-v2"
+    assert newer["policyVersion"] == "c2-linucb-v3"
     assert newer["step"] == old_decision["step"] + 1
 
 
@@ -591,6 +593,7 @@ def test_checksum_valid_eligibility_audit_corruption_fails_closed(tmp_path, dama
     assert first["trackId"] != second["trackId"]
     third_payload = selection(1002, strategy="c1")
     third_payload["candidates"] = [first["candidate"]]
+    clock.at(300)
     third = choose(app, third_payload)
     assert third["trackId"] == first["trackId"]
     state = read_state(tmp_path)

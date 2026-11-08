@@ -18,7 +18,8 @@ from .schemas import (
 )
 from .service import ModelService, ServiceError
 from .policy_service import PolicyService
-from .policy_schemas import (PolicyDecision, PolicyDiagnostics, PolicyDiagnosticsQuery,
+from .policy_schemas import (PolicyAssociateRequest, PolicyAssociateResponse,
+                             PolicyDecision, PolicyDiagnostics, PolicyDiagnosticsQuery,
                              PolicyExposure, PolicyExposureQuery, PolicyFeedbackRequest,
                              PolicyReleaseReceipt, PolicyReleaseRequest, PolicySelectRequest)
 
@@ -138,6 +139,10 @@ def create_app(
         body = payload.model_dump(exclude_unset=True)
         usefulness = body.pop("usefulness", None)
         return policy_service.observe(body, usefulness, require_policy=True)
+
+    @internal.post("/policy/associate", response_model=PolicyAssociateResponse)
+    def policy_associate(payload: PolicyAssociateRequest) -> dict:
+        return policy_service.associate(payload.model_dump(exclude_unset=True))
 
     @internal.post("/policy/release", response_model=PolicyReleaseReceipt)
     def policy_release(payload: PolicyReleaseRequest) -> dict:

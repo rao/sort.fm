@@ -178,6 +178,7 @@ def test_benchmark_measures_actual_cpu_stages_and_selection_replay(tmp_path):
         assert run["fullSelectionSeconds"] == pytest.approx(sum(run[key] for key in ("predictSeconds", "contextSeconds", "policyRebuildSeconds", "selectionSeconds")))
     assert report["service"]["candidateCount"] == 40
     assert report["service"]["trainedRewards"] == 1
+    assert report["service"]["feedbackTransport"] == "fit_then_associate"
     assert report["service"]["selectionReplayExact"] is True
     assert len(report["service"]["authenticatedAsgiSelectionSeconds"]) == 2
     assert all(value > 0 for value in report["service"]["authenticatedAsgiSelectionSeconds"])

@@ -4,8 +4,9 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 
-from .schemas import (Candidate, Count, FeatureVersion, Identifier, ObserveRequest,
-                      Prediction, Probability, SafeInteger, Timestamp, Uuid, WireModel)
+from .schemas import (BinaryLabel, Candidate, Count, FeatureVector, FeatureVersion, Identifier,
+                      NonEmptyString, ObserveRequest, Prediction, Probability, SafeInteger,
+                      Timestamp, Uuid, WireModel)
 
 
 class PolicyConfig(WireModel):
@@ -29,6 +30,7 @@ class PolicySelectRequest(WireModel):
     exposureId: Uuid
     candidates: Annotated[list[PolicyCandidate], Field(min_length=1, max_length=10000)]
     modelVersion: str | None = None
+    feedbackRevision: Count = Field(default=None)  # type: ignore[assignment]
     seed: SafeInteger = 42
     config: PolicyConfig = Field(default_factory=PolicyConfig)
 
@@ -36,6 +38,8 @@ class PolicySelectRequest(WireModel):
     def unique_tracks(self) -> Self:
         if len({row.trackId for row in self.candidates}) != len(self.candidates):
             raise ValueError("Candidate track identities must be unique")
+        if self.feedbackRevision is not None and self.modelVersion is None:
+            raise ValueError("A feedback revision requires a pinned model version")
         return self
 
 
@@ -47,6 +51,67 @@ class PolicyFeedbackRequest(ObserveRequest):
         if self.usefulness is not None and (self.label is None or self.operation == "revoke"):
             raise ValueError("Only a completed strong review has a usefulness rating")
         return self
+
+
+class PolicyFitReceipt(WireModel):
+    modelVersion: NonEmptyString
+    synchronizedFeedbackRevision: Count
+
+
+class PolicyAssociationEvent(WireModel):
+    eventId: Uuid
+    sequence: Annotated[Count, Field(ge=1)]
+    source: Literal["cleanup"]
+    decisionId: Uuid
+    exposureId: Uuid
+    trackId: Identifier
+    policyVersion: NonEmptyString
+    modelVersion: NonEmptyString
+    operation: Literal["upsert", "revoke"]
+    feedbackRevision: Count
+    label: BinaryLabel | None
+    features: FeatureVector
+    occurredAt: Timestamp
+    usefulness: Probability = Field(default=None)  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def coherent_feedback(self) -> Self:
+        if self.operation == "revoke" and self.label is not None:
+            raise ValueError("Revocation removes the original decision")
+        if self.usefulness is not None and (self.operation == "revoke" or self.label is None):
+            raise ValueError("Only a completed strong review has a usefulness rating")
+        return self
+
+
+class PolicyAssociateRequest(WireModel):
+    userId: Identifier
+    event: PolicyAssociationEvent
+    fitReceipt: PolicyFitReceipt
+
+    @model_validator(mode="after")
+    def receipt_covers_event(self) -> Self:
+        if self.fitReceipt.synchronizedFeedbackRevision < self.event.feedbackRevision:
+            raise ValueError("The C1 fit receipt must cover the committed event revision")
+        return self
+
+
+class PolicyAssociateResponse(WireModel):
+    userId: Identifier
+    eventId: Uuid
+    sequence: Annotated[Count, Field(ge=1)]
+    recordedAt: Timestamp
+    duplicate: bool
+    fitReceipt: PolicyFitReceipt
+    eligibleForLearning: bool
+
+
+class PolicyAssociationRecord(WireModel):
+    """Private durable acceptance evidence; retries do not rewrite this receipt."""
+    event: PolicyAssociationEvent
+    fingerprint: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    recordedAt: Timestamp
+    fitReceipt: PolicyFitReceipt
+    fitFingerprint: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 
 
 class PolicySelection(WireModel):
@@ -75,6 +140,7 @@ class PolicyDecision(WireModel):
     candidate: PolicyCandidate
     prediction: Prediction
     modelVersion: str
+    feedbackRevision: Count | None = None
     featureVersion: FeatureVersion
     policyVersion: str
     policyStateVersion: str
@@ -127,7 +193,7 @@ class PolicyReservation(WireModel):
     expiresAt: Timestamp
     status: Literal["active", "released", "expired"]
     closedAt: Timestamp | None
-    closureReason: Literal["explicit_release", "undo", "expiry"] | None
+    closureReason: Literal["explicit_release", "undo", "skip", "expiry"] | None
 
     @model_validator(mode="after")
     def coherent_lifecycle(self) -> Self:
@@ -140,7 +206,7 @@ class PolicyReservation(WireModel):
         elif self.status == "expired":
             if self.closedAt != self.expiresAt or self.closureReason != "expiry":
                 raise ValueError("Expiry closes at the original deadline")
-        elif (self.closedAt is None or self.closureReason not in ("explicit_release", "undo")
+        elif (self.closedAt is None or self.closureReason not in ("explicit_release", "undo", "skip")
               or datetime.fromisoformat(self.closedAt) > expires):
             raise ValueError("Released reservations require a valid terminal closure")
         return self

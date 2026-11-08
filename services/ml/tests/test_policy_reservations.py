@@ -261,7 +261,7 @@ def test_old_release_cannot_close_other_live_lease_for_same_track(tmp_path):
     clock = Clock()
     app = make_app(tmp_path, clock)
     first = choose(app, single(strategy="c1"))
-    clock.advance(1)
+    clock.advance(300)
     second = choose(app, single(1001, strategy="c1"))
     assert first["trackId"] == second["trackId"]
     release(app, first)
@@ -400,10 +400,12 @@ def test_stale_undo_and_old_release_preserve_newer_completed_review_and_lease(tm
     old = choose(app, single())
     old_event = event(old)
     observe(app, old_event)
+    observe(app, {**old_event, "eventId": uid(2003), "feedbackRevision": 2,
+                  "operation": "revoke", "label": None})
     release(app, old)
     newer = choose(app, single(1001, strategy="c1"))
-    observe(app, {**event(newer, 2001, 2), "decisionId": uid(3001)})
-    observe(app, {**old_event, "eventId": uid(2002), "feedbackRevision": 3,
+    observe(app, {**event(newer, 2001, 3), "decisionId": uid(3001)})
+    observe(app, {**old_event, "eventId": uid(2002), "feedbackRevision": 4,
                   "operation": "revoke", "label": None})
     release(app, old, 5001)
     assert inspect(app, newer)["reservation"]["status"] == "active"
@@ -426,13 +428,14 @@ def test_full_fit_removal_allows_reselection_only_after_live_lease_ends(tmp_path
     assert diagnostics(app)["counts"]["activeRewards"] == 0
 
 
-def test_disabled_c1_preserves_full_rank_and_still_creates_lease(tmp_path):
+def test_c1_ranks_available_pool_and_still_creates_lease(tmp_path):
     clock = Clock()
     app = make_app(tmp_path, clock)
     first = choose(app, selection(strategy="c1"))
     second = choose(app, selection(1001, strategy="c1"))
-    assert first["rankedTrackIds"] == second["rankedTrackIds"]
-    assert first["trackId"] == second["trackId"]
+    assert first["trackId"] not in second["rankedTrackIds"]
+    assert len(second["rankedTrackIds"]) == len(first["rankedTrackIds"]) - 1
+    assert first["trackId"] != second["trackId"]
     assert inspect(app, second)["reservation"]["status"] == "active"
     candidate = {**single(1002), "candidates": [second["candidate"]]}
     assert_exhausted(app, candidate)

@@ -1,29 +1,34 @@
 """C2 policy adapter over C1's immutable models and authoritative label ledger.
 
-Selection reservations are durable before returning. Feedback intents are saved
-before C1 observes them; only matching committed C1 events can contribute. This
-small outbox avoids claiming a distributed transaction across two artifact files.
-An interrupted request is completed by retrying the same event/exposure ID.
+Selection reservations are durable before returning. The snapshot integration
+associates committed cleanup events without writing C1. Legacy online observation
+remains available for isolated clients; the two transports never double-count a
+decision. An interrupted request is completed with the same event/exposure ID.
 """
 from __future__ import annotations
 
 from copy import deepcopy
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+from threading import Lock
 from typing import Callable
 
 import numpy as np
 
 from .bandit import CONTEXT_VERSION, LinearUCB, build_context, context_names, select_candidate
-from .policy_schemas import (PolicyDecision, PolicyEligibility, PolicyReleaseReceipt,
+from .policy_schemas import (PolicyAssociateRequest, PolicyAssociateResponse, PolicyAssociationRecord,
+                             PolicyDecision, PolicyEligibility, PolicyReleaseReceipt,
                              PolicyReleaseRequest, PolicyReservation, PolicySelectRequest)
 from .schemas import FeatureVector, ObserveRequest
 from .service import FEATURE_VERSION, ModelService, ServiceError, atomic_bytes, canonical, digest
 
-POLICY_VERSION = "c2-linucb-v2"
+POLICY_VERSION = "c2-linucb-v3"
+RESERVATION_POLICY_VERSION = "c2-linucb-v2"
 LEGACY_POLICY_VERSION = "c2-linucb-v1"
-STORAGE_VERSION = 2
+STORAGE_VERSION = 3
+EVIDENCE_CACHE_SIZE = 128
 LEGACY_TTL_SECONDS = 300
 REWARD_VERSION = "review-utility-v1"
 CAVEATS = [
@@ -63,6 +68,47 @@ class PolicyService:
         self.models = models
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.reservation_ttl_seconds = reservation_ttl_seconds
+        # Retain only tiny verified receipt facts, never historical model objects.
+        self._evidence_cache = OrderedDict()
+        self._evidence_lock = Lock()
+
+    @staticmethod
+    def _evidence_signature(folder: Path, version: str) -> tuple:
+        signatures = []
+        for suffix in (".joblib", ".json"):
+            stat = (folder / (version + suffix)).stat()
+            signatures.append((stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+        return tuple(signatures)
+
+    def _fit_evidence(self, folder: Path, user_id: str, version: str) -> tuple:
+        """Verify immutable acceptance evidence, with bounded owner-scoped caching.
+
+        Metadata of both artifact and checksum manifest invalidates cached facts;
+        changed files must pass C1's checksum/runtime/owner validation again.
+        """
+        from .service import VERSION_PATTERN
+        if not VERSION_PATTERN.fullmatch(version):
+            raise ValueError("Invalid accepted fit version")
+        key = (str(folder), version)
+        try:
+            signature = self._evidence_signature(folder, version)
+            with self._evidence_lock:
+                cached = self._evidence_cache.get(key)
+                if cached is not None and cached[0] == signature:
+                    self._evidence_cache.move_to_end(key)
+                    return cached[1]
+            accepted = self.models._load(folder, user_id, version)["state"]
+            evidence = (accepted["revision"], accepted["fitFingerprint"])
+            if signature != self._evidence_signature(folder, version):
+                raise ValueError("Accepted fit evidence changed during verification")
+            with self._evidence_lock:
+                self._evidence_cache[key] = (signature, evidence)
+                self._evidence_cache.move_to_end(key)
+                while len(self._evidence_cache) > EVIDENCE_CACHE_SIZE:
+                    self._evidence_cache.popitem(last=False)
+            return evidence
+        except (OSError, ServiceError) as error:
+            raise ValueError("Association fit evidence is unavailable") from error
 
     def _now(self) -> datetime:
         value = self.clock()
@@ -83,36 +129,40 @@ class PolicyService:
             if any(row.get("policyVersion") for row in self.models._read_exposures(folder).values()):
                 raise ServiceError(503, "POLICY_STATE_UNAVAILABLE", "Policy ledger is missing; restore a verified backup.")
             return {"userId": user_id, "version": POLICY_VERSION, "schemaVersion": STORAGE_VERSION,
-                    "decisions": {}, "events": {}, "reservations": {}, "releaseRequests": {}}
+                    "decisions": {}, "events": {}, "reservations": {}, "releaseRequests": {}, "associations": {}}
         try:
             envelope = json.loads(path.read_text())
             state = envelope["state"]
             legacy = "schemaVersion" not in state and state.get("version") == LEGACY_POLICY_VERSION
+            v2 = state.get("schemaVersion") == 2 and state.get("version") == RESERVATION_POLICY_VERSION
             expected_keys = {"userId", "version", "decisions", "events"}
             if not legacy:
                 expected_keys |= {"schemaVersion", "reservations", "releaseRequests"}
+                if not v2:
+                    expected_keys.add("associations")
+            valid_schema = legacy or (type(state.get("schemaVersion")) is int and (
+                v2 or (state["schemaVersion"] == STORAGE_VERSION and state["version"] == POLICY_VERSION)))
             if (digest(state) != envelope["sha256"] or state["userId"] != user_id
-                or set(state) != expected_keys or (not legacy and (
-                    type(state["schemaVersion"]) is not int or state["schemaVersion"] != STORAGE_VERSION
-                    or state["version"] != POLICY_VERSION))):
+                or set(state) != expected_keys or not valid_schema):
                 raise ValueError("Policy integrity/version mismatch")
             if not isinstance(state["events"], dict) or not isinstance(state["decisions"], dict):
                 raise ValueError("Invalid ledgers")
             for exposure, entry in state["decisions"].items():
                 decision = PolicyDecision.model_validate(entry["response"])
                 if (decision.exposureId != exposure or decision.userId != user_id
-                    or decision.policyVersion not in (LEGACY_POLICY_VERSION, POLICY_VERSION)
+                    or decision.policyVersion not in (LEGACY_POLICY_VERSION, RESERVATION_POLICY_VERSION, POLICY_VERSION)
+                    or (v2 and decision.policyVersion == POLICY_VERSION)
                     or not isinstance(entry["fingerprint"], str)):
                     raise ValueError("Invalid selection identity")
                 if legacy and (set(entry) != {"fingerprint", "response"} or decision.policyVersion != LEGACY_POLICY_VERSION):
                     raise ValueError("Invalid legacy decision")
                 if not legacy:
                     expected_entry_keys = {"fingerprint", "response"}
-                    if decision.policyVersion == POLICY_VERSION:
+                    if decision.policyVersion != LEGACY_POLICY_VERSION:
                         expected_entry_keys.add("eligibility")
                         snapshot = PolicyEligibility.model_validate(entry["eligibility"])
                         excluded_tracks = [row.trackId for row in snapshot.exclusions]
-                        filtering = decision.config.strategy != "c1"
+                        filtering = decision.policyVersion == POLICY_VERSION or decision.config.strategy != "c1"
                         if (snapshot.evaluatedAt != decision.createdAt or snapshot.filteringApplied != filtering
                             or len(set(excluded_tracks)) != len(excluded_tracks)
                             or not set(excluded_tracks).issubset(decision.candidateTrackIds)
@@ -129,6 +179,8 @@ class PolicyService:
                                     raise ValueError("Invalid blocking exposure reference")
                     if set(entry) != expected_entry_keys:
                         raise ValueError("Invalid decision metadata")
+                    if decision.policyVersion == POLICY_VERSION and "feedbackRevision" not in entry["response"]:
+                        raise ValueError("New decisions must record their actual model revision")
             for event_id, entry in state["events"].items():
                 event = ObserveRequest.model_validate(entry["request"])
                 if (event.eventId != event_id or event.userId != user_id or event.exposureId not in state["decisions"]
@@ -136,6 +188,30 @@ class PolicyService:
                     raise ValueError("Invalid feedback identity")
                 if event.label is not None:
                     review_reward(event.label, state["decisions"][event.exposureId]["response"]["prediction"], entry["usefulness"])
+            associations = state.get("associations", {})
+            if not isinstance(associations, dict):
+                raise ValueError("Invalid associations ledger")
+            sequences, decisions, exposures, accepted_evidence = set(), {}, {}, {}
+            for event_id, entry in associations.items():
+                record = PolicyAssociationRecord.model_validate(entry)
+                event = record.event
+                selected = state["decisions"][event.exposureId]["response"]
+                if (event.eventId != event_id or event_id in state["events"]
+                    or event.sequence in sequences
+                    or entry["fingerprint"] != digest({"userId": user_id, "event": entry["event"]})
+                    or record.fitReceipt.synchronizedFeedbackRevision < event.feedbackRevision
+                    or not self._association_binding(entry["event"], selected)
+                    or decisions.get(event.decisionId, event.exposureId) != event.exposureId
+                    or exposures.get(event.exposureId, event.decisionId) != event.decisionId):
+                    raise ValueError("Invalid association identity or evidence")
+                version = record.fitReceipt.modelVersion
+                if version not in accepted_evidence:
+                    accepted_evidence[version] = self._fit_evidence(folder, user_id, version)
+                if accepted_evidence[version] != (record.fitReceipt.synchronizedFeedbackRevision, record.fitFingerprint):
+                    raise ValueError("Association fit evidence does not match its immutable model")
+                sequences.add(event.sequence)
+                decisions[event.decisionId] = event.exposureId
+                exposures[event.exposureId] = event.decisionId
             if not legacy:
                 if (not isinstance(state["reservations"], dict) or not isinstance(state["releaseRequests"], dict)
                     or set(state["reservations"]) != set(state["decisions"])):
@@ -165,6 +241,14 @@ class PolicyService:
                 for exposure, lease in state["reservations"].items():
                     if primary_receipts.get(exposure, 0) != int(lease["closureReason"] == "explicit_release"):
                         raise ValueError("Explicit closure must have exactly one durable primary receipt")
+                    if lease["closureReason"] == "skip" and not any(
+                        row["event"]["exposureId"] == exposure and row["event"]["operation"] == "upsert"
+                        and row["event"]["label"] is None for row in associations.values()):
+                        raise ValueError("Skip closure must have a committed association")
+                    if lease["status"] == "active" and any(
+                        row["event"]["exposureId"] == exposure and row["event"]["label"] is None
+                        for row in associations.values()):
+                        raise ValueError("Committed SKIP/Undo must close the original lease atomically")
             return state
         except (ValueError, TypeError, KeyError, OverflowError, AttributeError) as error:
             raise ServiceError(503, "POLICY_STATE_UNAVAILABLE", "Policy ledger is invalid; restore a verified backup.") from error
@@ -172,15 +256,16 @@ class PolicyService:
     def _reconciled_state(self, folder: Path, user_id: str, current: dict, now: datetime) -> tuple[dict, bool]:
         """Reconcile under the C1 user lock; caller must persist observed transitions."""
         state = self._read(folder, user_id)
-        changed = "schemaVersion" not in state
-        if changed:
+        changed = state.get("schemaVersion") != STORAGE_VERSION
+        if "schemaVersion" not in state:
             try:
                 reservations = {key: self._reservation(key, entry["response"]["createdAt"], LEGACY_TTL_SECONDS)
                                 for key, entry in state["decisions"].items()}
             except (ValueError, TypeError, OverflowError) as error:
                 raise ServiceError(503, "POLICY_STATE_UNAVAILABLE", "Legacy reservation timestamps are invalid.") from error
-            state.update(schemaVersion=STORAGE_VERSION, version=POLICY_VERSION,
-                         reservations=reservations, releaseRequests={})
+            state.update(reservations=reservations, releaseRequests={})
+        if changed:
+            state.update(schemaVersion=STORAGE_VERSION, version=POLICY_VERSION, associations={})
         latest = {}
         for row in sorted(self._feedback(state, current), key=lambda row: row["feedbackRevision"]):
             if row["committed"]:
@@ -206,8 +291,7 @@ class PolicyService:
     @staticmethod
     def _eligibility(state: dict, current: dict, feedback: list[dict], candidates: list[dict],
                      now: datetime, *, filtering: bool) -> dict:
-        completed = {row["trackId"] for row in feedback if row["committed"] and row["operation"] == "upsert"
-                     and row["label"] is not None and row["trackId"] in current["state"]["examples"]}
+        completed = {row["trackId"] for row in feedback if row["active"]}
         live = {}
         for exposure, lease in state["reservations"].items():
             if lease["status"] == "active":
@@ -239,21 +323,36 @@ class PolicyService:
             atomic_bytes(folder / "exposures.json", canonical(exposures))
 
     @staticmethod
+    def _association_binding(event: dict, decision: dict) -> bool:
+        return (event["trackId"] == decision["trackId"]
+                and event["policyVersion"] == decision["policyVersion"]
+                and event["modelVersion"] == decision["modelVersion"]
+                and FeatureVector.model_validate(event["features"]).model_dump()
+                == FeatureVector.model_validate(decision["candidate"]["features"]).model_dump())
+
+    @staticmethod
     def _feedback(state: dict, bundle: dict) -> list[dict]:
         """Describe both pending intents and confirmed, currently active labels."""
         ledger = bundle["state"]
         results = []
+        associations = list(state.get("associations", {}).values())
+        latest_associations = {}
+        for entry in sorted(associations, key=lambda row: row["event"]["sequence"]):
+            latest_associations[entry["event"]["exposureId"]] = entry["event"]["eventId"]
+        associated_decisions = {entry["event"]["decisionId"] for entry in associations}
         for event_id, entry in state["events"].items():
             event = entry["request"]
             committed = ledger["events"].get(event_id, {}).get("fingerprint") == entry["fingerprint"]
             active = ledger["examples"].get(event["trackId"])
             matches = bool(committed and event["operation"] == "upsert" and event["label"] is not None
+                           and event["decisionId"] not in associated_decisions
                            and active and active["decisionId"] == event["decisionId"]
                            and active["label"] == event["label"]
                            and FeatureVector.model_validate(active["features"]).model_dump() ==
                            FeatureVector.model_validate(event["features"]).model_dump())
             decision = state["decisions"][event["exposureId"]]["response"]
             result = {"eventId": event_id, **deepcopy(event), "committed": committed,
+                      "transport": "observe",
                       "active": matches, "eligibleForLearning": bool(matches and active["split"] == "train"),
                       "split": active["split"] if matches else None,
                       "reward": review_reward(event["label"], decision["prediction"], entry["usefulness"])
@@ -267,6 +366,25 @@ class PolicyService:
         for row in results:
             if row["active"] and latest[row["decisionId"]] != row["eventId"]:
                 row.update(active=False, eligibleForLearning=False)
+        for entry in sorted(associations, key=lambda row: row["event"]["sequence"]):
+            event = entry["event"]
+            active = ledger["examples"].get(event["trackId"])
+            matches = bool(latest_associations[event["exposureId"]] == event["eventId"]
+                           and event["operation"] == "upsert" and event["label"] is not None
+                           and ledger["revision"] >= event["feedbackRevision"]
+                           and active and active["decisionId"] == event["decisionId"]
+                           and active["label"] == event["label"]
+                           and event["features"]["permittedForTraining"]
+                           and active["features"]["permittedForTraining"]
+                           and FeatureVector.model_validate(active["features"]).model_dump()
+                           == FeatureVector.model_validate(event["features"]).model_dump())
+            decision = state["decisions"][event["exposureId"]]["response"]
+            results.append({"userId": state["userId"], **deepcopy(event), "committed": True,
+                "transport": "associate", "recordedAt": entry["recordedAt"],
+                "active": matches, "eligibleForLearning": bool(matches and active["split"] == "train"),
+                "split": active["split"] if matches else None,
+                "reward": review_reward(event["label"], decision["prediction"], event.get("usefulness"))
+                if event["operation"] == "upsert" and event["label"] is not None else None})
         return results
 
     @staticmethod
@@ -300,6 +418,9 @@ class PolicyService:
                 return deepcopy(existing["response"])
             if payload["exposureId"] in self.models._read_exposures(folder):
                 raise ServiceError(409, "EXPOSURE_CONFLICT", "Exposure ID is already registered by another scorer.")
+            if parsed.feedbackRevision is not None:
+                self._require_fit_receipt(current, {"modelVersion": parsed.modelVersion,
+                    "synchronizedFeedbackRevision": parsed.feedbackRevision})
             bundle = current if payload["modelVersion"] is None else self.models._load(folder, payload["userId"], payload["modelVersion"])
             # Current active decisions govern Undo even when scoring an old model.
             feedback = self._feedback(state, current)
@@ -307,9 +428,9 @@ class PolicyService:
             learner = self._learner(bundle, feedback, config)
             history = [entry["response"] for entry in sorted(state["decisions"].values(), key=lambda entry: entry["response"]["step"])]
             eligibility = self._eligibility(state, current, feedback, payload["candidates"], now,
-                                            filtering=config["strategy"] != "c1")
+                                            filtering=True)
             excluded = {row["trackId"] for row in eligibility["exclusions"]}
-            candidates = [row for row in payload["candidates"] if config["strategy"] == "c1" or row["trackId"] not in excluded]
+            candidates = [row for row in payload["candidates"] if row["trackId"] not in excluded]
             if not candidates:
                 raise ServiceError(409, "NO_ELIGIBLE_CANDIDATES", "All supplied songs have a live reservation or completed review.")
             model = bundle["model"]
@@ -328,6 +449,7 @@ class PolicyService:
             response = {"userId": payload["userId"], "exposureId": payload["exposureId"], "trackId": candidates[index]["trackId"],
                         "candidate": candidates[index], "prediction": predictions[index]["prediction"],
                         "modelVersion": bundle["version"], "featureVersion": FEATURE_VERSION,
+                        "feedbackRevision": bundle["state"]["revision"] if bundle["state"]["revision"] >= 0 else None,
                         "policyVersion": POLICY_VERSION, "policyStateVersion": "c2-" + digest({
                             "model": bundle["version"], "feedback": active_identity, "history": simplified,
                             "config": config, "eligibility": eligibility})[:24],
@@ -344,6 +466,73 @@ class PolicyService:
             self._write(folder, state)
             self._ensure_prediction(folder, response)
             return deepcopy(response)
+
+    @staticmethod
+    def _require_fit_receipt(current: dict, receipt: dict) -> None:
+        if (receipt["modelVersion"] != current["version"]
+            or receipt["synchronizedFeedbackRevision"] != current["state"]["revision"]
+            or current["state"]["fitFingerprint"] is None):
+            raise ServiceError(409, "STALE_FIT_RECEIPT",
+                "Refresh the receipt from the current published C1 fit before retrying.")
+
+    def associate(self, payload: dict) -> dict:
+        """Accept backend-attested cleanup history without observing or fitting C1.
+
+        The immutable event is the idempotency unit. A retry must provide a fresh
+        current fit receipt; the original acceptance evidence stays unchanged.
+        Database settlement/provenance is attested by the authenticated backend,
+        never inferred from arbitrary membership in a supervised fit snapshot.
+        """
+        payload = PolicyAssociateRequest.model_validate(payload).model_dump(exclude_unset=True)
+        user_id, event, receipt = payload["userId"], payload["event"], payload["fitReceipt"]
+        fingerprint = digest({"userId": user_id, "event": event})
+        with self.models._locked(user_id) as folder:
+            # Do not initialize a C1 model as a side effect of unknown feedback.
+            if not (folder / "current.json").exists() and not (folder / "policy.json").exists():
+                raise ServiceError(404, "POLICY_EXPOSURE_NOT_FOUND", "No policy selection exists for this user and exposure.")
+            current = self.models._load(folder, user_id)
+            now = self._now()
+            state = self._load_state(folder, user_id, current, now)
+            existing = state["associations"].get(event["eventId"])
+            if existing and existing["fingerprint"] != fingerprint:
+                raise ServiceError(409, "IDEMPOTENCY_CONFLICT", "Committed cleanup event contents are immutable.")
+            if event["eventId"] in state["events"]:
+                raise ServiceError(409, "IDEMPOTENCY_CONFLICT", "An event ID cannot identify two feedback transports.")
+            selected = state["decisions"].get(event["exposureId"])
+            if selected is None:
+                raise ServiceError(404, "POLICY_EXPOSURE_NOT_FOUND", "No policy selection exists for this user and exposure.")
+            if not self._association_binding(event, selected["response"]):
+                raise ServiceError(409, "EXPOSURE_CONFLICT", "Cleanup feedback must match the frozen policy exposure.")
+            for entry in state["associations"].values():
+                prior = entry["event"]
+                if prior["eventId"] == event["eventId"]:
+                    continue
+                if prior["sequence"] == event["sequence"]:
+                    raise ServiceError(409, "IDEMPOTENCY_CONFLICT", "A policy sequence cannot identify two events.")
+                if ((prior["decisionId"] == event["decisionId"] and prior["exposureId"] != event["exposureId"])
+                    or (prior["exposureId"] == event["exposureId"] and prior["decisionId"] != event["decisionId"])):
+                    raise ServiceError(409, "EXPOSURE_CONFLICT", "A cleanup decision and its original exposure are bound once.")
+            self._require_fit_receipt(current, receipt)
+            if current["state"]["decisions"].get(event["decisionId"], event["trackId"]) != event["trackId"]:
+                raise ServiceError(409, "EXPOSURE_CONFLICT", "The committed decision identifies a different track in C1.")
+            if existing is None:
+                existing = {"event": event, "fingerprint": fingerprint, "recordedAt": now.isoformat(),
+                            "fitReceipt": receipt, "fitFingerprint": current["state"]["fitFingerprint"]}
+                state["associations"][event["eventId"]] = existing
+                lease = state["reservations"][event["exposureId"]]
+                if event["label"] is None and lease["status"] == "active":
+                    lease.update(status="released", closedAt=now.isoformat(),
+                                 closureReason="undo" if event["operation"] == "revoke" else "skip")
+                # Closure, event and initial acceptance receipt share one write.
+                self._write(folder, state)
+                duplicate = False
+            else:
+                duplicate = True
+            feedback = next(row for row in self._feedback(state, current) if row["eventId"] == event["eventId"])
+            return PolicyAssociateResponse.model_validate({
+                "userId": user_id, "eventId": event["eventId"], "sequence": event["sequence"],
+                "recordedAt": existing["recordedAt"], "duplicate": duplicate, "fitReceipt": receipt,
+                "eligibleForLearning": feedback["eligibleForLearning"]}).model_dump()
 
     def release(self, payload: dict) -> dict:
         """Close one scheduling lease and commit its immutable receipt atomically."""
@@ -400,6 +589,8 @@ class PolicyService:
                     FeatureVector.model_validate(candidate["features"]).model_dump()):
                     raise ServiceError(409, "EXPOSURE_CONFLICT", "Feedback must match the selected song and frozen features.")
                 fingerprint = digest(payload)
+                if payload["eventId"] in state["associations"]:
+                    raise ServiceError(409, "IDEMPOTENCY_CONFLICT", "An event ID cannot identify two feedback transports.")
                 existing = state["events"].get(payload["eventId"])
                 if existing:
                     if existing["fingerprint"] != fingerprint or (require_policy and existing["usefulness"] != usefulness):

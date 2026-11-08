@@ -22,7 +22,7 @@ def benchmark_service(candidates: list[dict], training: list[dict], historical: 
                       environment: dict, repeats: int, seed: int, config: dict) -> dict:
     """Authenticated ASGI request/serialization plus real local persistence.
 
-    One actual policy feedback event establishes a learned reward; the other C1
+    One committed association establishes a learned reward; the other C1
     labels were supplied in the initial fit. Each repetition starts from a new
     temporary directory to hold the workload and candidate pool fixed.
     """
@@ -40,23 +40,37 @@ def benchmark_service(candidates: list[dict], training: list[dict], historical: 
                     response = await client.post("/fit", json={"userId": user, "featureVersion": FEATURE_VERSION,
                                                 "feedbackRevision": 1, "evaluationSeed": seed, "examples": training})
                     assert response.status_code == 200, response.text
+                    fitted = response.json()
                     initial_id = str(uuid5(NAMESPACE_URL, "c2-benchmark:initial-exposure"))
                     response = await client.post("/policy/select", json={"userId": user, "featureVersion": FEATURE_VERSION,
-                                                 "exposureId": initial_id, "modelVersion": None, "seed": seed,
+                                                 "exposureId": initial_id, "modelVersion": fitted["modelVersion"],
+                                                 "feedbackRevision": fitted["feedbackRevision"], "seed": seed,
                                                  "config": config, "candidates": historical[:1]})
                     assert response.status_code == 200, response.text
+                    original = response.json()
                     outcome = environment["outcomes"][historical[0]["trackId"]]
-                    response = await client.post("/policy/feedback", json={"userId": user,
+                    decision_id = str(uuid5(NAMESPACE_URL, "c2-benchmark:feedback-decision"))
+                    snapshot = [{**row, "decisionId": decision_id} if row["trackId"] == original["trackId"] else row
+                                for row in training]
+                    response = await client.post("/fit", json={"userId": user, "featureVersion": FEATURE_VERSION,
+                                                "feedbackRevision": 2, "evaluationSeed": seed, "examples": snapshot})
+                    assert response.status_code == 200, response.text
+                    fitted = response.json()
+                    response = await client.post("/policy/associate", json={"userId": user, "event": {
                                                  "eventId": str(uuid5(NAMESPACE_URL, "c2-benchmark:feedback-event")),
-                                                 "decisionId": str(uuid5(NAMESPACE_URL, "c2-benchmark:feedback-decision")),
+                                                 "sequence": 1, "source": "cleanup", "decisionId": decision_id,
+                                                 "policyVersion": original["policyVersion"], "modelVersion": original["modelVersion"],
                                                  "exposureId": initial_id, "trackId": historical[0]["trackId"],
                                                  "feedbackRevision": 2, "operation": "upsert", "label": outcome["label"],
                                                  "features": historical[0]["features"], "occurredAt": FIXTURE_TIME,
-                                                 "usefulness": outcome["usefulness"]})
+                                                 "usefulness": outcome["usefulness"]}, "fitReceipt": {
+                                                     "modelVersion": fitted["modelVersion"],
+                                                     "synchronizedFeedbackRevision": fitted["feedbackRevision"]}})
                     assert response.status_code == 200, response.text
                     request = {"userId": user, "featureVersion": FEATURE_VERSION,
                                "exposureId": str(uuid5(NAMESPACE_URL, "c2-benchmark:measured-exposure")),
-                               "modelVersion": None, "seed": seed, "config": config, "candidates": candidates}
+                               "modelVersion": fitted["modelVersion"], "feedbackRevision": fitted["feedbackRevision"],
+                               "seed": seed, "config": config, "candidates": candidates}
                     start = perf_counter()
                     response = await client.post("/policy/select", json=request)
                     elapsed = perf_counter() - start
@@ -71,6 +85,7 @@ def benchmark_service(candidates: list[dict], training: list[dict], historical: 
         assert len(set(selections)) == 1
         return {"notice": "Authenticated in-process ASGI /policy/select with real temporary POSIX artifacts, one warm-up excluded. Includes request/response JSON, validation, authentication, checksums and persistence; excludes a network socket, TLS and deployed concurrency.",
                 "candidateCount": len(candidates), "trainingExamples": len(training), "trainedRewards": 1,
+                "feedbackTransport": "fit_then_associate",
                 "policyVersion": selected["policyVersion"],
                 "reservationTtlSeconds": app.state.policy_service.reservation_ttl_seconds,
                 "selectionReplayExact": True, "authenticatedAsgiSelectionSeconds": timings,

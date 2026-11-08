@@ -1,6 +1,6 @@
 # Browser playback contract and integration plan
 
-Status: A1 backend/OAuth is integrated; B2 SDK UI is staged on the integration branch. D persistence/migration and runtime acceptance remain pending. Do not publish the staged UI to the Vercel production branch before the playback backend is deployed. Production calibration is independent. `CONTRACT_VERSION=1.0.0` and `FEATURE_VERSION=sortfm.features.v1` are unchanged.
+Status: A1, B2, D014 and runtime integration have passed engineering acceptance. API source `7915c0c` is deployed as Railway `e5c08522-8d8b-4e2a-add3-491e708dda19`, with migration014 applied and the existing C1 deployment unchanged. The SDK UI is included in the next foundation publication, after backend verification. Actual playback consent, Premium availability and audible play/seek/mute remain live acceptance gates. Production calibration is independent. `CONTRACT_VERSION=1.0.0` and `FEATURE_VERSION=sortfm.features.v1` are unchanged.
 
 ## Authorization and credential boundary
 

@@ -86,9 +86,13 @@ export class PostgresCalibrationExperimentStore implements CalibrationExperiment
    if(digest(request.expected)!==digest(s.reservation.digests)||digest(request.research)!==digest(s.draft.research)||digest(request.evaluationCandidates)!==digest(a.map(c=>({trackId:c.track.trackId,features:c.features})))||digest(request.queryGroups)!==digest(Object.fromEntries(a.map(c=>[c.track.trackId,c.track.artists[0]?.id??null]))))fail('BATCH_SEAL_MISMATCH');
    const [events]=await tx`SELECT count(*)::int AS n FROM unified_feedback f WHERE f.user_id=${userId} AND EXISTS(SELECT 1 FROM calibration_batch_items i WHERE i.user_id=f.user_id AND i.batch_id=${request.batchId} AND i.track_id=f.track_id)`;if(events.n!==0)fail('BATCH_FEEDBACK_EXISTS');
    const [checked]=await tx`SELECT clock_timestamp() AS now`;const checkedAt=iso(checked.now);if(Date.parse(request.externalSealedAt)>Date.parse(checkedAt))fail('BATCH_SEAL_CHRONOLOGY');
-   // Separate real observation, never synthetic timestamp arithmetic. Millisecond
-   // equality is rare but must fail closed and permit a clean operator retry.
-   const [opened]=await tx`SELECT clock_timestamp() AS now`;const readyAt=iso(opened.now);if(Date.parse(readyAt)<=Date.parse(checkedAt))fail('BATCH_SEAL_CHRONOLOGY');
+   // PostgreSQL clocks have finer precision than the wire's milliseconds. Bound
+   // the wait for a distinct actual observation; never manufacture checkedAt+1.
+   const [opened]=await tx`SELECT clock_timestamp() AS now`;let readyAt=iso(opened.now);
+   for(let attempt=0;Date.parse(readyAt)<=Date.parse(checkedAt)&&attempt<20;attempt++){
+    const [later]=await tx`SELECT clock_timestamp() AS now FROM pg_sleep(0.001)`;readyAt=iso(later.now);
+   }
+   if(Date.parse(readyAt)<=Date.parse(checkedAt))fail('BATCH_SEAL_CHRONOLOGY');
    const receipt=CalibrationExperimentSealReceiptSchema.parse({batchId:b.batch_id,experiment:CALIBRATION_BATCH3_EXPERIMENT,idempotencyKey:request.idempotencyKey,requestFingerprint,digests:s.reservation.digests,research:request.research,artifacts:request.artifacts,externalSealedAt:request.externalSealedAt,checkedAt,readyAt,everFeedbackCount:0});
    await tx`UPDATE calibration_experiments SET phase='ready',seal_request=${json(request)}::jsonb,seal_receipt=${json(receipt)}::jsonb WHERE user_id=${userId} AND batch_id=${b.batch_id}`;return receipt;
   });

@@ -179,6 +179,25 @@ test("policy telemetry remains visible independently of unavailable model evalua
 	expect(html).toContain("Predicted review reward");
 });
 
+test("committed SKIP closure renders Released and Skip from the reservation snapshot", async () => {
+	const policy = PolicyTelemetrySchema.parse({
+		...telemetry,
+		reservation: {
+			...telemetry.reservation,
+			status: "released",
+			closedAt: "2026-11-07T12:02:00.000Z",
+			evaluatedAt: "2026-11-07T12:03:00.000Z",
+			closureReason: "skip",
+		},
+	});
+	const { state } = await setup(policy);
+	const html = renderToStaticMarkup(<Insights state={state} />);
+	expect(html).toContain("<dt>Reported status</dt><dd>Released</dd>");
+	expect(html).toContain("<dt>Closure reason</dt><dd>Skip</dd>");
+	expect(html).toContain('dateTime="2026-11-07T12:03:00.000Z"');
+	expect(html).toContain("not proof of listening");
+});
+
 test("empty queue never shows a previous exposure or invented scores", async () => {
 	const { state } = await setup();
 	state.queue = [];

@@ -113,6 +113,7 @@ export function PolicyDetails({ exposure }: { exposure: Exposure | null }) {
 													{
 														explicit_release: "Explicit release",
 														undo: "Undo",
+														skip: "Skip",
 														expiry: "Expiry",
 													}[reservation.closureReason]
 												}

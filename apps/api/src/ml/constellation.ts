@@ -1,6 +1,6 @@
 /** Read-only constellation boundary. Privacy filtering belongs to D's projection. */
 import type {FastifyInstance} from 'fastify';
-import {ConstellationProjectionSchema,IdSchema,PUBLIC_ROUTES,type ConstellationReadPort,type TasteConstellationLive} from '@sortfm/contracts';
+import {ConstellationProjectionSchema,ConstellationHistoryProjectionSchema,IdSchema,PUBLIC_ROUTES,type ConstellationReadPort,type TasteConstellationLive,type TasteConstellationHistoryLive} from '@sortfm/contracts';
 import {reviewRouteSecurity,type ReviewRouteOptions} from '../reviews/module';
 import {SpotifyError} from '../spotify/errors';
 
@@ -35,7 +35,28 @@ export function createTasteConstellationModule(options:TasteConstellationOptions
    });
   }catch{throw unavailable();}
  }
+ async function getHistory(userId:string):Promise<TasteConstellationHistoryLive> {
+  try {
+   IdSchema.parse(userId);
+   if(!options.projection?.constellationHistory)throw unavailable();
+   const projection=ConstellationHistoryProjectionSchema.parse(await bounded(()=>options.projection!.constellationHistory!(userId)));
+   if(projection.userId!==userId)throw unavailable();
+   // The adapter proves exclusions before applying its bound. Validate the
+   // entire owner snapshot before exposing historical membership or labels.
+   return PUBLIC_ROUTES.constellationHistory.response.parse({schema:'sortfm.constellation.v2',mode:'live',privacy:'evaluation-excluded',
+    generatedAt:new Date(now()).toISOString(),modelVersion:null,membershipSyncedAt:projection.membershipSyncedAt,
+    tracks:projection.tracks.map(track=>({...track,prediction:null})),
+   });
+  }catch{throw unavailable();}
+ }
  const registerRoutes=async(app:FastifyInstance)=>{
+  app.get(PUBLIC_ROUTES.constellationHistory.path,security.safe(async request=>{
+   PUBLIC_ROUTES.constellationHistory.query.parse(request.query);
+   if(request.body!==undefined||request.headers['transfer-encoding']!==undefined
+    ||(request.headers['content-length']!==undefined&&request.headers['content-length']!=='0'))
+    throw new SpotifyError('VALIDATION_ERROR','This endpoint does not accept a request body.',400);
+   return getHistory(await bounded(()=>security.owner(request)));
+  }));
   app.get(route.path,security.safe(async request=>{
    route.query.parse(request.query);
    if(request.body!==undefined||request.headers['transfer-encoding']!==undefined
@@ -44,5 +65,5 @@ export function createTasteConstellationModule(options:TasteConstellationOptions
    return get(await bounded(()=>security.owner(request)));
   }));
  };
- return {get,registerRoutes};
+ return {get,getHistory,registerRoutes};
 }

@@ -15,7 +15,9 @@ export interface CalibrationModuleOptions {
  batch?:Pick<CalibrationBatchService,'read'|'create'|'skip'>;
  /** Deliberately excludes private reserve/snapshot/seal operator methods. */
  experiment?:Pick<CalibrationExperimentService,'read'|'skip'>;
- service:Pick<CalibrationService,'label'|'undo'|'history'>;
+ service:Pick<CalibrationService,'label'|'undo'|'history'>&Partial<Pick<CalibrationService,'teachHistory'|'teachingStatus'>>;
+ /** Bounds each new read and its session lookup; adapters own I/O cancellation. */
+ readTimeoutMs?:number;
  correction?:Pick<CalibrationService,'correct'>;
  queue:Pick<CalibrationQueue,'get'>;
 }
@@ -36,6 +38,20 @@ function publicError(error:unknown):CalibrationError {
 /** Separate namespace and session/CSRF checks; no cleanup service, worker or Spotify client. */
 export function createCalibrationModule(options:CalibrationModuleOptions){
  const empty=z.strictObject({}),cookie=options.config.secureCookies?'__Host-sortfm_session':'sortfm_session';
+ const readTimeout=options.readTimeoutMs??2000;
+ if(!Number.isInteger(readTimeout)||readTimeout<=0||readTimeout>15000)throw new RangeError('Invalid calibration read deadline');
+ const readUnavailable=()=>new CalibrationError('CALIBRATION_UNAVAILABLE','Teaching information is temporarily unavailable. Retry later.',503,true);
+ async function bounded<T>(read:()=>Promise<T>):Promise<T>{
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  try{return await Promise.race([Promise.resolve().then(read),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(readUnavailable()),readTimeout);})]);}
+  finally{if(timer!==undefined)clearTimeout(timer);}
+ }
+ function readRequest(req:FastifyRequest){
+  empty.parse(req.query);
+  if(req.body!==undefined||req.headers['transfer-encoding']!==undefined
+   ||(req.headers['content-length']!==undefined&&req.headers['content-length']!=='0'))
+   throw new CalibrationError('VALIDATION_ERROR','This endpoint does not accept a request body.',400);
+ }
  const allowed=(origin:string)=>[options.config.webOrigin,options.config.apiOrigin].includes(origin);
  async function owner(req:FastifyRequest){
   const matches=(req.headers.cookie??'').split(';').map(s=>s.trim()).filter(s=>s.slice(0,s.indexOf('='))===cookie);
@@ -69,6 +85,16 @@ export function createCalibrationModule(options:CalibrationModuleOptions){
  const experiment=()=>{if(!options.experiment)throw new CalibrationError('BATCH_EXPERIMENT_UNAVAILABLE','This calibration experiment is not available on this server yet.',503,true);return options.experiment;};
  const experimentParams=z.strictObject({experiment:CalibrationExperimentIdSchema});
  const registerRoutes=async(app:FastifyInstance)=>{
+  app.get(PUBLIC_ROUTES.teachHistory.path,safe(async req=>{
+   readRequest(req);const userId=await bounded(()=>owner(req));
+   if(!options.service.teachHistory)throw readUnavailable();
+   return backend(async()=>PUBLIC_ROUTES.teachHistory.response.parse(await bounded(()=>options.service.teachHistory!(userId))));
+  }));
+  app.get(PUBLIC_ROUTES.teachingStatus.path,safe(async req=>{
+   readRequest(req);const userId=await bounded(()=>owner(req));
+   if(!options.service.teachingStatus)throw readUnavailable();
+   return backend(async()=>PUBLIC_ROUTES.teachingStatus.response.parse(await bounded(()=>options.service.teachingStatus!(userId))));
+  }));
   app.get(PUBLIC_ROUTES.calibrationExperiment.path,safe(async req=>{empty.parse(req.query);if(req.body!==undefined)empty.parse(req.body);const params=experimentParams.parse(req.params),userId=await owner(req);return backend(async()=>CalibrationExperimentReadSchema.parse({batch:await experiment().read(userId,params.experiment)}));}));
   app.post(PUBLIC_ROUTES.calibrationExperimentSkip.path,safe(async req=>{csrf(req);empty.parse(req.query);const params=experimentParams.parse(req.params),input=CalibrationExperimentSkipSchema.parse(req.body),userId=await owner(req);return backend(async()=>CalibrationExperimentReadySchema.parse(await experiment().skip(userId,params.experiment,input)));}));
   app.get(PUBLIC_ROUTES.calibrationBatch.path,safe(async req=>{empty.parse(req.query);if(req.body!==undefined)empty.parse(req.body);const userId=await owner(req);return backend(async()=>CalibrationBatchReadSchema.parse({batch:await batch().read(userId)}));}));

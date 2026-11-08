@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {CalibrationCorrectionRequestSchema,CalibrationHistorySchema,CalibrationLabelRequestSchema,CalibrationLabelResultSchema,IdSchema,UndoRequestSchema,UuidSchema,type CalibrationCorrectionRequest,type CalibrationStore,type CalibrationLabelRequest,type UndoRequest} from '@sortfm/contracts';
+import {CalibrationCorrectionRequestSchema,CalibrationHistorySchema,TeachingStatusSchema,CalibrationLabelRequestSchema,CalibrationLabelResultSchema,IdSchema,UndoRequestSchema,UuidSchema,type CalibrationCorrectionRequest,type CalibrationStore,type CalibrationLabelRequest,type UndoRequest} from '@sortfm/contracts';
 import {CalibrationError,invalidResponse} from './errors';
 const fingerprint=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -31,6 +31,18 @@ export class CalibrationService {
   const result=CalibrationLabelResultSchema.safeParse(await this.store.undoCalibrationLabel({userId,commandId:crypto.randomUUID(),labelId,request,requestFingerprint:fingerprint({labelId,...request}),createdAt:this.timestamp()}));
   if(!result.success||result.data.labelId!==labelId||result.data.state==='active')throw invalidResponse();
   this.kick();return result.data;
+ }
+ async teachHistory(userId:string){
+  IdSchema.parse(userId);
+  if(!this.store.teachHistory)throw new CalibrationError('CALIBRATION_UNAVAILABLE','Teach history is unavailable on this server.',503,true);
+  const result=CalibrationHistorySchema.safeParse(await this.store.teachHistory(userId));
+  if(!result.success)throw invalidResponse();return result.data;
+ }
+ async teachingStatus(userId:string){
+  IdSchema.parse(userId);
+  if(!this.store.teachingStatus)throw new CalibrationError('CALIBRATION_UNAVAILABLE','Teaching status is unavailable on this server.',503,true);
+  const result=TeachingStatusSchema.safeParse(await this.store.teachingStatus(userId));
+  if(!result.success)throw invalidResponse();return result.data;
  }
  async history(userId:string){
   IdSchema.parse(userId);const result=CalibrationHistorySchema.safeParse(await this.store.calibrationHistory(userId));

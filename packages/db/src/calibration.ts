@@ -1,8 +1,9 @@
 import {createHash} from 'node:crypto';
+import {ordinaryTeachingExclusions,teachingLibrary,teachingRead,teachingStatus} from './calibration-teaching';
 import {z} from 'zod';
 import {CalibrationCorrectionRequestSchema,CalibrationLabelRequestSchema,CalibrationLabelResultSchema,CalibrationHistorySchema,ExposureInputSchema,IdSchema,UuidSchema,TimestampSchema,UndoRequestSchema,type CalibrationCorrectionInput,type CalibrationStore,type CalibrationCandidateSnapshot,type CalibrationHistory,type CalibrationLabelInput,type CalibrationLabelResult,type CalibrationUndoInput,type ExposureInput} from '@sortfm/contracts';
 import {Database,PersistenceError,json,type Transaction} from './client';
-import {lockUser,readLibrary} from './repository';
+import {lockUser} from './repository';
 import {assertPublishedReviewExposure} from './review-exclusions';
 import {ready as policyStorageReady} from './policy-core';
 import {assertBatchCollecting,assertNotBatchReserved,batchExposure,reservedCalibrationTrackIds} from './calibration-reservations';
@@ -24,11 +25,11 @@ async function eligible(tx:Transaction,userId:string,trackId:string,servedAt?:st
  if(servedAt){const latest=Math.max(row.result?Date.parse(row.result.updatedAt):0,winner?new Date(winner.occurred_at).getTime():0);if(Date.parse(servedAt)<=latest)fail('STALE_EXPOSURE');}
  return winner;
 }
-async function projections(tx:Transaction,userId:string,labelId?:string):Promise<CalibrationLabelResult[]>{
+async function projections(tx:Transaction,userId:string,labelId?:string,permitted?:(trackId:string)=>boolean):Promise<CalibrationLabelResult[]>{
  const rows=await tx`SELECT l.*,f.decision_id AS winner_id,f.source AS winner_source,f.revision AS winner_revision,f.occurred_at AS winner_at,
   EXISTS(SELECT 1 FROM review_decisions d WHERE d.user_id=l.user_id AND d.track_id=l.track_id AND d.result->>'status' IN ('PENDING','FAILED_RETRYABLE')) OR EXISTS(SELECT 1 FROM undo_commands u JOIN review_decisions d USING(user_id,decision_id) WHERE u.user_id=l.user_id AND d.track_id=l.track_id AND u.settled_at IS NULL) AS pending
   FROM calibration_labels l LEFT JOIN effective_feedback f USING(user_id,track_id) WHERE l.user_id=${userId} AND (${labelId??null}::uuid IS NULL OR l.label_id=${labelId??null}::uuid) ORDER BY l.created_at DESC,l.label_id DESC`;
- return rows.map((row:any)=>{
+ return rows.filter((row:any)=>!permitted||permitted(row.track_id)).map((row:any)=>{
   const state=row.revoked?'revoked':row.winner_source==='calibration'&&row.winner_id===row.label_id?'active':'superseded';
   return CalibrationLabelResultSchema.parse({mode:'calibration',labelId:row.label_id,trackId:row.track_id,exposureId:row.exposure_id,idempotencyKey:row.idempotency_key,submittedLabel:row.submitted_label,label:state==='active'?row.submitted_label:null,state,canUndo:state==='active'&&!row.pending,feedbackRevision:state==='superseded'?row.winner_revision:row.revision,createdAt:iso(row.created_at),updatedAt:state==='superseded'?new Date(Math.max(new Date(row.updated_at).getTime(),new Date(row.winner_at).getTime())).toISOString():iso(row.updated_at)});
  });
@@ -50,13 +51,24 @@ async function assertPilotCorrectionLabel(tx:Transaction,db:Database,userId:stri
 }
 export class PostgresCalibrationStore implements CalibrationStore {
  constructor(readonly db:Database){}
+ private async assertOrdinary(tx:Transaction,userId:string,trackId:string){
+  this.db.reviewExclusions?.assertTrack(userId,trackId);
+  const excluded=await ordinaryTeachingExclusions(tx,userId);
+  if(excluded.has(trackId)||calibrationSplit(userId,trackId)!=='train')fail('CALIBRATION_NOT_ELIGIBLE');
+ }
+ async teachHistory(userId:string):Promise<CalibrationHistory>{return teachingRead(this.db,userId,async tx=>{
+  const excluded=await ordinaryTeachingExclusions(tx,userId);
+  const items=await projections(tx,userId,undefined,id=>!excluded.has(id)&&!this.db.reviewExclusions?.denies(userId,id));
+  return CalibrationHistorySchema.parse({items,nextCursor:null});
+ });}
+ teachingStatus(userId:string){return teachingStatus(this.db,userId);}
  async calibrationCandidates(userId:string):Promise<CalibrationCandidateSnapshot>{IdSchema.parse(userId);return this.db.transaction(async tx=>{
-  await lockUser(tx,userId);const library=await readLibrary(tx,userId);
+  this.db.reviewExclusions?.assertOwner(userId);await lockUser(tx,userId);const denied=await ordinaryTeachingExclusions(tx,userId);const library=await teachingLibrary(tx,this.db,userId,denied);
   const rows=await tx`SELECT s.track_id FROM saved_tracks s JOIN tracks t USING(track_id) JOIN library_membership m ON m.user_id=s.user_id AND m.track_id=s.track_id LEFT JOIN current_decisions c ON c.user_id=s.user_id AND c.track_id=s.track_id LEFT JOIN review_decisions d ON d.user_id=c.user_id AND d.decision_id=c.decision_id LEFT JOIN effective_feedback f ON f.user_id=s.user_id AND f.track_id=s.track_id WHERE s.user_id=${userId} AND t.card->>'source'='spotify' AND t.card->>'isPlayable'='true' AND s.current_status IN ('saved','deferred') AND (d.result IS NULL OR d.result->>'status' IN ('UNDONE','FAILED_TERMINAL')) AND (f.label IS NULL OR f.revoked) AND NOT EXISTS(SELECT 1 FROM review_decisions r WHERE r.user_id=s.user_id AND r.track_id=s.track_id AND r.result->>'status' IN ('PENDING','FAILED_RETRYABLE')) AND NOT EXISTS(SELECT 1 FROM undo_commands u JOIN review_decisions r USING(user_id,decision_id) WHERE u.user_id=s.user_id AND r.track_id=s.track_id AND u.settled_at IS NULL) ORDER BY s.track_id`;
-  const reserved=new Set(await reservedCalibrationTrackIds(tx,userId));return {library,eligibleTrackIds:rows.map((r:any)=>r.track_id).filter((id:string)=>!reserved.has(id))};
+  const reserved=new Set(await reservedCalibrationTrackIds(tx,userId));return {library,eligibleTrackIds:rows.map((r:any)=>r.track_id).filter((id:string)=>!reserved.has(id)&&!denied.has(id)&&!this.db.reviewExclusions?.denies(userId,id)&&calibrationSplit(userId,id)==='train')};
  });}
  async insertCalibrationExposure(input:ExposureInput):Promise<void>{const v=ExposureInputSchema.parse(input);await this.db.transaction(async tx=>{
-  await lockUser(tx,v.userId);await assertNotBatchReserved(tx,v.userId,v.exposure.trackId);await eligible(tx,v.userId,v.exposure.trackId,v.exposure.servedAt);
+  await lockUser(tx,v.userId);await assertNotBatchReserved(tx,v.userId,v.exposure.trackId);await this.assertOrdinary(tx,v.userId,v.exposure.trackId);await eligible(tx,v.userId,v.exposure.trackId,v.exposure.servedAt);
   const rows=await tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at,purpose) VALUES(${v.exposure.exposureId},${v.userId},${v.exposure.trackId},${json(v)}::jsonb,${v.exposure.servedAt},'calibration') ON CONFLICT DO NOTHING RETURNING exposure_id`;
   if(!rows.length){const [same]=await tx`SELECT 1 FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.exposure.exposureId} AND purpose='calibration' AND payload=${json(v)}::jsonb`;if(!same)fail('EXPOSURE_CONFLICT');}
  });}
@@ -68,7 +80,7 @@ export class PostgresCalibrationStore implements CalibrationStore {
   if(!e)fail('EXPOSURE_NOT_FOUND');if(e.purpose!=='calibration')fail('EXPOSURE_PURPOSE_MISMATCH');if(e.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
   if((await tx`SELECT 1 FROM calibration_labels WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`).length)fail('EXPOSURE_ALREADY_CONSUMED');
   const batch=await batchExposure(tx,v.userId,v.request.exposureId);
-  if(batch){await assertBatchCollecting(tx,v.userId,batch.batch_id);if(batch.exposure_id!==v.request.exposureId||!['pending','revoked'].includes(batch.status))fail('BATCH_ITEM_NOT_PENDING');}else await assertNotBatchReserved(tx,v.userId,v.request.trackId);
+  if(batch){await assertBatchCollecting(tx,v.userId,batch.batch_id);if(batch.exposure_id!==v.request.exposureId||!['pending','revoked'].includes(batch.status))fail('BATCH_ITEM_NOT_PENDING');}else {await assertNotBatchReserved(tx,v.userId,v.request.trackId);await this.assertOrdinary(tx,v.userId,v.request.trackId);}
   const winner=await eligible(tx,v.userId,v.request.trackId,iso(e.served_at));if(Date.parse(v.createdAt)<new Date(e.served_at).getTime())fail('STALE_EXPOSURE');
   const revision=Number(owner.feedback_revision)+1,split=batch?(batch.assignment==='train'?'train':'holdout'):winner?.split??calibrationSplit(v.userId,v.request.trackId);
   await tx`INSERT INTO calibration_labels(label_id,user_id,track_id,exposure_id,idempotency_key,request_fingerprint,request,submitted_label,label,revision,split,created_at,updated_at) VALUES(${v.labelId},${v.userId},${v.request.trackId},${v.request.exposureId},${v.request.idempotencyKey},${v.requestFingerprint},${json(v.request)}::jsonb,${v.request.label},${v.request.label},${revision},${split},${v.createdAt},${v.createdAt})`;

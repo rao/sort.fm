@@ -692,6 +692,9 @@
 	cursor: pointer;
 	padding: 0;
 }
+.music-desk :is(.preview-seek, .browser-seek) input[type="range"] {
+	padding-inline: 4px;
+}
 .music-desk
 	:is(.demo-preview, .browser-playback)
 	input[type="range"]::-webkit-slider-thumb {

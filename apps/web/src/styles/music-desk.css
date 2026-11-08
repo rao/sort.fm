@@ -827,11 +827,14 @@ button:not(.desk-profile):not(.desk-choice):not(.desk-listen):not(
 	background: transparent;
 }
 .desk-lcd .song-title-line {
+	align-items: center;
 	justify-content: center;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	gap: 4px 10px;
 }
 .desk-lcd .song-title-line h2 {
+	margin: 0;
+	min-width: 0;
 	font:
 		32px / 1 "VT323",
 		monospace;
@@ -842,6 +845,10 @@ button:not(.desk-profile):not(.desk-choice):not(.desk-listen):not(
 	max-width: 100%;
 }
 .desk-lcd .duration {
+	flex-shrink: 0;
+	align-self: center;
+	font: 16px / 1 "VT323", monospace;
+	white-space: nowrap;
 	color: var(--desk-screen-muted);
 }
 .desk-lcd .song-details > p {

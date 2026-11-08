@@ -93,8 +93,7 @@ export class BrowserPlayerStore {
 			canPause: false,
 			canResume: false,
 			error: null,
-			message:
-				"Enable the browser player to listen here. Spotify Premium is required.",
+			message: "Getting browser playback ready…",
 		};
 	}
 	private deadline<T>(promise: Promise<T>): Promise<T> {
@@ -254,6 +253,12 @@ export class BrowserPlayerStore {
 				if (epoch === this.epoch) this.update({ busy: false });
 			}
 		}
+	}
+	// Automatic readiness is a single attempt per mounted device. Failure recovery
+	// stays explicit, and enable only connects the SDK: it never starts audio.
+	async prepare() {
+		if (this.state.connection !== "idle") return;
+		await this.enable();
 	}
 	async enable() {
 		if (this.disposed || this.state.busy || this.state.connection === "ready")

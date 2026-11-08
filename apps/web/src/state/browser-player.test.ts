@@ -109,6 +109,89 @@ function fixture(extra: { operationTimeoutMs?: number } = {}) {
 const uri = `spotify:track:${"0".repeat(22)}`;
 const next = `spotify:track:${"1".repeat(22)}`;
 
+test("automatic preparation connects once without activating, transferring, or playing audio", async () => {
+	const f = fixture();
+	f.store.select(uri, true);
+	await Promise.all([f.store.prepare(), f.store.prepare(), f.store.prepare()]);
+	expect(f.calls).toEqual(["authorize", "connect"]);
+	expect(f.store.getSnapshot().connection).toBe("ready");
+	expect(f.store.getSnapshot().paused).toBe(true);
+	expect(f.store.getSnapshot().actualUri).toBeNull();
+	f.store.select(next, true);
+	await f.store.prepare();
+	expect(f.calls).toEqual(["authorize", "connect"]);
+	f.store.dispose();
+});
+
+test("automatic preparation does not retry a failed device; explicit reconnect still works", async () => {
+	const f = fixture();
+	await f.store.prepare();
+	f.emit("not_ready", { device_id: "browser-device" });
+	const failure = f.store.getSnapshot().error;
+	f.calls.length = 0;
+	await Promise.all([f.store.prepare(), f.store.prepare()]);
+	expect(f.calls).toEqual([]);
+	expect(f.store.getSnapshot().error).toBe(failure);
+	await f.store.enable();
+	expect(f.store.getSnapshot().connection).toBe("ready");
+	expect(f.calls).toEqual(["authorize", "connect"]);
+	f.store.dispose();
+});
+
+test("automatic preparation cannot initialize a device for a changed account", async () => {
+	const f = fixture();
+	f.changeOwner();
+	await f.store.prepare();
+	expect(f.calls).toEqual(["authorize"]);
+	expect(f.store.getSnapshot().connection).toBe("error");
+	await f.store.prepare();
+	expect(f.calls).toEqual(["authorize"]);
+	f.store.dispose();
+});
+
+test("real unmount fences automatic preparation while authorization is pending", async () => {
+	const f = fixture();
+	const unmount = f.store.retain();
+	let authorize!: () => void;
+	f.gateway.authorize = () =>
+		new Promise<void>((resolve) => {
+			authorize = resolve;
+		});
+	const preparing = f.store.prepare();
+	unmount();
+	await Promise.resolve();
+	authorize();
+	await preparing;
+	expect(f.calls).toEqual([]);
+	expect(f.store.getSnapshot().connection).toBe("idle");
+	await f.store.prepare();
+	expect(f.calls).toEqual([]);
+});
+
+test("StrictMode retains one prepared device and a later remount prepares a fresh device", async () => {
+	const f = fixture();
+	const release = f.store.retain();
+	const first = f.store.prepare();
+	release();
+	const releaseAgain = f.store.retain();
+	await Promise.all([first, f.store.prepare()]);
+	expect(f.calls).toEqual(["authorize", "connect"]);
+	releaseAgain();
+	await Promise.resolve();
+	expect(f.calls).toEqual(["authorize", "connect", "disconnect"]);
+	const finalRelease = f.store.retain();
+	await f.store.prepare();
+	expect(f.calls).toEqual([
+		"authorize",
+		"connect",
+		"disconnect",
+		"authorize",
+		"connect",
+	]);
+	finalRelease();
+	await Promise.resolve();
+});
+
 test("changing cards or leaving review cannot hide an unresolved player failure", async () => {
 	const f = fixture();
 	f.store.select(uri, true);

@@ -30,7 +30,7 @@
 	inline-size: 360px;
 	max-inline-size: 100%;
 	justify-self: center;
-	padding: 12px;
+	padding: 12px 20px;
 	transform: rotate(-2deg);
 	animation: none;
 }
@@ -53,6 +53,9 @@
 .desk-landing .desk-hero-device .desk-device-controls {
 	gap: 16px;
 	margin-block: 12px 8px;
+}
+.desk-landing .desk-hero-device .desk-device-footer {
+	padding-inline: 16px;
 }
 .desk-landing .desk-hero-device .desk-wheel {
 	inline-size: var(--landing-wheel-size);
@@ -83,20 +86,20 @@
 	color: var(--d-device-ink);
 }
 .desk-landing .desk-preview-archive {
-	left: 0;
+	left: 4px;
 	top: calc(50% - 16px);
 }
 .desk-landing .desk-preview-keep {
-	right: 0;
+	right: 4px;
 	top: calc(50% - 16px);
 }
 .desk-landing .desk-preview-skip {
 	left: calc(50% - 22px);
-	top: 2px;
+	top: 6px;
 }
 .desk-landing .desk-preview-unlike {
 	left: calc(50% - 22px);
-	bottom: 2px;
+	bottom: 6px;
 	color: var(--d-accent);
 }
 .desk-landing .desk-preview-start {
@@ -133,6 +136,9 @@
 .desk-landing .desk-how .fine-print {
 	margin-block-start: 8px;
 }
+.desk-landing .desk-how p {
+	line-height: 1.6;
+}
 .desk-landing.desk-landing .landing-footer {
 	min-block-size: 56px;
 	padding-block: 12px;
@@ -145,17 +151,17 @@
 @media (min-width: 901px) {
 	.desk-landing > main {
 		gap: 16px;
-		padding-block: 16px;
+		padding-block: 16px 32px;
 	}
 	.desk-landing .landing-nav {
 		block-size: 64px;
 	}
 	.desk-landing .desk-hero {
-		padding-block: 8px;
+		padding-block: 0;
 	}
 	.desk-landing .desk-hero-device {
-		--landing-art-size: clamp(112px, calc(100dvh - 656px), 176px);
-		--landing-wheel-size: clamp(128px, calc(100dvh - 640px), 160px);
+		--landing-art-size: clamp(96px, calc(100dvh - 672px), 176px);
+		--landing-wheel-size: clamp(144px, calc(100dvh - 640px), 160px);
 	}
 	.desk-landing .desk-how {
 		padding-block: 16px;
@@ -165,10 +171,13 @@
 @media (min-width: 901px) and (max-height: 740px) {
 	.desk-landing > main {
 		gap: 8px;
-		padding-block: 8px;
+		padding-block: 8px 24px;
 	}
 	.desk-landing .desk-hero {
-		padding-block: 4px;
+		padding-block: 0;
+	}
+	.desk-landing .desk-hero-device :is(.desk-device-label, .desk-lcd-status) {
+		margin-block-end: 4px;
 	}
 	.desk-landing .desk-how {
 		padding-block: 12px;

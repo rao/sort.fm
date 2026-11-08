@@ -563,7 +563,7 @@ export default function App({
 						</EmptyState>
 					)
 				) : (
-					<div className="workspace">
+					<div className="workspace sort-workspace">
 						<div className="workspace-heading">
 							<div>
 								<span className="eyebrow">NOW SORTING</span>

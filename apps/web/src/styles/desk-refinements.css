@@ -1,5 +1,52 @@
 @reference "./globals.css";
 
+/* Keep the Sort introduction compact so the player gets the useful height. */
+.music-desk .sort-workspace > .workspace-heading {
+	padding: 8px 20px;
+	margin-block-end: 12px;
+	gap: 16px;
+}
+.music-desk .sort-workspace .workspace-heading h1 {
+	@apply text-title-2-medium;
+	margin: 0;
+}
+.music-desk .sort-workspace .workspace-heading p {
+	margin-block-start: 4px;
+}
+.music-desk .sort-workspace .session-counter {
+	display: grid;
+	grid-template-columns: auto auto;
+	align-items: center;
+	column-gap: 8px;
+	row-gap: 4px;
+	width: auto;
+	padding-block-start: 0;
+}
+.music-desk .sort-workspace .session-counter > strong {
+	font-size: 28px;
+}
+.music-desk .sort-workspace .session-counter > span {
+	max-inline-size: 12ch;
+	margin: 0;
+}
+.music-desk .sort-workspace .session-counter progress {
+	grid-column: 1 / -1;
+	margin: 0;
+}
+@media (min-width: 801px) and (max-height: 850px) {
+	.music-desk > main:has(> .sort-workspace) {
+		padding-block-start: 8px;
+	}
+	.music-desk .sort-workspace > .workspace-heading {
+		padding-block: 6px;
+		margin-block-end: 8px;
+	}
+	.music-desk .sort-workspace .workspace-heading p,
+	.music-desk .sort-workspace .session-counter progress {
+		display: none;
+	}
+}
+
 /* The public demo is a listening invitation, not a provider setup screen. */
 .music-desk .demo-library-page .import-layout {
 	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

@@ -36,7 +36,7 @@ function props() {
 		onAuto: noop,
 	};
 }
-test("browser player starts behind an explicit click and does not offer library mutations", () => {
+test("idle browser player keeps a manual readiness fallback and does not offer library mutations", () => {
 	const p = props();
 	const html = renderToStaticMarkup(<BrowserPlaybackView {...p} />);
 	for (const text of [
@@ -160,7 +160,7 @@ test("grant recovery preserves local pause and mute for confirmed audio", () => 
 test("compact player keeps setup controls discoverable and errors outside collapsed options", () => {
 	const p = props();
 	const idle = renderToStaticMarkup(<BrowserPlaybackView {...p} />);
-	expect(idle).toContain("Enable the browser player to listen here");
+	expect(idle).toContain("Getting browser playback ready");
 	const html = renderToStaticMarkup(
 		<BrowserPlaybackView {...p} error="Playback needs attention" />,
 	);

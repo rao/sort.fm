@@ -132,8 +132,8 @@ export function Landing({ onConnect }: { onConnect: () => void }) {
 					<div>
 						<p>
 							Swipe right to keep, left to archive, up to skip, or down to
-							unlike. Your swipes teach the model your taste; you make the
-							final call.
+							unlike. Your swipes teach the model your taste, and it continuously
+							gets better at learning what you don't like.
 						</p>
 						<p className="fine-print">
 							Archive keeps a playlist copy before unliking. Unlike removes
@@ -146,7 +146,7 @@ export function Landing({ onConnect }: { onConnect: () => void }) {
 			<footer className="landing-footer">
 				<Logo />
 				<span>
-					A little less clutter. A lot more of the <em>evolved</em> you.
+					Less clutter. More of the recent you
 				</span>
 				<span className="landing-credit">
 					Made with{" "}

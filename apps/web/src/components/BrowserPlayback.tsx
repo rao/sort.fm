@@ -77,6 +77,11 @@ export function BrowserPlayback({
 		};
 	}, [gateway, playerFailed]);
 	useEffect(() => {
+		// Existing grants can prepare an idle device without a click. OAuth consent,
+		// playback transfer and audio activation still require an explicit action.
+		if (connection?.status === "ready") void store.prepare();
+	}, [connection?.status, store]);
+	useEffect(() => {
 		const clock = setInterval(() => setNow(Date.now()), 1000);
 		const poll = setInterval(() => {
 			if (!document.hidden) void store.refresh();

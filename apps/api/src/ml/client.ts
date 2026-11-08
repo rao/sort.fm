@@ -242,6 +242,23 @@ function sameValue(left: unknown, right: unknown): boolean {
     && Object.keys(a).every(key => Object.hasOwn(b, key) && sameValue(a[key], b[key]));
 }
 
+/** Validate injected transports as strictly as the HTTP client at publication. */
+export function validatePolicyDecision(request: PolicySelectRequest, value: unknown): PolicyDecision {
+  const response = parse(INTERNAL_ROUTES.policySelect.response, value);
+  const candidate = request.candidates.find(row => row.trackId === response.trackId);
+  const ids = new Set(request.candidates.map(row => row.trackId));
+  if (response.userId !== request.userId || response.exposureId !== request.exposureId
+    || response.modelVersion !== request.modelVersion || response.feedbackRevision !== request.feedbackRevision
+    || response.featureVersion !== request.featureVersion || response.seed !== request.seed
+    || !sameValue(response.config, request.config) || !sameValue(response.candidate, candidate)
+    || response.candidateCount !== ids.size || response.candidateTrackIds.some(id => !ids.has(id))
+    || response.selection.index >= response.availableCount || response.selection.eligibleCount < 1
+    || !ids.has(response.selection.greedyTrackId)
+    || ![request.config.strategy, 'c1'].includes(response.selection.selectionMethod)
+    || response.contextNames.length !== response.selection.context.length) throw invalidResponse();
+  return response;
+}
+
 export function createPolicyClient(options: MlClientOptions): PolicyClient {
   const send = createTransport(options);
   return {
@@ -252,18 +269,7 @@ export function createPolicyClient(options: MlClientOptions): PolicyClient {
         throw new MlClientError('ML_INVALID_REQUEST', 400, false);
       }
       const response = await send(INTERNAL_ROUTES.policySelect, request);
-      const candidate = request.candidates.find(row => row.trackId === response.trackId);
-      const ids = new Set(request.candidates.map(row => row.trackId));
-      if (response.userId !== request.userId || response.exposureId !== request.exposureId
-        || response.modelVersion !== request.modelVersion || response.feedbackRevision !== request.feedbackRevision
-        || response.featureVersion !== request.featureVersion || response.seed !== request.seed
-        || !sameValue(response.config, request.config) || !sameValue(response.candidate, candidate)
-        || response.candidateCount !== ids.size || response.candidateTrackIds.some(id => !ids.has(id))
-        || response.selection.index >= response.availableCount || response.selection.eligibleCount < 1
-        || !ids.has(response.selection.greedyTrackId)
-        || ![request.config.strategy, 'c1'].includes(response.selection.selectionMethod)
-        || response.contextNames.length !== response.selection.context.length) throw invalidResponse();
-      return response;
+      return validatePolicyDecision(request, response);
     },
     async exposure(input) {
       const query = parse(INTERNAL_ROUTES.policyExposure.query, input, true);

@@ -2,7 +2,7 @@ import {FitResponseSchema, type FitResponse} from '@sortfm/contracts';
 
 export interface FeedbackRepository {
   claimFeedbackSync(workerId:string,now:number,leaseMs:number):Promise<{userId:string;feedbackRevision:number;leaseId:string}|null>;
-  acknowledgeFeedbackSync(userId:string,leaseId:string,revision:number):Promise<boolean>;
+  acknowledgeFeedbackSync(userId:string,leaseId:string,revision:number,receipt?:FitResponse):Promise<boolean>;
   retryFeedbackSync(userId:string,leaseId:string,retryAt:number):Promise<void>;
 }
 interface Options {now?:()=>number;timeoutMs?:number;leaseMs?:number;pollMs?:number;retryMs?:number;onError?:(code:string)=>void}
@@ -26,7 +26,7 @@ export class FeedbackWorker {
       const response=FitResponseSchema.parse(await Promise.race([this.ml.fit(lease.userId),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('ML deadline exceeded')),this.timeoutMs);})]));
       if(response.userId!==lease.userId || response.feedbackRevision<lease.feedbackRevision)throw new Error('Fit did not acknowledge the claimed revision');
       // A newer settlement stays pending in D; stale lease cannot clear another claim.
-      if(!await this.repository.acknowledgeFeedbackSync(lease.userId,lease.leaseId,response.feedbackRevision))this.options.onError?.('FEEDBACK_LEASE_LOST');
+      if(!await this.repository.acknowledgeFeedbackSync(lease.userId,lease.leaseId,response.feedbackRevision,response))this.options.onError?.('FEEDBACK_LEASE_LOST');
     } catch {
       this.options.onError?.('FEEDBACK_SYNC_RETRY');
       await this.repository.retryFeedbackSync(lease.userId,lease.leaseId,this.now()+(this.options.retryMs??30000));

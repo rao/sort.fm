@@ -11,7 +11,7 @@ function setup(fit:(id:string)=>Promise<FitResponse>,timeoutMs=100) {
 }
 test('durable delivery acknowledges actual authoritative fitted revision, including newer snapshots',async()=>{
   const {worker,ack,retry}=setup(async id=>{expect(id).toBe(lease.userId);return {...response,feedbackRevision:4};});
-  expect(await worker.runOnce()).toBe(true);expect(ack).toEqual([[lease.userId,lease.leaseId,4]]);expect(retry).toHaveLength(0);expect(await worker.runOnce()).toBe(false);
+  expect(await worker.runOnce()).toBe(true);expect(ack).toEqual([[lease.userId,lease.leaseId,4,{...response,feedbackRevision:4}]]);expect(retry).toHaveLength(0);expect(await worker.runOnce()).toBe(false);
 });
 test('failed, stale or cross-user fit never acknowledges feedback and schedules durable retry',async()=>{
   for(const fit of [async()=>{throw new Error('network secret');},async()=>({...response,feedbackRevision:2}),async()=>({...response,userId:'spotify:other'})]) {

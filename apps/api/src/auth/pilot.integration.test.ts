@@ -63,3 +63,23 @@ test('inherited early service replay cannot kick a review worker or return an ol
   expect(kicks).toBe(0);expect(serviceReads).toBe(0);
  }finally{await app.close();}
 });
+
+test('pilot write capability requires every actual grant and OAuth transport remains restricted',async()=>{
+ const {WRITE_SCOPES}=await import('../spotify/scopes');
+ for(const missing of [...WRITE_SCOPES,null]){
+  const config=loadSpotifyConfig(env),store=new TestStore(),granted=[...new Set([...config.scopes,...WRITE_SCOPES])].filter(scope=>scope!==missing);
+  let calls=0;
+  const module=createSpotifyModule({config,store,backgroundImportEnabled:false,http:new SpotifyHttp({fetch:createPilotOAuthFetch(async url=>{
+   calls++;return Response.json(url.endsWith('/api/token')?{access_token:'synthetic-access',refresh_token:'synthetic-refresh',expires_in:3600,token_type:'Bearer',scope:granted.join(' ')}:{id:'owner',display_name:'Synthetic owner',images:[]});
+  })})});
+  module.auth.enableReviewWrites();
+  const start=await module.auth.start(),authorization=new URL(start.url);
+  for(const scope of WRITE_SCOPES)expect(authorization.searchParams.get('scope')!.split(' ')).toContain(scope);
+  const {account}=await module.auth.callback({state:authorization.searchParams.get('state')!,code:'synthetic'},start.browserToken);
+  expect(module.auth.publicSession(account).capabilities.spotifyWrite).toBe(missing===null);
+  if(missing)await expect(module.auth.requireScopes(account.user.id,[...WRITE_SCOPES])).rejects.toMatchObject({code:'SPOTIFY_SCOPE_REQUIRED'});
+  else await module.auth.requireScopes(account.user.id,[...WRITE_SCOPES]);
+  await expect(module.auth.http.json('https://api.spotify.com/v1/me/library',{method:'DELETE'})).rejects.toMatchObject({code:'PILOT_ACTION_NOT_ALLOWED'});
+  expect(calls).toBe(2);expect(store.data.jobs.size).toBe(0);
+ }
+});

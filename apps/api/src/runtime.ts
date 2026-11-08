@@ -214,13 +214,16 @@ export async function buildRuntime(options: {
  // Drain previously committed policy work even when new adaptive selection is off.
  const policyDelivery=policyStore&&policyClient?new PolicyDeliveryWorker(policyStore,policyClient,{onError:code=>{if(options.logger)console.warn(code);}}):null;
  const policyRecovery=policyStore&&policyClient?new PolicySelectionRecoveryWorker(policyStore,policyClient,{onError:code=>{if(options.logger)console.warn(code);}}):null;
+ // OAuth remains allowlisted; only the manifest-approved mutation worker receives
+ // a provider transport. Playback and background import remain disabled in pilots.
+ const pilotMutationFetch=pilot?(pilot.manifest.allowSpotifyMutations===true?pilot.mutationFetch??fetch:denyPilotProviderFetch):undefined;
  const reviewWorker=spotify&&repository?new ReviewWorker(repository,
-  new SpotifyMutations(spotify.auth,pilot?new SpotifyHttp({fetch:denyPilotProviderFetch}):spotify.auth.http,pilot?{fetch:denyPilotProviderFetch}:options.spotifyMutationFetch?{fetch:options.spotifyMutationFetch}:{}),
+  new SpotifyMutations(spotify.auth,pilot?new SpotifyHttp({fetch:pilotMutationFetch}):spotify.auth.http,pilot?{fetch:pilotMutationFetch}:options.spotifyMutationFetch?{fetch:options.spotifyMutationFetch}:{}),
   {auth:spotify.auth,...(feedback?{feedback}:{}),onError:code=>{if(options.logger)console.warn(code);}}):null;
  const mutations=spotify&&repository&&reviewWorker?createReviewMutationModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
   service:new ReviewService(repository,{auth:spotify.auth,worker:reviewWorker}),worker:reviewWorker,
-  enableWrites:()=>{if(!pilot)spotify!.auth.enableReviewWrites();},
+  enableWrites:()=>{if(!pilot||pilot.manifest.allowSpotifyMutations===true)spotify!.auth.enableReviewWrites();},
  }):null;
  const audio=database?new MusicaeQueue(database):null;
  const modelReads=spotify&&repository&&a1Store&&audio?createMlReadModule({
@@ -261,7 +264,7 @@ export async function buildRuntime(options: {
  }):null;
 
  try {
-  const app=await buildApp({config,logger:options.logger,...(pilot?{beforeRoutes:(app:import('fastify').FastifyInstance)=>installPilotGuards(app,{config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},auth:spotify!.auth,admission:{
+  const app=await buildApp({config,logger:options.logger,...(pilot?{beforeRoutes:(app:import('fastify').FastifyInstance)=>installPilotGuards(app,{config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},auth:spotify!.auth,allowSpotifyMutations:pilot.manifest.allowSpotifyMutations===true,admission:{
     getPublishedExposure:(user,id)=>repository!.getExposure(user,id),
     getDecision:(user,id)=>repository!.getDecision(user,id),
     getDecisionByIdempotencyKey:(user,key)=>repository!.getDecisionByIdempotencyKey(user,key),

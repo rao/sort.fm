@@ -22,10 +22,11 @@ const empty=z.strictObject({});
 
 /** Install in buildApp.beforeRoutes, never inside an encapsulated child plugin.
  * This is an HTTP admission layer, not a substitute for the immutable DB fence,
- * isolated worker state, disabled importer startup and denied provider transports.
+ * isolated worker state, disabled importer startup and explicit mutation opt-in.
  */
-export function installPilotGuards(app:FastifyInstance,options:ReviewRouteOptions & {admission:PilotAdmissionPort}):void {
+export function installPilotGuards(app:FastifyInstance,options:ReviewRouteOptions & {admission:PilotAdmissionPort;allowSpotifyMutations?:boolean}):void {
  const security=reviewRouteSecurity(options),repo=options.admission;
+ const actions=new Set(options.allowSpotifyMutations===true?['KEEP','ARCHIVE','SKIP','UNLIKE']:['KEEP','SKIP']);
  const safe=(handler:(request:FastifyRequest)=>Promise<void>)=>async(request:FastifyRequest,reply:import('fastify').FastifyReply)=>{
   reply.header('Referrer-Policy','no-referrer');
   try {await handler(request);} catch(error) {
@@ -61,7 +62,7 @@ export function installPilotGuards(app:FastifyInstance,options:ReviewRouteOption
   if(path===PUBLIC_ROUTES.logout.path){empty.parse(request.body??{});return;}
   if(path===PUBLIC_ROUTES.decide.path){
    const input=ReviewRequestSchema.parse(request.body);
-   if(!['KEEP','SKIP'].includes(input.action))throw denied();
+   if(!actions.has(input.action))throw denied();
    const old=await repo.getDecisionByIdempotencyKey(userId,input.idempotencyKey);
    if(old && (old.idempotencyKey!==input.idempotencyKey || old.trackId!==input.trackId || old.exposureId!==input.exposureId || old.action!==input.action || old.mode!=='spotify'))throw conflict();
    await published(userId,input.exposureId,input.trackId);
@@ -71,7 +72,7 @@ export function installPilotGuards(app:FastifyInstance,options:ReviewRouteOption
   const old=await repo.getUndoByIdempotencyKey(userId,input.idempotencyKey);
   if(old && (old.userId!==userId || old.decisionId!==id || old.request.idempotencyKey!==input.idempotencyKey))throw conflict();
   const decision=await repo.getDecision(userId,id);
-  if(!decision || decision.decisionId!==id || decision.mode!=='spotify' || !['KEEP','SKIP'].includes(decision.action))throw denied();
+  if(!decision || decision.decisionId!==id || decision.mode!=='spotify' || !actions.has(decision.action))throw denied();
   await published(userId,decision.exposureId,decision.trackId);
  }));
 }

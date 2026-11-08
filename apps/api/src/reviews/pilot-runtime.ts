@@ -15,14 +15,17 @@ export interface PilotRuntimeOptions {
  approvedManifestSha256:string;
  /** Raw primary OAuth delegate is always wrapped by the endpoint allowlist. */
  oauthFetch?:Fetch;
+ /** Separate mutation/reconciliation delegate; requires digest-approved mutation opt-in. */
+ mutationFetch?:Fetch;
  /** Test/audited transport; the client still validates the loopback service URL. */
  mlFetch?:MlFetch;
 }
-const manifestSchema=z.strictObject({ownerId:z.string().startsWith('spotify:').min(9),pilotSchema:z.string().regex(/^pilot_c2_[a-f0-9]{24}$/),sortedTrackIds:z.array(SpotifyTrackIdSchema).max(100000),sha256:z.string().regex(/^[a-f0-9]{64}$/)});
+const manifestSchema=z.strictObject({ownerId:z.string().startsWith('spotify:').min(9),pilotSchema:z.string().regex(/^pilot_c2_[a-f0-9]{24}$/),sortedTrackIds:z.array(SpotifyTrackIdSchema).max(100000),sha256:z.string().regex(/^[a-f0-9]{64}$/),allowSpotifyMutations:z.boolean().optional()});
 const loopback=(value:string)=>{const url=new URL(value);if(url.origin!==value||!['http:','https:'].includes(url.protocol)||!['127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.port==='0')throw Error();return url;};
 export function validatePilotRuntime(env:Record<string,string|undefined>,config:ApiConfig,options:PilotRuntimeOptions):PilotRuntimeOptions {
  try{
   const manifest=manifestSchema.parse(options.manifest);
+  if(options.mutationFetch && manifest.allowSpotifyMutations!==true)throw Error();
   if(manifest.sha256!==options.approvedManifestSha256 || manifest.sha256!==reviewExclusionManifestDigest(manifest)
    || manifest.sortedTrackIds.some((id,i)=>i>0&&id<=manifest.sortedTrackIds[i-1]!) || env.DATABASE_SCHEMA!==manifest.pilotSchema
    || !env.DATABASE_URL?.trim() || config.demoEnabled || env.DEMO_MODE_ENABLED!=='false')throw Error();

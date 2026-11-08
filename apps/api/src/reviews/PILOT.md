@@ -22,7 +22,7 @@ There is no new public DTO. Runtime activation is an explicit programmatic optio
 4. Create the Spotify module with `backgroundImportEnabled: false` **before**
    building the app. This disables automatic startup/recovery only. Explicit
    importer calls retain normal semantics and must not be invoked in the pilot.
-5. Give Spotify mutation reads and writes `denyPilotProviderFetch`; it returns a
+5. By default, give Spotify mutation reads and writes `denyPilotProviderFetch`; it returns a
    local 403 without network I/O so existing adapters classify writes as rejected,
    not ambiguous. Use `createPilotPlaybackTransport()` for playback. Both token
    and API requests are denied. Use separate pilot sessions/secrets/artifacts and
@@ -52,8 +52,9 @@ is awaited before health, demo, module routes, fallback routes or module startup
 
 Exact GET health and primary OAuth start/callback are public. GET me, queue,
 history, library summary, ML insights and analytics require a session. Queue
-requires Spotify mode. POST logout retains normal CSRF checks. Only KEEP/SKIP
-and Undo of a pilot-published KEEP/SKIP decision can reach review handlers.
+requires Spotify mode. POST logout retains normal CSRF checks. By default only
+KEEP/SKIP and Undo of a pilot-published KEEP/SKIP decision reach review handlers.
+The explicit mutation opt-in below also admits ARCHIVE/UNLIKE and their Undo.
 Idempotency replay still validates persisted membership; a consumed/closed
 published exposure can serve a legitimate replay/Undo, while a new command's
 active-binding requirement remains in D's atomic write.
@@ -103,8 +104,9 @@ and rejects startup before Fastify/worker startup. C1 rollback and adaptive fall
 both retain PolicyQueueService and the same D fence; no legacy queue bypass exists.
 
 Pilot runtime internally disables importer recovery, installs the top-level HTTP
-guard, separates allowlisted primary OAuth from denied mutation reads/writes and
-playback, and advertises `spotifyWrite:false`. Legitimate review, feedback and
+guard, and keeps primary OAuth allowlisted and playback denied. Without the
+explicit mutation opt-in it also denies mutation reads/writes and advertises
+`spotifyWrite:false`. Legitimate review, feedback and
 policy workers remain enabled. No audio/provider worker is constructed. Existing
 unguarded `spotifyHttp`, `spotifyMutationFetch` and `playbackTransport` options are
 rejected in pilot mode. For synthetic tests, optional `pilot.oauthFetch` remains
@@ -119,3 +121,25 @@ for C1, LinUCB, epsilon-greedy and C1 fallback, including OAuth, publication, KE
 SKIP, replay and Undo. This does not claim a live Spotify or real classifier run.
 
 Runtime branch verification: general suite985passed/178skipped/0failed (5269assertions); focused disposable PostgreSQL runtime suite5passed/0failed (257assertions). Typecheck, web/API build and diff check passed. Independent read-only review found no actionable issues. No real account, provider calls, production copy, service launch or deployment was performed.
+
+## Explicit Spotify mutation opt-in
+
+`ReviewExclusionManifest.allowSpotifyMutations: true` requires its own approved
+manifest digest. Omitting it or setting it to false retains the default guard.
+A valid true manifest enables the existing ARCHIVE/UNLIKE workflow and Undo only
+for exact pilot-published exposures; owner, exclusion, CSRF, idempotency and
+durable worker fences still apply. It does not reinterpret historical SKIPs,
+create labels, or authorize automatic actions on a newly served song.
+
+Runtime enables the existing write capability only in this mode, and the public
+capability additionally requires all actual Spotify write grants. Missing grants
+retain the normal reconnect error. A separate mutation/reconciliation transport
+uses the existing Spotify mutation adapter and current endpoints; the primary
+OAuth client stays restricted to token/profile requests. Optional
+`pilot.mutationFetch` supports authored provider tests and is rejected before any
+database connection without the true manifest flag. Import, playback, calibration
+and public retrain remain disabled. Production C1 configuration is unchanged.
+
+Remove remains label 1 and Keep label 0 under the existing shared contract. Skip
+remains unlabeled. No live provider mutation or account training is established
+by these HTTP/transport tests; combined disposable DB/ML acceptance is separate.

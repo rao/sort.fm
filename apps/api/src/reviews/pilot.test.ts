@@ -13,10 +13,10 @@ const request={trackId,action:'KEEP' as const,exposureId:crypto.randomUUID(),ide
 const exposure=ExposureInputSchema.parse({userId:owner,exposure:{...createDemoQueue().items[0]!.exposure,exposureId:request.exposureId,trackId},prediction:untrainedPrediction,features:{featureVersion:FEATURE_VERSION,values:{},provenance:'synthetic',permittedForTraining:false}});
 const decision={...request,decisionId:crypto.randomUUID(),mode:'spotify',status:'PENDING'} as ReviewResult;
 const headers={cookie:'sortfm_session=valid',origin:config.webOrigin};
-async function setup(overrides:Partial<PilotAdmissionPort>={}) {
+async function setup(overrides:Partial<PilotAdmissionPort>={},allowSpotifyMutations?:boolean) {
  let calls=0,reads=0;
  const admission:PilotAdmissionPort={getPublishedExposure:async(user,id)=>{reads++;expect(user).toBe(owner);expect(id).toBe(request.exposureId);return exposure;},getDecision:async()=>decision,getDecisionByIdempotencyKey:async()=>null,getUndoByIdempotencyKey:async()=>null,...overrides};
- const app=await buildApp({config,beforeRoutes:app=>installPilotGuards(app,{config,auth:{session:async(token)=>token==='valid'?{user:{id:owner}}:null},admission}),registerRoutes:app=>{
+ const app=await buildApp({config,beforeRoutes:app=>installPilotGuards(app,{config,auth:{session:async(token)=>token==='valid'?{user:{id:owner}}:null},admission,allowSpotifyMutations}),registerRoutes:app=>{
   for(const [name,route] of Object.entries(PUBLIC_ROUTES))if(!['health','demoBootstrap'].includes(name))app.route({method:route.method,url:route.path,handler:async()=>{calls++;return {ok:true};}});
   app.post('/api/future',async()=>{calls++;return {ok:true};});
  }});apps.push(app);return {app,calls:()=>calls,reads:()=>reads};
@@ -88,4 +88,20 @@ test('expected persistence denials are terminal; unavailable admission fails clo
   const res=await s.app.inject({method:'POST',url:'/api/decisions',headers,payload:request});
   expect(res.statusCode).toBe(code==='DATABASE_OFFLINE'?503:403);expect(res.body).not.toContain('private');expect(res.json().retryable).toBe(code==='DATABASE_OFFLINE');expect(s.calls()).toBe(0);
  }
+});
+
+test('approved mutation pilot admits all four actions and their Undo without widening routes or publication fences',async()=>{
+ const s=await setup({},true);
+ for(const action of ['KEEP','ARCHIVE','SKIP','UNLIKE'])expect((await s.app.inject({method:'POST',url:'/api/decisions',headers,payload:{...request,action}})).statusCode).toBe(200);
+ for(const action of ['ARCHIVE','UNLIKE'] as const){
+  const t=await setup({getDecision:async()=>({...decision,action,status:'COMPLETE'})},true);
+  expect((await t.app.inject({method:'POST',url:`/api/decisions/${decision.decisionId}/undo`,headers,payload:{idempotencyKey:crypto.randomUUID()}})).statusCode).toBe(200);
+  const excluded=await setup({getPublishedExposure:async()=>null,getDecision:async()=>({...decision,action})},true);
+  for(const [url,payload] of [['/api/decisions',{...request,action}],[`/api/decisions/${decision.decisionId}/undo`,{idempotencyKey:crypto.randomUUID()}]] as const)expect((await excluded.app.inject({method:'POST',url,headers,payload})).statusCode).toBe(403);
+  expect(excluded.calls()).toBe(0);
+  expect((await t.app.inject({method:'POST',url:'/api/decisions',headers:{...headers,origin:'https://foreign.test'},payload:{...request,action}})).statusCode).toBe(403);
+ }
+ for(const url of ['/api/library/sync','/api/player/connect','/api/player/play','/api/ml/retrain','/api/calibration/labels'])expect((await s.app.inject({method:'POST',url,headers,payload:{}})).statusCode).toBe(403);
+ expect(s.calls()).toBe(4);
+ const disabled=await setup({},false);expect((await disabled.app.inject({method:'POST',url:'/api/decisions',headers,payload:{...request,action:'UNLIKE'}})).statusCode).toBe(403);
 });

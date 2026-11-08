@@ -39,3 +39,15 @@ test('connectDatabase forwards only an explicit fence and preserves default beha
  finally{await plain.close();await guarded.close();}
  expect(()=>connectDatabase(env.DATABASE_URL,schema,{reviewExclusions:{...manifest,sha256:'b'.repeat(64)}})).toThrow('INVALID_REVIEW_EXCLUSIONS');
 });
+
+test('mutation opt-in is separately digest-approved, typed and copied before startup awaits',()=>{
+ const value={...pilot.manifest,allowSpotifyMutations:true},manifest={...value,sha256:reviewExclusionManifestDigest(value)};
+ expect(manifest.sha256).not.toBe(pilot.manifest.sha256);
+ expect(()=>validatePilotRuntime(env,loadConfig(env),{...pilot,manifest})).toThrow('PILOT_CONFIG_INVALID');
+ const options={manifest,approvedManifestSha256:manifest.sha256,mutationFetch:async()=>Response.json({})};
+ const validated=validatePilotRuntime(env,loadConfig(env),options);manifest.allowSpotifyMutations=false;manifest.sortedTrackIds.push('0000000000000000000002');
+ expect(validated.manifest.allowSpotifyMutations).toBe(true);expect(validated.manifest.sortedTrackIds).toHaveLength(1);
+ for(const allowSpotifyMutations of [false,undefined,'true'] as const){const v={...pilot.manifest,...(allowSpotifyMutations===undefined?{}:{allowSpotifyMutations})},m={...v,sha256:reviewExclusionManifestDigest(v as typeof value)};
+  expect(()=>validatePilotRuntime(env,loadConfig(env),{manifest:m as typeof manifest,approvedManifestSha256:m.sha256,mutationFetch:async()=>Response.json({})})).toThrow('PILOT_CONFIG_INVALID');
+ }
+});

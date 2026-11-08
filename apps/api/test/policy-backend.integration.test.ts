@@ -3,16 +3,16 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {Database,migrate,PostgresA1Store,Repository} from '@sortfm/db';
+import {Database,migrate,PostgresA1Store,PostgresPolicyStore,Repository} from '@sortfm/db';
 import {
   AccountSessionSchema,CalibrationLabelResultSchema,CalibrationQueueResultSchema,
   DecisionHistorySchema,FitResponseSchema,LibraryImportStatusSchema,ModelInsightsSchema,
   PolicyAssociationEventSchema,PolicyAssociationReceiptSchema,PolicyDiagnosticsSchema,
-  PolicyExposureSchema,QueueResultSchema,ReviewResultSchema,
+  PolicyExposureSchema,PolicyReleaseReceiptSchema,PolicySelectRequestSchema,QueueResultSchema,ReviewResultSchema,
   type PolicyAssociationEvent,type PolicyAssociationReceipt,type PolicyFitReceipt,
-  type PublishedSelection,type QueueResult,type ReviewResult,type SelectionDraft,
+  type PolicySelectRequest,type PublishedSelection,type QueueResult,type ReviewResult,type SelectionDraft,
 } from '@sortfm/contracts';
-import {createMlClient,feedbackSplit} from '../src/ml';
+import {createMlClient,createPolicyClient,feedbackSplit} from '../src/ml';
 import {buildRuntime} from '../src/runtime';
 import {SpotifyHttp} from '../src/spotify/http';
 
@@ -348,8 +348,186 @@ for(const strategy of strategies)test.skipIf(!databaseUrl)(
   },180_000,
 );
 
-async function eventually(name:string,check:()=>Promise<boolean>){
-  const deadline=Date.now()+25_000;
+test.skipIf(!databaseUrl)('lifecycle: real backend/ML expiry, restart, release and permanent sealed exclusions',async()=>{
+  const db=new Database(databaseUrl!,`test_policy_lifecycle_${crypto.randomUUID().replaceAll('-','')}`);
+  const repository=new Repository(db),policyStore=new PostgresPolicyStore(db),provider=controlledSpotify();
+  let runtime:Runtime|undefined,ml:Awaited<ReturnType<typeof localMl>>|undefined;
+  try{
+    await migrate(db);
+    ml=await localMl({reservationTtlSeconds:30});
+    const startRuntime=async()=>{
+      runtime=await buildRuntime({env:{
+        NODE_ENV:'test',DATABASE_URL:databaseUrl,DATABASE_SCHEMA:db.schema,
+        ML_SERVICE_URL:ml!.serviceUrl,ML_SERVICE_SHARED_SECRET:ml!.sharedSecret,
+        METADATA_RIGHTS_BASIS:'Authored lifecycle fixtures; no real account or efficacy claim',
+        SPOTIFY_CLIENT_ID:'controlled-client',SPOTIFY_ALLOWED_USER_IDS:owner,
+        TOKEN_ENCRYPTION_KEY:Buffer.alloc(32,9).toString('base64'),
+        SESSION_SECRET:'controlled-policy-test-only-'.repeat(3),
+        C2_POLICY_ENABLED:'true',REVIEW_SELECTION_POLICY:'epsilon_greedy',
+      },spotifyHttp:new SpotifyHttp({fetch:provider.fetch}),spotifyMutationFetch:provider.fetch});
+      expect(runtime.startupIssues).toEqual([]);
+      return runtime.app.listen({host:'127.0.0.1',port:0});
+    };
+    let base=await startRuntime();
+    const cookie=await login(base),headers={cookie,origin,'content-type':'application/json'};
+    expect((await fetch(`${base}/api/library/sync`,{method:'POST',headers,body:'{}'})).status).toBe(202);
+    await eventually('lifecycle fixture import',async()=>{
+      const status=LibraryImportStatusSchema.parse(await(await fetch(`${base}/api/library/sync/status`,{headers})).json());
+      if(status.status==='failed')throw new Error('Lifecycle fixture import failed');
+      return status.status==='complete'&&status.processed===provider.tracks.length;
+    });
+
+    // This is a permanent-reservation fixture, not a second test of Batch2 sampling.
+    // Actual HTTP calibration creates the immutable feature/exposure rows first.
+    const calibrationResponse=await fetch(`${base}/api/calibration/queue?limit=100`,{headers});
+    expect(calibrationResponse.status).toBe(200);
+    const calibration=CalibrationQueueResultSchema.parse(await calibrationResponse.json()).items;
+    expect(calibration).toHaveLength(provider.tracks.length-1);
+    const eligible=calibration[0]!,sealed=calibration.slice(1),sealedIds=sealed.map(item=>item.track.trackId);
+    const batchId=crypto.randomUUID(),itemIds=sealed.map(()=>crypto.randomUUID()),selectedAt=new Date().toISOString();
+    const frozenCandidates=await Promise.all(sealed.map(async item=>{
+      const stored=(await repository.getExposure(userId,item.exposure.exposureId))!;
+      return {track:item.track,features:stored.features,prediction:stored.prediction,
+        ...(stored.listeningContext?{listeningContext:stored.listeningContext}:{})};
+    }));
+    await db.transaction(async tx=>{
+      await tx`INSERT INTO calibration_batches(batch_id,user_id,experiment,seed,algorithm_version,model_version,selected_at,snapshot)
+        VALUES(${batchId},${userId},'calibration-batch2-v1',42,'authored-lifecycle-fixture',${sealed[0]!.prediction.modelVersion},${selectedAt},'{}'::jsonb)`;
+      for(const [index,item] of sealed.entries()){
+        const status=['pending','skipped','revoked'][index%3]!;
+        const replacementFor=index===sealed.length-1?itemIds[1]!:null;
+        await tx`INSERT INTO calibration_batch_items(batch_item_id,user_id,batch_id,track_id,sampling_group,assignment,provenance,candidate,selected_at,position,status,exposure_id,replacement_for)
+          VALUES(${itemIds[index]!},${userId},${batchId},${item.track.trackId},'A','sealed_evaluation','{}'::jsonb,${JSON.stringify(frozenCandidates[index])}::jsonb,${selectedAt},${index},${status},${item.exposure.exposureId},${replacementFor})`;
+        await tx`INSERT INTO calibration_batch_exposures(user_id,batch_item_id,exposure_id) VALUES(${userId},${itemIds[index]!},${item.exposure.exposureId})`;
+      }
+    });
+    const labelResponse=await fetch(`${base}/api/calibration/labels`,{method:'POST',headers,body:JSON.stringify({
+      trackId:sealed[0]!.track.trackId,exposureId:sealed[0]!.exposure.exposureId,label:1,idempotencyKey:crypto.randomUUID(),
+    })});
+    expect(labelResponse.status).toBe(200);
+    const label=CalibrationLabelResultSchema.parse(await labelResponse.json());
+    await eventually('sealed calibration feedback acknowledgement',async()=>{
+      const [job]=await db.transaction(tx=>tx`SELECT acknowledged_revision FROM feedback_sync_jobs WHERE user_id=${userId}`);
+      return Number(job?.acknowledged_revision)===label.feedbackRevision;
+    });
+    const fitResponse=await fetch(`${base}/api/ml/retrain`,{method:'POST',headers,body:'{}'});
+    expect(fitResponse.status).toBe(200);
+    const fit=FitResponseSchema.parse(await fitResponse.json());
+    expect(fit.feedbackRevision).toBe(label.feedbackRevision);
+    expect(fit.trainedExamples).toBe(0);expect(fit.metrics.labeledExamples).toBe(0);expect(fit.metrics.heldOutExamples).toBe(0);
+    expect((await repository.trainingExamples(userId)).examples).toEqual([]);
+    const sealedSnapshot=()=>db.transaction(tx=>tx`SELECT track_id,assignment,status,exposure_id,candidate,replacement_for FROM calibration_batch_items WHERE user_id=${userId} ORDER BY position`);
+    const sealedBefore=await sealedSnapshot();
+    expect(new Set(sealedBefore.map((row:{status:string})=>row.status))).toEqual(new Set(['pending','labeled','skipped','revoked']));
+    expect(sealedBefore.some((row:{replacement_for:string|null})=>row.replacement_for!==null)).toBe(true);
+    expect((await policyStore.reviewCandidates(userId)).eligibleTrackIds).toEqual([eligible.track.trackId]);
+
+    const queue=async()=>{
+      const response=await fetch(`${base}/api/queue?limit=1`,{headers});
+      expect(response.status).toBe(200);
+      const result=QueueResultSchema.parse(await response.json());
+      expect(result.items).toHaveLength(1);expect(result.remaining).toBe(1);
+      expect(result.items[0]!.track.trackId).toBe(eligible.track.trackId);
+      expect(result.items[0]!.exposure.policyTelemetry).toBeDefined();
+      return result.items[0]!;
+    };
+    const counts=()=>db.transaction(tx=>tx`SELECT
+      (SELECT count(*)::integer FROM review_decisions WHERE user_id=${userId}) AS decisions,
+      (SELECT count(*)::integer FROM policy_delivery_events WHERE user_id=${userId} AND kind='associate') AS associations,
+      (SELECT count(*)::integer FROM policy_selection_intents WHERE user_id=${userId}) AS intents`);
+    const first=await queue(),firstId=first.exposure.exposureId;
+    const firstFrozen=await repository.getExposure(userId,firstId),firstInspection=await ml.exposure(firstId);
+    const firstIntent=(await policyStore.currentSelection(userId))!;
+    const firstRequest=ml.selectRequests.find(request=>request.exposureId===firstId)!;
+    expect(firstRequest).toBeDefined();
+    expect(Date.parse(firstInspection.reservation.expiresAt)-Date.parse(firstInspection.reservation.reservedAt)).toBe(30_000);
+    expect(firstInspection.decision.feedbackRevision).toBe(fit.feedbackRevision);
+    expect(firstInspection.decision.modelVersion).toBe(fit.modelVersion);
+    expect(firstInspection.decision.candidateTrackIds).toEqual([eligible.track.trackId]);
+    expect(await counts()).toEqual([{decisions:0,associations:0,intents:1}]);
+
+    // Persisted session and artifacts survive a new Fastify runtime and real ML process restart.
+    await runtime!.close();runtime=undefined;
+    await ml.restart();base=await startRuntime();
+    expect(await queue()).toEqual(first);
+    expect(await counts()).toEqual([{decisions:0,associations:0,intents:1}]);
+    expect(ml.selectIds).toEqual([firstId]);
+    const restarted=await ml.exposure(firstId),restartedIntent=(await policyStore.currentSelection(userId))!;
+    expect(restarted.decision).toEqual(firstInspection.decision);
+    expect(restarted.reservation.expiresAt).toBe(firstInspection.reservation.expiresAt);
+    expect(restartedIntent.expiresAt).toBe(firstIntent.expiresAt);
+    expect(restartedIntent.publication!.reservations).toEqual(firstIntent.publication!.reservations);
+    expect(await ml.policy.select(firstRequest)).toEqual(firstInspection.decision);
+
+    // Actual ML server-clock expiry; no test clock or UPDATE shortens either lease.
+    await eventually('actual thirty-second policy expiry',async()=>
+      (await ml!.exposure(firstId)).reservation.status==='expired',40_000);
+    const rejected=await fetch(`${base}/api/decisions`,{method:'POST',headers,body:JSON.stringify({
+      trackId:first.track.trackId,exposureId:firstId,action:'KEEP',idempotencyKey:crypto.randomUUID(),
+    })});
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({code:'POLICY_EXPOSURE_CLOSED',retryable:false});
+    expect(await counts()).toEqual([{decisions:0,associations:0,intents:1}]);
+    expect(await ml.policy.select(firstRequest)).toEqual(firstInspection.decision);
+    const expired=await ml.exposure(firstId);
+    expect(expired.reservation.status).toBe('expired');
+    expect(expired.reservation.closedAt).toBe(firstInspection.reservation.expiresAt);
+
+    const second=await queue(),secondId=second.exposure.exposureId;
+    expect(secondId).not.toBe(firstId);
+    expect((await policyStore.currentSelection(userId))!.requestId).not.toBe(firstIntent.requestId);
+    const [expiredBinding]=await db.transaction(tx=>tx`SELECT closed_at,expires_at,closure_reason FROM policy_exposure_bindings WHERE exposure_id=${firstId}`);
+    expect(expiredBinding.closed_at).toEqual(expiredBinding.expires_at);expect(expiredBinding.closure_reason).toBe('expiry');
+    expect(await repository.getExposure(userId,firstId)).toEqual(firstFrozen);
+
+    const secondIntent=(await policyStore.currentSelection(userId))!;
+    const release={userId,requestId:secondIntent.requestId,releaseId:crypto.randomUUID(),exposureIds:[secondId],reason:'prefetch_discarded' as const};
+    const releaseResult=await policyStore.releaseSelection(release);
+    expect(await policyStore.releaseSelection(release)).toEqual(releaseResult);
+    await eventually('database release delivered to real ML',async()=>{
+      const [event]=await db.transaction(tx=>tx`SELECT completed_at FROM policy_delivery_events WHERE user_id=${userId} AND exposure_id=${secondId} AND kind='release'`);
+      return event?.completed_at!==null&&event?.completed_at!==undefined;
+    });
+    const [releaseEvent]=await db.transaction(tx=>tx`SELECT payload,receipt,disposition FROM policy_delivery_events WHERE user_id=${userId} AND exposure_id=${secondId} AND kind='release'`);
+    const releaseReceipt=PolicyReleaseReceiptSchema.parse(releaseEvent.receipt);
+    expect(releaseEvent.disposition).toBe('acknowledged');expect(releaseReceipt.outcome).toBe('released');
+    expect(releaseReceipt.exposureId).toBe(secondId);expect(releaseReceipt.trackId).toBe(second.track.trackId);
+    expect(await ml.policy.release(releaseEvent.payload)).toEqual(releaseReceipt);
+    const released=await ml.exposure(secondId);
+    expect(released.reservation.status).toBe('released');expect(released.reservation.closureReason).toBe('explicit_release');
+
+    await runtime!.close();runtime=undefined;
+    await ml.restart();base=await startRuntime();
+    expect(await policyStore.releaseSelection(release)).toEqual(releaseResult);
+    expect(await ml.policy.release(releaseEvent.payload)).toEqual(releaseReceipt);
+    const third=await queue();
+    expect([firstId,secondId]).not.toContain(third.exposure.exposureId);
+    expect(await ml.policy.release(releaseEvent.payload)).toEqual(releaseReceipt);
+    expect((await ml.exposure(third.exposure.exposureId)).reservation.status).toBe('active');
+    expect((await ml.exposure(firstId)).decision).toEqual(firstInspection.decision);
+    expect((await ml.exposure(firstId)).reservation).toMatchObject({status:'expired',closedAt:expired.reservation.closedAt,expiresAt:expired.reservation.expiresAt});
+    expect(await repository.getExposure(userId,firstId)).toEqual(firstFrozen);
+    expect(await sealedSnapshot()).toEqual(sealedBefore);
+    for(const request of ml.selectRequests){
+      expect(request.candidates.map(candidate=>candidate.trackId)).toEqual([eligible.track.trackId]);
+      expect(request.candidates.some(candidate=>sealedIds.includes(candidate.trackId))).toBe(false);
+    }
+    expect((await repository.trainingExamples(userId)).examples).toEqual([]);
+    expect((await ml.client.evaluation({userId})).labeledExamples).toBe(0);
+    expect((await ml.diagnostics()).counts).toMatchObject({activeRewards:0,feedbackEvents:0});
+    expect(await counts()).toEqual([{decisions:0,associations:0,intents:3}]);
+    expect(provider.writes).toEqual([]);
+  }finally{
+    const cleanupErrors:unknown[]=[];
+    for(const close of [()=>runtime?.close(),()=>db.sql.unsafe(`DROP SCHEMA IF EXISTS "${db.schema}" CASCADE`),()=>db.close(),()=>ml?.close()]){
+      try{await close();}catch(error){cleanupErrors.push(error);}
+    }
+    if(cleanupErrors.length)throw new AggregateError(cleanupErrors,'Controlled lifecycle smoke cleanup failed');
+  }
+},180_000);
+
+async function eventually(name:string,check:()=>Promise<boolean>,timeoutMs=25_000){
+  const deadline=Date.now()+timeoutMs;
   while(Date.now()<deadline){if(await check())return;await Bun.sleep(100);}
   throw new Error(`Timed out waiting for ${name}`);
 }
@@ -397,21 +575,24 @@ function controlledSpotify(){
   }};
 }
 
-async function localMl(){
+async function localMl(options:{reservationTtlSeconds?:number}={}){
   const artifactDir=await mkdtemp(join(tmpdir(),'sortfm-policy-backend-ml-'));
   const reservation=Bun.serve({hostname:'127.0.0.1',port:0,fetch:()=>new Response('reserved')});
   const port=reservation.port!;await reservation.stop(true);
   const directUrl=`http://127.0.0.1:${port}`,sharedSecret=crypto.randomUUID();
-  const worker=Bun.spawn(['uv','run','--locked','--directory',fileURLToPath(new URL('../../../services/ml',import.meta.url)),
+  const spawn=()=>Bun.spawn(['uv','run','--locked','--directory',fileURLToPath(new URL('../../../services/ml',import.meta.url)),
     'uvicorn','sortfm_ml.app:app','--host','127.0.0.1','--port',String(port),'--log-level','warning'],{
-    env:{...process.env,ML_SERVICE_SHARED_SECRET:sharedSecret,ML_ARTIFACT_DIR:artifactDir},stdout:'ignore',stderr:'ignore',
+    env:{...process.env,ML_SERVICE_SHARED_SECRET:sharedSecret,ML_ARTIFACT_DIR:artifactDir,
+      ...(options.reservationTtlSeconds===undefined?{}:{ML_POLICY_RESERVATION_TTL_SECONDS:String(options.reservationTtlSeconds)})},stdout:'ignore',stderr:'ignore',
   });
+  let worker=spawn();
   let failSelect=false;
-  const selectIds:string[]=[],failedSelectIds:string[]=[];
+  const selectIds:string[]=[],failedSelectIds:string[]=[],selectRequests:PolicySelectRequest[]=[];
   const proxy=Bun.serve({hostname:'127.0.0.1',port:0,fetch:async request=>{
     const url=new URL(request.url);
     if(url.pathname==='/policy/select'){
-      const id=(await request.clone().json() as {exposureId:string}).exposureId;
+      const payload=PolicySelectRequestSchema.parse(await request.clone().json()),id=payload.exposureId;
+      selectRequests.push(payload);
       selectIds.push(id);
       if(failSelect){failedSelectIds.push(id);return Response.json({code:'POLICY_STATE_UNAVAILABLE',message:'Controlled policy outage',retryable:true},{status:503});}
     }
@@ -423,14 +604,22 @@ async function localMl(){
       finally{await rm(artifactDir,{recursive:true,force:true});}
     }
   };
-  try{
+  const ready=async()=>{
     await eventually('isolated ML readiness',async()=>{
       if(worker.exitCode!==null)throw new Error('Controlled ML process exited before readiness');
       return Boolean((await fetch(`${directUrl}/health`,{signal:AbortSignal.timeout(1000)}).catch(()=>null))?.ok);
     });
+  };
+  const restart=async()=>{
+    if(worker.exitCode===null)worker.kill('SIGTERM');await worker.exited;
+    worker=spawn();await ready();
+  };
+  try{
+    await ready();
     const serviceUrl=`http://127.0.0.1:${proxy.port}`,headers={authorization:`Bearer ${sharedSecret}`};
-    return {serviceUrl,sharedSecret,selectIds,failedSelectIds,close,failPolicySelect:()=>{failSelect=true;},
+    return {serviceUrl,sharedSecret,selectIds,failedSelectIds,selectRequests,close,restart,failPolicySelect:()=>{failSelect=true;},
       client:createMlClient({serviceUrl:directUrl,sharedSecret}),
+      policy:createPolicyClient({serviceUrl:directUrl,sharedSecret}),
       diagnostics:async()=>PolicyDiagnosticsSchema.parse(await(await fetch(`${directUrl}/policy/diagnostics?${new URLSearchParams({userId})}`,{headers})).json()),
       exposure:async(exposureId:string)=>PolicyExposureSchema.parse(await(await fetch(`${directUrl}/policy/exposure?${new URLSearchParams({userId,exposureId})}`,{headers})).json()),
     };

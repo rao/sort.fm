@@ -158,6 +158,13 @@ export type PolicyDeliveryLease = {
 export type PolicyDeliveryAck = {userId: string; eventId: string; leaseId: string} & (
   | {kind: 'associate'; receipt: PolicyAssociationReceipt}
   | {kind: 'release'; receipt: PolicyReleaseReceipt}
+  /** Local resolution only, NOT a fabricated provider release receipt. Accepted
+   * only for unpublished adaptive intent after fixed expiry + server-fixed60s;
+   * checkedAt must be fresh within the live current lease and not future DB time.
+   * Exact stored owner/exposure required, no published binding. Persist distinct
+   * absent_after_deadline disposition; never retro-bind a later remote commit.
+   */
+  | {kind: 'release_absent'; exposureId: string; checkedAt: string; providerStatus: 404}
 );
 
 export interface PolicyStore {
@@ -205,6 +212,9 @@ export interface PolicyStore {
    * with different payload. An in-flight adaptive call may still complete:
    * mark release_pending and retain release work until confirmed remote closure
    * or authoritative provider expiry; 404 alone is NOT a successful release.
+   * Unpublished intents may use the narrowly fenced release_absent local outcome
+   * after deadline+60s. A late remote ghost lease remains theoretically possible,
+   * but can never be served/rewarded and expires under C2's bounded lease.
    * Partial C1-page release leaves other active cards replayable. Neither release
    * nor expiry cancels pending mutation work, changes a label, or adds reward.
    */

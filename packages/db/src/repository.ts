@@ -7,6 +7,7 @@ import {
 import type {z} from 'zod';
 import {Database,PersistenceError,json,type Transaction} from './client';
 import {assertNotBatchReserved,reservedCalibrationTrackIds,batchStorageReady} from './calibration-reservations';
+import {recordFit,recordAcknowledgedFit,validateFit} from './policy-receipts';import {settlePolicy,assertPolicyExposure} from './policy-settlement';
 import {ReviewRecoveryRepository,assertReviewLease,type ReviewLeaseIdentity} from './review-recovery';
 export type FeedbackSyncLease={userId:string;feedbackRevision:number;leaseId:string};
 const fail=(code:string):never=>{throw new PersistenceError(code);};
@@ -33,6 +34,7 @@ async function telemetry(tx:Transaction,v:TelemetryInput,context:Record<string,u
 }
 export async function readLibrary(tx:Transaction,userId:string,includeHistory=false):Promise<{track:TrackCard;currentStatus:SavedTrackInput['currentStatus'];audioFeatures:FeatureVector|null;currentDecision:ReviewResult|null}[]>{return (await tx`SELECT t.card,s.original_added_at,s.current_status,a.normalized,d.result AS current_decision FROM saved_tracks s JOIN tracks t USING(track_id) LEFT JOIN current_decisions c ON c.user_id=s.user_id AND c.track_id=s.track_id LEFT JOIN review_decisions d ON d.user_id=c.user_id AND d.decision_id=c.decision_id LEFT JOIN available_audio_features a ON a.track_id=s.track_id AND a.feature_version=${FEATURE_VERSION} WHERE s.user_id=${userId} AND (${includeHistory} OR NOT EXISTS(SELECT 1 FROM library_state WHERE user_id=${userId}) OR EXISTS(SELECT 1 FROM library_membership m WHERE m.user_id=s.user_id AND m.track_id=s.track_id)) ORDER BY s.original_added_at,t.track_id`).map((r:any)=>({track:{...r.card,originalAddedAt:iso(r.original_added_at)},currentStatus:r.current_status,audioFeatures:r.normalized??null,currentDecision:r.current_decision??null}));}
 export class Repository extends ReviewRecoveryRepository {
+ async recordPolicyFitReceipt(userId:string,receipt:import('@sortfm/contracts').FitResponse):Promise<boolean>{return this.db.transaction(async tx=>{await lockUser(tx,userId);return recordFit(tx,userId,receipt);});}
  async upsertUser(profile:NonNullable<z.infer<typeof AccountSessionSchema>['user']>,authorized=false){
   const p=AccountSessionSchema.shape.user.unwrap().parse(profile);
   await this.db.transaction(async tx=>{const rows=await tx`INSERT INTO users(id,spotify_user_id,profile,is_authorized) VALUES(${p.id},${p.spotifyId},${json(p)}::jsonb,${authorized}) ON CONFLICT(id) DO UPDATE SET profile=excluded.profile,is_authorized=excluded.is_authorized WHERE users.spotify_user_id IS NOT DISTINCT FROM excluded.spotify_user_id RETURNING id`;if(!rows.length)fail('ACCOUNT_IDENTITY_CONFLICT');});
@@ -57,6 +59,7 @@ export class Repository extends ReviewRecoveryRepository {
   await assertNotBatchReserved(tx,v.userId,v.request.trackId);
   const [exposure]=await tx`SELECT track_id,served_at,purpose FROM exposures WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`;
   if(!exposure)fail('EXPOSURE_NOT_FOUND');if(exposure.purpose!=='review')fail('EXPOSURE_PURPOSE_MISMATCH');if(exposure.track_id!==v.request.trackId)fail('EXPOSURE_TRACK_MISMATCH');
+  await assertPolicyExposure(tx,v.userId,v.request.exposureId);
   if((await tx`SELECT 1 FROM exposure_consumptions WHERE user_id=${v.userId} AND exposure_id=${v.request.exposureId}`).length)fail('EXPOSURE_ALREADY_CONSUMED');
   const [current]=await tx`SELECT d.result FROM current_decisions c JOIN review_decisions d USING(user_id,decision_id) WHERE c.user_id=${v.userId} AND c.track_id=${v.request.trackId}`;
   if(current && !['COMPLETE','UNDONE','FAILED_TERMINAL'].includes(current.result.status))fail('MUTATION_PENDING');
@@ -131,6 +134,7 @@ export class Repository extends ReviewRecoveryRepository {
       if(added.length)await tx`UPDATE library_state SET source_total=source_total+1 WHERE user_id=${userId}`;
      }
     }
+    await settlePolicy(tx,userId,v);
     const [e]=await tx`SELECT payload FROM exposures WHERE user_id=${userId} AND exposure_id=${v.exposureId}`;
     await telemetry(tx,{eventId:crypto.randomUUID(),userId,modelVersion:e.payload.prediction.modelVersion,eventType:v.status==='UNDONE'?'undo':'decision',predictionScore:e.payload.prediction.removalProbability,uncertainty:e.payload.prediction.uncertainty,processingLatencyMs:Math.max(0,Date.parse(v.updatedAt)-Date.parse(v.createdAt)),occurredAt:v.updatedAt},{decisionId:v.decisionId,trackId:v.trackId,action:v.action,label:v.label,feedbackRevision:v.feedbackRevision});
    }
@@ -168,9 +172,12 @@ export class Repository extends ReviewRecoveryRepository {
   });
  }
  /** Ack the actual successfully fitted snapshot, possibly newer than the claimed revision. */
- async acknowledgeFeedbackSync(userId:string,leaseId:string,revision:number):Promise<boolean>{
+ async acknowledgeFeedbackSync(userId:string,leaseId:string,revision:number,receipt?:import('@sortfm/contracts').FitResponse):Promise<boolean>{
   if(!Number.isInteger(revision)||revision<0)fail('INVALID_FEEDBACK_REVISION');
-  return this.db.transaction(async tx=>(await tx`UPDATE feedback_sync_jobs SET acknowledged_revision=${revision},lease_id=NULL,lease_until=NULL,worker_id=NULL,updated_at=clock_timestamp() WHERE user_id=${userId} AND lease_id=${leaseId} AND lease_until>clock_timestamp() AND acknowledged_revision<=${revision} AND target_revision>=${revision} RETURNING user_id`).length>0);
+  return this.db.transaction(async tx=>{const owner=await lockUser(tx,userId);if(receipt){validateFit(userId,receipt);if(receipt.feedbackRevision!==revision)fail('POLICY_FIT_RECEIPT_INVALID');if(revision>owner.feedback_revision)return false;}
+   const acknowledged=(await tx`UPDATE feedback_sync_jobs SET acknowledged_revision=${revision},lease_id=NULL,lease_until=NULL,worker_id=NULL,updated_at=clock_timestamp() WHERE user_id=${userId} AND lease_id=${leaseId} AND lease_until>clock_timestamp() AND acknowledged_revision<=${revision} AND target_revision>=${revision} RETURNING user_id`).length>0;
+   if(acknowledged&&receipt)await recordAcknowledgedFit(tx,userId,receipt);return acknowledged;
+  });
  }
  async retryFeedbackSync(userId:string,leaseId:string,retryAt:number):Promise<void>{
   if(!Number.isFinite(retryAt))fail('INVALID_RETRY_TIME');

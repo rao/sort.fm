@@ -1,4 +1,5 @@
 import type { ProjectionCache } from "./taste-constellation/history";
+import { Batch3Evaluation } from "./Batch3Evaluation";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "#ui/components/base/buttons/button";
 import {
@@ -383,9 +384,14 @@ export function ModelLab({
 				</section>
 			)}
 			{tab === "research" && (
+				<div className="mb-6">
+					<Batch3Evaluation />
+				</div>
+			)}
+			{tab === "research" && (
 				<section className="ml-window">
 					<header>
-						<h2>02 / The comparison tape</h2>
+						<h2>Batch 2 / Historical comparison</h2>
 						<span>
 							{run ? "MEASURED · FROZEN HOLDOUT" : "AWAITING EVIDENCE"}
 						</span>
@@ -395,8 +401,8 @@ export function ModelLab({
 						<EvidenceGuide />
 						{!run ? (
 							<Empty>
-								Load the completed research export to inspect the measured E1 /
-								E2 / E3 / C1 comparison.
+								Load the completed Batch 2 research export to inspect the
+								measured E1 / E2 / E3 / C1 comparison.
 							</Empty>
 						) : (
 							<>
@@ -834,13 +840,13 @@ export function ModelLab({
 				<div>
 					<strong>
 						{evidence
-							? "Measured research loaded locally"
-							: "Research evidence"}
+							? "Batch 2 research loaded locally"
+							: "Batch 2 research evidence"}
 					</strong>
 					<p>
 						{evidence
 							? `Evaluated ${new Date(evidence.evaluatedAt).toLocaleString()}. Kept in this page’s memory; not uploaded or saved in browser storage.`
-							: "Load a prepared Model Lab JSON export. Live account data remains separate from frozen research."}
+							: "Load a prepared Batch 2 Model Lab JSON export. Live account data remains separate from frozen research."}
 					</p>
 				</div>
 				<input

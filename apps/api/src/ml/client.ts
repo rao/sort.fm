@@ -4,6 +4,8 @@ import {
   ErrorEnvelopeSchema, EvaluationQuerySchema, ExplainQuerySchema, INTERNAL_ROUTES,
   type ExplainResponse, type FitRequest, type FitResponse, type ModelMetrics,
   type ObserveRequest, type ObserveResponse, type ScoreRequest, type ScoreResponse,
+  type PolicyAssociationRequest, type PolicyAssociationReceipt,
+  type PolicySelectRequest, type PolicyDecision, type PolicyExposure, type PolicyReleaseRequest, type PolicyReleaseReceipt,
 } from "@sortfm/contracts";
 import type { z } from "zod";
 
@@ -23,6 +25,7 @@ const UPSTREAM_ERROR_CODES = [
   "STORAGE_UNAVAILABLE", "ARTIFACT_UNAVAILABLE", "MODEL_NOT_FOUND", "FEATURE_VERSION_UNSUPPORTED",
   "TRAINING_NOT_PERMITTED", "MIXED_DATASET", "STALE_REVISION", "SPLIT_CONFLICT", "DUPLICATE_EXAMPLE",
   "DECISION_CONFLICT", "EXPOSURE_CONFLICT", "IDEMPOTENCY_CONFLICT", "UNKNOWN_DECISION", "EXPOSURE_NOT_FOUND",
+  "POLICY_EXPOSURE_NOT_FOUND", "NO_ELIGIBLE_CANDIDATES", "POLICY_STATE_UNAVAILABLE",
 ] as const;
 type UpstreamErrorCode = typeof UPSTREAM_ERROR_CODES[number];
 export type MlClientErrorCode = UpstreamErrorCode | "ML_INVALID_CONFIG" | "ML_INVALID_REQUEST"
@@ -115,11 +118,13 @@ function checkScore(request: ScoreRequest, response: ScoreResponse): boolean {
 }
 
 /** HTTPS/loopback preserve base paths. Railway private HTTP requires an explicit origin-only opt-in. */
-export function createMlClient(options: {
+export interface MlClientOptions {
   serviceUrl: string; sharedSecret: string; fetch?: MlFetch; timeoutMs?: number;
   /** Enable only for Railway's encrypted, isolated private network. Defaults to false. */
   allowRailwayPrivateHttp?: boolean;
-}): MlClient {
+}
+
+function createTransport(options: MlClientOptions) {
   const { allowRailwayPrivateHttp = false } = options;
   if (typeof allowRailwayPrivateHttp !== "boolean") throw new MlClientError("ML_INVALID_CONFIG", 500, false);
   const base = serviceBaseUrl(options.serviceUrl, allowRailwayPrivateHttp);
@@ -179,6 +184,11 @@ export function createMlClient(options: {
     }
   }
 
+  return send;
+}
+
+export function createMlClient(options: MlClientOptions): MlClient {
+  const send = createTransport(options);
   return {
     async fit(input) {
       const request = parse(INTERNAL_ROUTES.fit.body, input, true);
@@ -209,6 +219,79 @@ export function createMlClient(options: {
       const query = parse(ExplainQuerySchema, input, true);
       const response = await send(INTERNAL_ROUTES.explain, undefined, query);
       if (response.exposureId !== query.exposureId) throw invalidResponse();
+      return response;
+    },
+  };
+}
+
+
+/** Private policy transport; feedback uses association only, never fit or observe. */
+export interface PolicyClient {
+  select(request: PolicySelectRequest): Promise<PolicyDecision>;
+  exposure(query: {userId: string; exposureId: string}): Promise<PolicyExposure>;
+  release(request: PolicyReleaseRequest): Promise<PolicyReleaseReceipt>;
+  associate(request: PolicyAssociationRequest): Promise<PolicyAssociationReceipt>;
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object'
+    || Array.isArray(left) !== Array.isArray(right)) return false;
+  const a = left as Record<string, unknown>, b = right as Record<string, unknown>;
+  return Object.keys(a).length === Object.keys(b).length
+    && Object.keys(a).every(key => Object.hasOwn(b, key) && sameValue(a[key], b[key]));
+}
+
+export function createPolicyClient(options: MlClientOptions): PolicyClient {
+  const send = createTransport(options);
+  return {
+    async select(input) {
+      const request = parse(INTERNAL_ROUTES.policySelect.body, input, true);
+      // Legacy C2 requests may omit the revision; this integration never may.
+      if (request.modelVersion === null || request.feedbackRevision === undefined) {
+        throw new MlClientError('ML_INVALID_REQUEST', 400, false);
+      }
+      const response = await send(INTERNAL_ROUTES.policySelect, request);
+      const candidate = request.candidates.find(row => row.trackId === response.trackId);
+      const ids = new Set(request.candidates.map(row => row.trackId));
+      if (response.userId !== request.userId || response.exposureId !== request.exposureId
+        || response.modelVersion !== request.modelVersion || response.feedbackRevision !== request.feedbackRevision
+        || response.featureVersion !== request.featureVersion || response.seed !== request.seed
+        || !sameValue(response.config, request.config) || !sameValue(response.candidate, candidate)
+        || response.candidateCount !== ids.size || response.candidateTrackIds.some(id => !ids.has(id))
+        || response.selection.index >= response.availableCount || response.selection.eligibleCount < 1
+        || !ids.has(response.selection.greedyTrackId)
+        || ![request.config.strategy, 'c1'].includes(response.selection.selectionMethod)
+        || response.contextNames.length !== response.selection.context.length) throw invalidResponse();
+      return response;
+    },
+    async exposure(input) {
+      const query = parse(INTERNAL_ROUTES.policyExposure.query, input, true);
+      const response = await send(INTERNAL_ROUTES.policyExposure, undefined, query);
+      if (response.decision.userId !== query.userId || response.decision.exposureId !== query.exposureId
+        || response.reservation.exposureId !== query.exposureId) throw invalidResponse();
+      return response;
+    },
+    async release(input) {
+      const request = parse(INTERNAL_ROUTES.policyRelease.body, input, true);
+      const response = await send(INTERNAL_ROUTES.policyRelease, request);
+      if (response.userId !== request.userId || response.requestId !== request.requestId
+        || response.exposureId !== request.exposureId
+        || Date.parse(response.effectiveClosedAt) > Date.parse(response.expiresAt)
+        || Date.parse(response.effectiveClosedAt) > Date.parse(response.recordedAt)) throw invalidResponse();
+      return response;
+    },
+    async associate(input) {
+      const request = parse(INTERNAL_ROUTES.policyAssociate.body, input, true);
+      const response = await send(INTERNAL_ROUTES.policyAssociate, request);
+      if (response.userId !== request.userId || response.eventId !== request.event.eventId
+        || response.sequence !== request.event.sequence
+        || response.fitReceipt.modelVersion !== request.fitReceipt.modelVersion
+        || response.fitReceipt.synchronizedFeedbackRevision !== request.fitReceipt.synchronizedFeedbackRevision
+        || (response.eligibleForLearning && (request.event.operation === 'revoke' || request.event.label === null
+          || !request.event.features.permittedForTraining))) {
+        throw invalidResponse();
+      }
       return response;
     },
   };

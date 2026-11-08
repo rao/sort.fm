@@ -38,7 +38,7 @@ export function reviewRouteSecurity({config,auth}:ReviewRouteOptions) {
   }
   return {owner,csrf,safe};
 }
-export function createReviewQueueModule(options:ReviewRouteOptions & {queue:QueueService;demoQueue?:(query:ReturnType<typeof QueueQuerySchema.parse>)=>QueueResult|Promise<QueueResult>}) {
+export function createReviewQueueModule(options:ReviewRouteOptions & {queue:Pick<QueueService,'get'>;demoQueue?:(query:ReturnType<typeof QueueQuerySchema.parse>)=>QueueResult|Promise<QueueResult>}) {
   const security=reviewRouteSecurity(options);
   const registerRoutes=async(app:FastifyInstance)=>{
     app.get('/api/queue',security.safe(async(req)=>{

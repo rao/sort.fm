@@ -1,4 +1,4 @@
-import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, PostgresCalibrationBatchStore, PostgresPlaybackStore, PostgresPolicyStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
+import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, PostgresCalibrationBatchStore, PostgresCalibrationExperimentStore, PostgresPlaybackStore, PostgresPolicyStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService,type QueueOptions} from './reviews/queue';
@@ -16,7 +16,7 @@ import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
 import {createSpotifyModule} from './auth/module';
 import type {SpotifyHttp,Fetch} from './spotify/http';
-import {CalibrationQueue,CalibrationService,CalibrationBatchService,createCalibrationModule} from './calibration';
+import {CalibrationQueue,CalibrationService,CalibrationBatchService,CalibrationExperimentService,createCalibrationModule} from './calibration';
 import {createPlaybackModule,PlaybackService,PlaybackControls,type PlaybackTransport} from './playback';
 
 /** Integration bootstrap. Missing external services leave the isolated demo usable. */
@@ -100,6 +100,29 @@ export async function buildRuntime(options: {
    });
    calibrationBatchDatabaseReady=true;
   } catch {startupIssues.push('CALIBRATION_BATCH_DATABASE_UNAVAILABLE');}
+ }
+
+ // Batch3 is independently optional. Its private operator port and public
+ // collection projection require the complete admission/immutability guards.
+ let calibrationExperimentDatabaseReady=false;
+ if(database){
+  try{
+   if(!calibrationBatchDatabaseReady||policyDatabaseStatus!=='ready')throw Error('EXPERIMENT_DEPENDENCY_REQUIRED');
+   await database.transaction(async tx=>{
+    const [migration]=await tx`SELECT name FROM schema_migrations WHERE name='017_calibration_batch3.sql'`;
+    if(!migration)throw Error('EXPERIMENT_MIGRATION_REQUIRED');
+    await tx`SELECT user_id,batch_id,phase,reservation,seal_request,seal_receipt FROM calibration_experiments LIMIT 0`;
+    const [guards]=await tx`SELECT count(*)::integer AS n FROM pg_trigger t
+     JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+     JOIN (VALUES ('calibration_experiments','protect_calibration_experiment'),('calibration_batches','protect_calibration_experiment_snapshot'),
+      ('calibration_labels','guard_experiment_labels'),('calibration_undos','guard_experiment_undo'),
+      ('calibration_batch_skips','guard_experiment_skip'),('calibration_batch_items','guard_experiment_item'),('exposures','guard_experiment_exposure')) AS expected(relation,trigger)
+      ON c.relname=expected.relation AND t.tgname=expected.trigger
+     WHERE n.nspname=current_schema() AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')`;
+    if(guards.n!==7)throw Error('EXPERIMENT_GUARDS_REQUIRED');
+   });
+   calibrationExperimentDatabaseReady=true;
+  }catch{startupIssues.push('CALIBRATION_EXPERIMENT_DATABASE_UNAVAILABLE');}
  }
 
  const repository=database?new Repository(database):null;
@@ -195,9 +218,16 @@ export async function buildRuntime(options: {
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},ml,
  }):null;
  const calibrationStore=database?new PostgresCalibrationStore(database):null;
+ // Server-only operator access shares exactly the ordinary cached feature and
+ // C1 scoring ports. Public routes receive only read/skip, never reserve/seal.
+ const calibrationExperiment=database&&calibrationExperimentDatabaseReady?new CalibrationExperimentService(new PostgresCalibrationExperimentStore(database),{
+  load:loadCandidates,
+  ...(ml?{score:(userId,candidates,modelVersion)=>ml!.score(userId,candidates,modelVersion)}:{}),
+ }):null;
  const calibration=spotify&&calibrationStore?createCalibrationModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
   service:new CalibrationService(calibrationStore,{...(feedback?{feedback}:{})}),
+  ...(calibrationExperiment?{experiment:calibrationExperiment}:{}),
   // Saved batches resume without a scorer; new creation explicitly reports
   // unavailable scoring. Labels continue through the existing feedback worker.
   ...(calibrationBatchDatabaseReady&&database?{batch:new CalibrationBatchService(new PostgresCalibrationBatchStore(database),{
@@ -222,6 +252,6 @@ export async function buildRuntime(options: {
   }});
   let closing:Promise<void>|undefined;
   const close=()=>closing??=(async()=>{try{await app.close();}finally{await database?.close();}})();
-  return {app,config,startupIssues,close};
+  return {app,config,startupIssues,calibrationExperiment,close};
  } catch(error) {await reviewWorker?.close();await policyRecovery?.close();await policyDelivery?.close();await feedback?.close();await database?.close();throw error;}
 }

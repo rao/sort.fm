@@ -7,7 +7,7 @@ import {
 } from '@sortfm/contracts';
 import type {z} from 'zod';
 import {Database,PersistenceError,json,type Transaction} from './client';
-import {assertNotBatchReserved,reservedCalibrationTrackIds,batchStorageReady} from './calibration-reservations';
+import {assertBatchCollecting,batchExposure,assertNotBatchReserved,reservedCalibrationTrackIds,batchStorageReady} from './calibration-reservations';
 import {recordFit,recordAcknowledgedFit,validateFit} from './policy-receipts';import {settlePolicy,assertPolicyExposure} from './policy-settlement';
 import {ReviewRecoveryRepository,assertReviewLease,type ReviewLeaseIdentity} from './review-recovery';
 export type FeedbackSyncLease={userId:string;feedbackRevision:number;leaseId:string};
@@ -51,7 +51,11 @@ export class Repository extends ReviewRecoveryRepository {
   const rows=await tx`INSERT INTO exposures(exposure_id,user_id,track_id,payload,served_at) VALUES(${v.exposure.exposureId},${v.userId},${v.exposure.trackId},${json(v)}::jsonb,${v.exposure.servedAt}) ON CONFLICT DO NOTHING RETURNING exposure_id`;
   if(!rows.length){const [same]=await tx`SELECT 1 FROM exposures WHERE exposure_id=${v.exposure.exposureId} AND user_id=${v.userId} AND payload=${json(v)}::jsonb AND purpose='review'`;if(!same)fail('EXPOSURE_CONFLICT');}
  });}
- async getExposure(userId:string,id:string):Promise<ExposureInput|null>{return this.db.transaction(async tx=>{await assertPublishedReviewExposure(tx,this.db.reviewExclusions,userId,id);return (await tx`SELECT payload FROM exposures WHERE user_id=${userId} AND exposure_id=${id}`)[0]?.payload??null;});}
+ async getExposure(userId:string,id:string):Promise<ExposureInput|null>{return this.db.transaction(async tx=>{
+  await assertPublishedReviewExposure(tx,this.db.reviewExclusions,userId,id);
+  const batch=await batchExposure(tx,userId,id);if(batch)await assertBatchCollecting(tx,userId,batch.batch_id);
+  return (await tx`SELECT payload FROM exposures WHERE user_id=${userId} AND exposure_id=${id}`)[0]?.payload??null;
+ });}
  async createDecision(input:DecisionInput):Promise<ReviewResult>{const v=DecisionInputSchema.parse(input);return this.db.transaction(async tx=>{
   this.db.reviewExclusions?.assertOwner(v.userId);const owner=await lockUser(tx,v.userId);assertPilotAction(this.db.reviewExclusions,v.userId,v.request.trackId,v.request.action);await assertPublishedReviewExposure(tx,this.db.reviewExclusions,v.userId,v.request.exposureId,v.request.trackId);
   const [old]=await tx`SELECT * FROM review_decisions WHERE user_id=${v.userId} AND idempotency_key=${v.request.idempotencyKey}`;

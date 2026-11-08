@@ -1,6 +1,8 @@
 import {CalibrationBatchSkipSchema,type CalibrationBatchSkip} from '@sortfm/contracts';
 import {
 	CalibrationLabelRequestSchema,
+	type CalibrationExperiment,
+	type CalibrationQueueResult,
 	UndoRequestSchema,
 	UuidSchema,
 	type AccountSession,
@@ -19,24 +21,30 @@ export type CalibrationCommand =
 	| { kind: "label"; request: CalibrationLabelRequest }
 	| { kind: "undo"; labelId: string; request: UndoRequest }
  | { kind: "skip"; request: CalibrationBatchSkip };
-export type CalibrationSession = "ordinary" | "batch2";
+export type CalibrationSession = "ordinary" | "batch2" | "batch3";
 export interface CalibrationJournal {
  readSession?():CalibrationSession;
  selectSession?(session:CalibrationSession):void;
-	read(): CalibrationCommand | null;
-	write(command: CalibrationCommand): void;
-	clear(): void;
+	read(session?: CalibrationSession): CalibrationCommand | null;
+	write(command: CalibrationCommand, session?: CalibrationSession): void;
+	clear(session?: CalibrationSession): void;
 }
 export function calibrationJournal(
 	storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
 	ownerId: string,
 ): CalibrationJournal {
 	const key = `sortfm:calibration:pending:v1:${encodeURIComponent(ownerId)}`;
+	const experimentKey = `sortfm:calibration:batch3:pending:v1:${encodeURIComponent(ownerId)}`;
+	const readSession = (): CalibrationSession => {
+		const saved = storage.getItem(`${key}:session`);
+		return saved === "batch2" || saved === "batch3" ? saved : "ordinary";
+	};
+	const commandKey = (session = readSession()) => session === "batch3" ? experimentKey : key;
 	return {
-  readSession:()=>storage.getItem(`${key}:session`)==="batch2"?"batch2":"ordinary",
+  readSession,
   selectSession:(session)=>storage.setItem(`${key}:session`,session),
-		read() {
-			const raw = storage.getItem(key);
+		read(session) {
+			const raw = storage.getItem(commandKey(session));
 			if (!raw) return null;
 			const value = JSON.parse(raw);
 			if (value.kind === "skip") return {kind:"skip",request:CalibrationBatchSkipSchema.parse(value.request)};
@@ -55,8 +63,8 @@ export function calibrationJournal(
 				"The saved calibration command is unreadable. Labeling is paused for recovery.",
 			);
 		},
-		write: (command) => storage.setItem(key, JSON.stringify(command)),
-		clear: () => storage.removeItem(key),
+		write: (command, session) => storage.setItem(commandKey(session), JSON.stringify(command)),
+		clear: (session) => storage.removeItem(commandKey(session)),
 	};
 }
 // Deliberately exclude every cleanup and player mutation method from this boundary.
@@ -65,6 +73,7 @@ type CalibrationApi = Pick<
 	| "session"
 	| "calibrationQueue"
  | "calibrationBatch" | "calibrationBatchCreate" | "calibrationBatchSkip"
+ | "calibrationExperiment" | "calibrationExperimentSkip"
 	| "calibrationLabel"
 	| "calibrationUndo"
 	| "calibrationHistory"
@@ -94,6 +103,14 @@ export function createCalibrationClient(
 		journal,
 		async snapshot(selection:CalibrationSession="ordinary") {
 			await assertOwner();
+			if (selection === "batch3") {
+				const { batch: experiment } = await api.calibrationExperiment();
+				const ready = experiment?.phase === "ready" ? experiment : null;
+				const history = ready ? await api.calibrationHistory() : { items: [], nextCursor: null };
+				await assertOwner();
+				const queue: CalibrationQueueResult = ready?.queue ?? { contractVersion: "1.0.0", mode: "calibration", items: [], remaining: 0, nextCursor: null, fallbackReason: null };
+				return { queue, history: { ...history, items: history.items.filter(item => ready?.entries.some(entry => entry.trackId === item.trackId)) }, metrics: null, warning: null, batch: null, experiment };
+			}
 			const batch=selection==="batch2"?(await api.calibrationBatch()).batch:null;
    if(selection==="batch2"&&!batch)throw new Error("Batch 2 has not been created. Start the saved session below.");
 			const [queue, history, model] = await Promise.all([
@@ -118,10 +135,10 @@ export function createCalibrationClient(
 				warning =
 					"Synthetic model metrics were excluded from your personal model.";
 			}
-			return { queue, history, metrics, warning, batch };
+			return { queue, history, metrics, warning, batch, experiment: null as CalibrationExperiment | null };
 		},
 		async startBatch(seed=42){await assertOwner();const existing=(await api.calibrationBatch()).batch;return existing??api.calibrationBatchCreate({seed});},
-  async skip(request:CalibrationBatchSkip){await assertOwner();return api.calibrationBatchSkip(request);},
+  async skip(request:CalibrationBatchSkip,selection:CalibrationSession="batch2"){await assertOwner();return selection==="batch3"?api.calibrationExperimentSkip(request):api.calibrationBatchSkip(request);},
 		async label(request: CalibrationLabelRequest) {
 			await assertOwner();
 			return api.calibrationLabel(request);

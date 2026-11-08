@@ -1,7 +1,7 @@
 import {CALIBRATION_BATCH_EXPERIMENT,CONTRACT_VERSION,FEATURE_VERSION,CalibrationBatchDraftSchema,CalibrationBatchSchema,CalibrationBatchSkipSchema,IdSchema,TimestampSchema,type CalibrationBatch,type CalibrationBatchDraft,type CalibrationBatchSelection,type CalibrationBatchSkip,type CalibrationBatchStore,type CalibrationCandidateSnapshot,type ExposureInput} from '@sortfm/contracts';
 import {Database,PersistenceError,json,type Transaction} from './client';
 import {lockUser,readLibrary} from './repository';
-import {batchStorageReady} from './calibration-reservations';
+import {assertBatchCollecting,batchStorageReady} from './calibration-reservations';
 const fail=(code:string):never=>{throw new PersistenceError(code);};
 const iso=(v:Date|string)=>new Date(v).toISOString();
 async function ready(tx:Transaction){if(!await batchStorageReady(tx))fail('BATCH_UNAVAILABLE');}
@@ -67,9 +67,9 @@ export class PostgresCalibrationBatchStore implements CalibrationBatchStore {
  async skipCalibrationBatch(userId:string,input:CalibrationBatchSkip,now:string){IdSchema.parse(userId);const request=CalibrationBatchSkipSchema.parse(input);TimestampSchema.parse(now);return this.db.transaction(async tx=>{
   await lockUser(tx,userId);await ready(tx);
   const [old]=await tx`SELECT * FROM calibration_batch_skips WHERE user_id=${userId} AND idempotency_key=${request.idempotencyKey}`;
-  if(old){if(old.exposure_id!==request.exposureId)fail('IDEMPOTENCY_CONFLICT');return (await project(tx,userId,now))!;}
+  if(old){if(old.exposure_id!==request.exposureId)fail('IDEMPOTENCY_CONFLICT');const [kind]=await tx`SELECT b.experiment FROM calibration_batch_items i JOIN calibration_batches b USING(user_id,batch_id) WHERE i.user_id=${userId} AND i.batch_item_id=${old.batch_item_id}`;if(kind?.experiment!==CALIBRATION_BATCH_EXPERIMENT)fail('BATCH_ITEM_NOT_FOUND');return (await project(tx,userId,now))!;}
   const [item]=await tx`SELECT b.* FROM calibration_batch_items b JOIN calibration_batch_exposures e USING(user_id,batch_item_id) WHERE e.user_id=${userId} AND e.exposure_id=${request.exposureId}`;
-  if(!item)fail('BATCH_ITEM_NOT_FOUND');if(item.exposure_id!==request.exposureId||!['pending','revoked'].includes(item.status))fail('BATCH_ITEM_NOT_PENDING');
+  if(!item)fail('BATCH_ITEM_NOT_FOUND');await assertBatchCollecting(tx,userId,item.batch_id);const [kind]=await tx`SELECT experiment FROM calibration_batches WHERE user_id=${userId} AND batch_id=${item.batch_id}`;if(kind?.experiment!==CALIBRATION_BATCH_EXPERIMENT)fail('BATCH_ITEM_NOT_FOUND');if(item.exposure_id!==request.exposureId||!['pending','revoked'].includes(item.status))fail('BATCH_ITEM_NOT_PENDING');
   await tx`INSERT INTO calibration_batch_skips(user_id,idempotency_key,exposure_id,batch_item_id,created_at) VALUES(${userId},${request.idempotencyKey},${request.exposureId},${item.batch_item_id},${now})`;
   await tx`UPDATE calibration_batch_items SET status='skipped' WHERE batch_item_id=${item.batch_item_id}`;
   const [batch]=await tx`SELECT snapshot FROM calibration_batches WHERE user_id=${userId} AND batch_id=${item.batch_id}`;const draft=batch.snapshot as CalibrationBatchDraft;

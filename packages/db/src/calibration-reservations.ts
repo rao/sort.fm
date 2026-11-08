@@ -13,3 +13,13 @@ export async function batchExposure(tx:Transaction,userId:string,exposureId:stri
  if(!await batchStorageReady(tx))return null;
  return (await tx`SELECT b.* FROM calibration_batch_items b JOIN calibration_batch_exposures e USING(user_id,batch_item_id) WHERE e.user_id=${userId} AND e.exposure_id=${exposureId}`)[0]??null;
 }
+
+/** Optional017; fail closed on Batch3 missing its phase row. */
+export async function assertBatchCollecting(tx:Transaction,userId:string,batchId:string){
+ const [b]=await tx`SELECT experiment FROM calibration_batches WHERE user_id=${userId} AND batch_id=${batchId}`;
+ if(b?.experiment!=='calibration-batch3-v1')return;
+ const [ready]=await tx`SELECT to_regclass(current_schema()||'.calibration_experiments') IS NOT NULL AS ready`;
+ if(!ready.ready)throw new PersistenceError('BATCH_NOT_READY');
+ const [state]=await tx`SELECT phase FROM calibration_experiments WHERE user_id=${userId} AND batch_id=${batchId}`;
+ if(state?.phase!=='ready')throw new PersistenceError('BATCH_NOT_READY');
+}

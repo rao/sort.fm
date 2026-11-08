@@ -14,7 +14,8 @@
     "smoke": "bun run scripts/smoke-foundation.ts",
     "smoke:ml": "bun run scripts/smoke-ml.ts",
     "smoke:backend": "bun --env-file=.env scripts/smoke-backend.ts",
-    "smoke:policy": "bun --no-env-file scripts/smoke-policy-backend.ts"
+    "smoke:policy": "bun --no-env-file scripts/smoke-policy-backend.ts",
+    "smoke:calibration-experiment": "bun --no-env-file scripts/smoke-calibration-experiment.ts"
   },
   "devDependencies": { "@types/bun": "^1.3.0", "typescript": "^5.9.3", "zod": "^4.1.12" }
 }

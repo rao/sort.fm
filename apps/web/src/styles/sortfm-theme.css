@@ -1,0 +1,48 @@
+/* sort.fm's current identity, expressed through BoardUI's semantic tokens.
+ * Keep customizations here so registry components can be refreshed separately. */
+:root.dark {
+  --font-inter: "DM Sans";
+  --color-accent-50: var(--color-lime-50);
+  --color-accent-100: var(--color-lime-100);
+  --color-accent-200: var(--color-lime-200);
+  --color-accent-300: var(--color-lime-300);
+  --color-accent-400: var(--color-lime-400);
+  --color-accent-500: var(--color-lime-500);
+  --color-accent-600: var(--color-lime-600);
+  --color-accent-700: var(--color-lime-700);
+  --color-accent-800: var(--color-lime-800);
+  --color-accent-900: var(--color-lime-900);
+  --color-accent-950: var(--color-lime-950);
+  --color-background-full: var(--bg);
+  --color-background-primary-default: var(--surface);
+  --color-background-primary-hover: var(--surface-raised);
+  --color-background-primary-active: var(--line);
+  --color-background-secondary-default: var(--surface-raised);
+  --color-border-button-default: var(--line);
+  --color-border-button-hover: var(--dim);
+  --color-border-button-active: var(--muted);
+  --color-border-focus-ring: var(--mint);
+  --color-text-primary: #f0f1ec;
+  --color-text-secondary: var(--muted);
+  --color-text-tertiary: var(--dim);
+  --color-review-archive: var(--archive);
+  --color-review-unlike: var(--unlike);
+  --color-review-skip: var(--skip);
+  --color-button-primary-foreground: var(--bg);
+  --gradient-button-primary-default: linear-gradient(var(--mint), var(--mint));
+  --gradient-button-primary-hover: linear-gradient(
+    color-mix(in srgb, var(--mint) 85%, white),
+    var(--mint)
+  );
+  --gradient-button-primary-active: linear-gradient(
+    var(--mint),
+    color-mix(in srgb, var(--mint) 85%, var(--bg))
+  );
+}
+
+@theme inline {
+  --color-review-archive: var(--color-review-archive);
+  --color-review-unlike: var(--color-review-unlike);
+  --color-review-skip: var(--color-review-skip);
+  --color-button-primary-foreground: var(--color-button-primary-foreground);
+}

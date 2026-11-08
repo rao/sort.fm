@@ -1,0 +1,16 @@
+{
+  "paths": {
+    "components": "src/components",
+    "utils": "src/utils",
+    "hooks": "src/hooks",
+    "styles": "src/styles",
+    "lib": "src/lib"
+  },
+  "aliases": {
+    "components": "#ui/components",
+    "utils": "#ui/utils",
+    "hooks": "#ui/hooks",
+    "styles": "#ui/styles",
+    "lib": "#ui/lib"
+  }
+}

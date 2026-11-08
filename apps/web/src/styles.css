@@ -38,7 +38,7 @@
 }
 body {
 	margin: 0;
-	min-width: 320px;
+	min-width: min(320px, 100%);
 }
 button,
 input,
@@ -2504,7 +2504,7 @@ input::placeholder {
 		right: 20px;
 		height: 42px;
 		justify-content: center;
-		gap: 35px;
+		gap: 16px;
 	}
 	.app-header nav a {
 		font-size: 11px;

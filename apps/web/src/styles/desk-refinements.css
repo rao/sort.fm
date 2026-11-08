@@ -617,10 +617,13 @@
 .music-desk > .demo-strip {
 	display: none;
 }
-/* The hidden strip no longer separates these panels from the navigation. */
-.music-desk[data-route="review"] > main:has(> .empty-state, > .completion-page),
-.music-desk:is([data-route="dashboard"], [data-route="library"]) > main {
+/* Replace the hidden strip's spacing consistently on every workspace route. */
+.music-desk > main {
 	padding-block-start: 16px;
+}
+/* The shell owns this gap; don't add the Model Lab's older inset to it. */
+.music-desk > main > .model-lab {
+	padding-block-start: 0;
 }
 .music-desk .empty-state .button + .button {
 	margin-inline-start: 12px;

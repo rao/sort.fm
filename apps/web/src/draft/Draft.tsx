@@ -472,7 +472,7 @@ export function Draft() {
 									</h2>
 								</div>
 								<p>
-									One song at a time. Keep it, archive it, or come back later.
+									One song swipe at a time. Keep it, archive it, or decide later.
 									Your choices help the model learn your taste; you make the
 									final call.
 								</p>

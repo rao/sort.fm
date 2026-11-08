@@ -1,6 +1,6 @@
 import { demoTracks } from "../data/demo-catalog";
 import { RiArrowRightLine, RiSpotifyFill, RiPlayFill } from "@remixicon/react";
-import { Button } from "#ui/components/base/buttons/button";
+import { Button, ButtonLink } from "#ui/components/base/buttons/button";
 import { Cover, Logo } from "./ui";
 export function Landing({ onConnect }: { onConnect: () => void }) {
 	const example = demoTracks[0]!;
@@ -35,12 +35,21 @@ export function Landing({ onConnect }: { onConnect: () => void }) {
 							room for what’s next.
 						</p>
 						<div className="desk-hero-actions">
-							<Button leadingIcon={RiSpotifyFill} onClick={onConnect}>
+							<Button
+								className="desk-hero-cta"
+								leadingIcon={RiSpotifyFill}
+								onClick={onConnect}
+							>
 								Bring my Spotify
 							</Button>
-							<a className="button secondary" href="?mode=demo#/review">
-								Try demo <RiArrowRightLine size={18} />
-							</a>
+							<ButtonLink
+								className="button secondary desk-hero-cta"
+								variant="secondary"
+								trailingIcon={RiArrowRightLine}
+								href="?mode=demo#/review"
+							>
+								Try demo
+							</ButtonLink>
 						</div>
 						<small>No Spotify account needed for the demo.</small>
 					</div>
@@ -88,7 +97,7 @@ export function Landing({ onConnect }: { onConnect: () => void }) {
 				</section>
 				<section className="desk-how" id="how-it-works">
 					<div>
-						<span className="eyebrow">One song at a time</span>
+						<span className="eyebrow">One song swipe at a time</span>
 						<h2>
 							A little less scrolling.
 							<br />A lot more listening.
@@ -96,21 +105,29 @@ export function Landing({ onConnect }: { onConnect: () => void }) {
 					</div>
 					<div>
 						<p>
-							Keep it, archive it, or come back later. Your choices help the
-							model learn your taste; you make the final call.
+							Keep it, archive it, or decide later. Your choices help the model
+							learn your taste; you make the final call.
 						</p>
 						<p className="fine-print">
 							Archive keeps a playlist copy before unliking. Unlike removes
-							directly. Teach saves preference labels without changing your
-							library.
+							directly. Teaching mode saves preference labels without changing
+							your library.
 						</p>
 					</div>
 				</section>
 			</main>
 			<footer className="landing-footer">
 				<Logo />
-				<span>A little less noise. A lot more you.</span>
-				<span>Made for changing taste.</span>
+				<span>
+					A little less clutter. A lot more of the <em>evolved</em> you.
+				</span>
+				<span className="landing-credit">
+					Made with{" "}
+					<span role="img" aria-label="love">
+						❤️
+					</span>{" "}
+					by <a href="https://raminr.ai">Ramin</a>
+				</span>
 			</footer>
 		</div>
 	);

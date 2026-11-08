@@ -1222,6 +1222,12 @@ button:not(.desk-profile):not(.desk-choice):not(.desk-listen):not(
 	gap: 16px;
 	margin: 28px 0 18px;
 }
+.desk-hero-actions .desk-hero-cta {
+	block-size: 44px;
+	min-block-size: 44px;
+	padding: 8px 12px;
+	line-height: 1;
+}
 .desk-hero-copy > small {
 	color: var(--d-muted);
 	font:
@@ -1333,6 +1339,14 @@ button:not(.desk-profile):not(.desk-choice):not(.desk-listen):not(
 	border-top: 2px solid var(--r-edge);
 	color: var(--d-ink);
 	padding: 24px 0;
+}
+.desk-landing .landing-footer .landing-credit {
+	display: inline;
+	white-space: nowrap;
+}
+.landing-credit a {
+	text-decoration: underline;
+	text-underline-offset: 3px;
 }
 .connection-gate {
 	min-height: 100dvh;

@@ -83,6 +83,14 @@ Fastify uses exact configured CORS origins, credential support and `Cache-Contro
 
 ## ML and features
 
+### Optional policy selection telemetry
+
+`Exposure.policyTelemetry` is an optional, strict `PolicyTelemetry` object; legacy exposures omit it. `Exposure.selectionMethod` additionally accepts `epsilon_greedy`. Existing C1 prediction, probability, uncertainty, model version and feature version keep their meanings. The UI `QueuePolicy` preference does not activate a server algorithm.
+
+Telemetry carries actual `selectionMethod` (`c1`, `epsilon_greedy`, `linucb`, or service-local `random`), `strategy` (`explore`/`exploit`), `policyStateVersion`, `contextVersion`, `rewardVersion`, `modelFeedbackRevision`, signed finite `predictedReward` and `selectionScore`, nonnegative finite `uncertainty`, `explorationBonus` and `informationGain`, `candidateCount`, `availableCount`, `eligibleCount`, `trainedRewards`, and `reasons`. Counts satisfy eligible ≤ available ≤ candidate. C2 uncertainty is an uncalibrated design radius and can exceed one; reward and selection score are not removal probabilities. Policy version and the immutable C1 model version remain on the containing exposure.
+
+The required nested `reservation` is a reported lifecycle snapshot with `reservedAt`, `expiresAt`, `evaluatedAt`, `status` (`active`/`released`/`expired`), nullable `closedAt`, and nullable `closureReason` (`explicit_release`/`undo`/`expiry`). Its original duration is30–900 seconds. Active means open at the supplied evaluation time; released means a recorded terminal closure, and expired means closed at the original expiry time. This snapshot is not proof that the user viewed/listened to the song and is not a current database eligibility assertion. The inspector must not derive a new lifecycle status from the browser clock. Absent telemetry means unavailable; zero values are valid observations.
+
 Internal `GET /health` is public liveness. `POST /fit`, `/score`, `/observe`, `GET /evaluation`, `/explain` require `Authorization: Bearer <ML_SERVICE_SHARED_SECRET>`. Foundation returns 503 if unconfigured, 401 if invalid, and 501 if authenticated; it does not validate future model payloads or return fake scores.
 
 | Route | Input | Output |

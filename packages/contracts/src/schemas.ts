@@ -72,13 +72,43 @@ export const PredictionSchema = z.strictObject({
 export type Prediction = z.infer<typeof PredictionSchema>;
 export const QueuePolicySchema = z.enum(["balanced", "discovery", "certainty"]);
 export type QueuePolicy = z.infer<typeof QueuePolicySchema>;
+/** Reported lifecycle snapshot, not proof of viewing or current database eligibility. */
+export const PolicyReservationSnapshotSchema = z.strictObject({
+  reservedAt: TimestampSchema, expiresAt: TimestampSchema, evaluatedAt: TimestampSchema,
+  status: z.enum(["active", "released", "expired"]), closedAt: TimestampSchema.nullable(),
+  closureReason: z.enum(["explicit_release", "undo", "expiry"]).nullable(),
+}).superRefine((r,ctx)=>{
+  const start=Date.parse(r.reservedAt),end=Date.parse(r.expiresAt),at=Date.parse(r.evaluatedAt);
+  const closed=r.closedAt===null?null:Date.parse(r.closedAt);
+  const validDuration=end-start>=30_000&&end-start<=900_000;
+  const coherent=r.status==='active'
+    ? closed===null&&r.closureReason===null&&at<end
+    : r.status==='expired'
+      ? closed===end&&r.closureReason==='expiry'&&at>=end
+      : closed!==null&&closed>=start&&closed<=end&&closed<=at&&['explicit_release','undo'].includes(r.closureReason??'');
+  if(!validDuration||at<start||!coherent)ctx.addIssue({code:'custom',message:'Policy reservation snapshot must preserve its bounded lifecycle'});
+});
+export type PolicyReservationSnapshot = z.infer<typeof PolicyReservationSnapshotSchema>;
+/** C2 utility/design quantities are not classifier probabilities or calibrated confidence. */
+export const PolicyTelemetrySchema = z.strictObject({
+  selectionMethod:z.enum(['c1','epsilon_greedy','linucb','random']),strategy:z.enum(['explore','exploit']),
+  policyStateVersion:z.string().min(1),contextVersion:z.string().min(1),rewardVersion:z.string().min(1),
+  modelFeedbackRevision:CountSchema,predictedReward:z.number(),selectionScore:z.number(),
+  uncertainty:z.number().nonnegative(),explorationBonus:z.number().nonnegative(),informationGain:z.number().nonnegative(),
+  candidateCount:CountSchema,availableCount:CountSchema,eligibleCount:CountSchema,trainedRewards:CountSchema,
+  reasons:z.array(z.string()),reservation:PolicyReservationSnapshotSchema,
+}).superRefine((t,ctx)=>{
+  if(t.eligibleCount>t.availableCount||t.availableCount>t.candidateCount)ctx.addIssue({code:'custom',message:'Policy counts must describe nested candidate populations'});
+});
+export type PolicyTelemetry = z.infer<typeof PolicyTelemetrySchema>;
 export const ExposureSchema = z.strictObject({
   exposureId: UuidSchema, trackId: IdSchema, policy: QueuePolicySchema,
-  selectionMethod: z.enum(["fixture", "deterministic_baseline", "logistic_rank", "linucb", "thompson"]),
+  selectionMethod: z.enum(["fixture", "deterministic_baseline", "logistic_rank", "linucb", "thompson", "epsilon_greedy"]),
   policyVersion: z.string().min(1), explorationCoefficient: z.number().nonnegative(),
   propensityEstimate: ProbabilitySchema.nullable(), modelVersion: z.string().min(1), featureVersion: z.literal(FEATURE_VERSION),
   removalScore: ProbabilitySchema.nullable(), heuristicScore: ProbabilitySchema.nullable(), uncertainty: ProbabilitySchema.nullable(),
   position: CountSchema, servedAt: TimestampSchema,
+  policyTelemetry: PolicyTelemetrySchema.optional(),
 });
 export type Exposure = z.infer<typeof ExposureSchema>;
 export function predictionMatchesExposure(prediction: Prediction, exposure: Exposure): boolean {

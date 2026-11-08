@@ -61,7 +61,8 @@ test('malformed reconciliation data is never treated as confirmed absence',async
 
 test('archive reconciliation marker supports canonical dotted Spotify usernames',()=>{
   const client=setup(async()=>{throw new Error('No network needed');});
-  expect(client.marker('spotify:ram.in')).toBe('sort.fm archive [sortfm:ram.in]');
+  // Authored placeholder account; catalog fixtures remain public test data.
+  expect(client.marker('spotify:example.listener')).toBe('sort.fm archive [sortfm:example.listener]');
 });
 
 test('archive verification rejects a response identifying a different playlist',async()=>{

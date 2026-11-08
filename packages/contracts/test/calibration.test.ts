@@ -3,7 +3,8 @@ import * as contracts from "../src/index";
 import {createApiClient} from "../src/client";
 import {demoQueue} from "../src/fixtures";
 
-const trackId = "2LlQb7Uoj1kKyGhlkBf9aC";
+// Authored format-valid placeholder; never sent to a provider.
+const trackId = "0000000000000000000000";
 const exposureId = "00000000-0000-4000-8000-000000000001";
 const idempotencyKey = "00000000-0000-4000-8000-000000000002";
 const labelId = "00000000-0000-4000-8000-000000000003";

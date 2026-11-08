@@ -1,4 +1,5 @@
 import {CalibrationBatchCreateSchema,CalibrationBatchSkipSchema,type CalibrationBatchSkip} from './calibration-batch';
+import {CALIBRATION_BATCH3_EXPERIMENT,CalibrationExperimentIdSchema,CalibrationExperimentSkipSchema,type CalibrationExperimentSkip} from './calibration-experiment';
 import { z } from "zod";
 import { CalibrationLabelRequestSchema, CalibrationQueueQuerySchema, ErrorEnvelopeSchema, IdempotencyKeySchema, PUBLIC_ROUTES, QueueQuerySchema, ReviewRequestSchema, UndoRequestSchema, UuidSchema, type CalibrationLabelRequest, type ErrorEnvelope, type ReviewRequest, type UndoRequest } from "./index";
 import {IdSchema} from './schemas';
@@ -62,6 +63,8 @@ export function createApiClient(options: {baseUrl?: string; fetch?: typeof fetch
     calibrationBatch: () => request(PUBLIC_ROUTES.calibrationBatch.path,PUBLIC_ROUTES.calibrationBatch.response,undefined,{cache:'no-store'}),
     calibrationBatchCreate: (body:z.input<typeof CalibrationBatchCreateSchema>={}) => request(PUBLIC_ROUTES.calibrationBatchCreate.path,PUBLIC_ROUTES.calibrationBatchCreate.response,CalibrationBatchCreateSchema.parse(body)),
     calibrationBatchSkip: (body:CalibrationBatchSkip) => request(PUBLIC_ROUTES.calibrationBatchSkip.path,PUBLIC_ROUTES.calibrationBatchSkip.response,CalibrationBatchSkipSchema.parse(body)),
+    calibrationExperiment: (experiment=CALIBRATION_BATCH3_EXPERIMENT) => request(PUBLIC_ROUTES.calibrationExperiment.path.replace(':experiment',CalibrationExperimentIdSchema.parse(experiment)),PUBLIC_ROUTES.calibrationExperiment.response,undefined,{cache:'no-store'}),
+    calibrationExperimentSkip: (body:CalibrationExperimentSkip,experiment=CALIBRATION_BATCH3_EXPERIMENT) => request(PUBLIC_ROUTES.calibrationExperimentSkip.path.replace(':experiment',CalibrationExperimentIdSchema.parse(experiment)),PUBLIC_ROUTES.calibrationExperimentSkip.response,CalibrationExperimentSkipSchema.parse(body),{cache:'no-store'}),
     calibrationQueue: (query: z.input<typeof CalibrationQueueQuerySchema> = {}) => { const parsed = CalibrationQueueQuerySchema.parse(query); return request(`${PUBLIC_ROUTES.calibrationQueue.path}?${new URLSearchParams({limit: String(parsed.limit)})}`, PUBLIC_ROUTES.calibrationQueue.response); },
     calibrationLabel: (body: CalibrationLabelRequest) => request(PUBLIC_ROUTES.calibrationLabel.path, PUBLIC_ROUTES.calibrationLabel.response, CalibrationLabelRequestSchema.parse(body)),
     calibrationUndo: (labelId: string, body: UndoRequest) => request(PUBLIC_ROUTES.calibrationUndo.path.replace(":id", UuidSchema.parse(labelId)), PUBLIC_ROUTES.calibrationUndo.response, UndoRequestSchema.parse(body)),

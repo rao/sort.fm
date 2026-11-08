@@ -13,3 +13,4 @@ export * from "./calibration-batch";
 
 export type * from "./policy-persistence";
 export * from './listening-context';
+export * from './calibration-experiment';

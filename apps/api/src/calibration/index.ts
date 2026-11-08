@@ -5,3 +5,6 @@ export {createCalibrationModule,type CalibrationModuleOptions} from './module';
 export {readPrewarmPriority,selectPrewarmTrackIds,PREWARM_RECENT_EXPOSURE_LIMIT,PREWARM_LIBRARY_LIMIT,type PrewarmPriorityPort,type PrewarmPrioritySnapshot,type PrewarmPriorityOptions,type RecentPrewarmExposure} from './prewarm';
 
 export {CalibrationBatchService,type CalibrationBatchOptions} from './batch-service';
+
+export {CalibrationExperimentService,CalibrationExperimentReserveInputSchema,type CalibrationExperimentReserveInput,type CalibrationExperimentOptions} from './experiment-service';
+export {EXPERIMENT_ALGORITHM,selectCalibrationExperiment} from './experiment-selection';

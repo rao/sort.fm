@@ -1,7 +1,7 @@
 /** Server-only C2 persistence boundary. D implements; A consumes; root owns changes. */
 import type {ExposureInput,SavedTrackInput} from './db';
 import type {FeatureVector,FitResponse} from './features';
-import type {ReviewResult,TrackCard} from './schemas';
+import type {QueuePolicy,ReviewResult,TrackCard} from './schemas';
 import type {PolicySelectRequest,PolicyDecision,PolicyAssociationEvent,PolicyFitReceipt,PolicyAssociationReceipt,PolicyReleaseRequest,PolicyReleaseReceipt,PolicyConfig} from './policy';
 
 export type PolicyLibraryRow = {
@@ -31,6 +31,8 @@ export type C1SelectionDraft = {
 };
 export type AdaptiveSelectionDraft = {
   kind: 'adaptive';
+  /** Preserve the caller's existing UI preference across response loss/recovery. */
+  queuePolicy: QueuePolicy;
   /** Exactly one selection request/exposure, epsilon_greedy or linucb only.
    * Includes full exact candidates/features/config/seed and pinned C1 modelVersion.
    * Integration requires nonnull modelVersion AND feedbackRevision, even if the

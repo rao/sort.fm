@@ -2306,6 +2306,7 @@
                                             "enum": [
                                               "explicit_release",
                                               "undo",
+                                              "skip",
                                               "expiry"
                                             ]
                                           },
@@ -3146,6 +3147,7 @@
                                     "enum": [
                                       "explicit_release",
                                       "undo",
+                                      "skip",
                                       "expiry"
                                     ]
                                   },
@@ -4709,6 +4711,7 @@
                                 "enum": [
                                   "explicit_release",
                                   "undo",
+                                  "skip",
                                   "expiry"
                                 ]
                               },
@@ -6012,6 +6015,7 @@
                                     "enum": [
                                       "explicit_release",
                                       "undo",
+                                      "skip",
                                       "expiry"
                                     ]
                                   },
@@ -6751,6 +6755,7 @@
                           "enum": [
                             "explicit_release",
                             "undo",
+                            "skip",
                             "expiry"
                           ]
                         },
@@ -7511,6 +7516,7 @@
                       "enum": [
                         "explicit_release",
                         "undo",
+                        "skip",
                         "expiry"
                       ]
                     },
@@ -15070,6 +15076,7 @@
                   "enum": [
                     "explicit_release",
                     "undo",
+                    "skip",
                     "expiry"
                   ]
                 },
@@ -15325,6 +15332,7 @@
               "enum": [
                 "explicit_release",
                 "undo",
+                "skip",
                 "expiry"
               ]
             },
@@ -16064,6 +16072,7 @@
                   "enum": [
                     "explicit_release",
                     "undo",
+                    "skip",
                     "expiry"
                   ]
                 },
@@ -16724,6 +16733,7 @@
                           "enum": [
                             "explicit_release",
                             "undo",
+                            "skip",
                             "expiry"
                           ]
                         },
@@ -17331,6 +17341,7 @@
                                 "enum": [
                                   "explicit_release",
                                   "undo",
+                                  "skip",
                                   "expiry"
                                 ]
                               },
@@ -20513,6 +20524,7 @@
                                   "enum": [
                                     "explicit_release",
                                     "undo",
+                                    "skip",
                                     "expiry"
                                   ]
                                 },
@@ -21928,6 +21940,7 @@
                                               "enum": [
                                                 "explicit_release",
                                                 "undo",
+                                                "skip",
                                                 "expiry"
                                               ]
                                             },
@@ -22787,6 +22800,7 @@
                                       "enum": [
                                         "explicit_release",
                                         "undo",
+                                        "skip",
                                         "expiry"
                                       ]
                                     },
@@ -23643,6 +23657,7 @@
                                       "enum": [
                                         "explicit_release",
                                         "undo",
+                                        "skip",
                                         "expiry"
                                       ]
                                     },
@@ -24275,6 +24290,7 @@
                                   "enum": [
                                     "explicit_release",
                                     "undo",
+                                    "skip",
                                     "expiry"
                                   ]
                                 },
@@ -26531,6 +26547,7 @@
                                       "enum": [
                                         "explicit_release",
                                         "undo",
+                                        "skip",
                                         "expiry"
                                       ]
                                     },
@@ -29663,6 +29680,7 @@
                     "enum": [
                       "explicit_release",
                       "undo",
+                      "skip",
                       "expiry"
                     ]
                   },

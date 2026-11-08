@@ -28,3 +28,7 @@ test('policy telemetry rejects incoherent counts and reservation state',()=>{
   expect(ExposureSchema.safeParse({...exposure,policyTelemetry:{...telemetry,...override}}).success).toBe(false);
  }
 });
+test('a committed Skip closes its original reservation without claiming an Undo',()=>{
+ const result=ExposureSchema.safeParse({...demoQueue.items[0]!.exposure,policyTelemetry:{...telemetry,reservation:{...telemetry.reservation,status:'released',closedAt:telemetry.reservation.evaluatedAt,closureReason:'skip'}}});
+ expect(result.success).toBe(true);
+});

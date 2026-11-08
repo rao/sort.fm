@@ -76,7 +76,7 @@ export type QueuePolicy = z.infer<typeof QueuePolicySchema>;
 export const PolicyReservationSnapshotSchema = z.strictObject({
   reservedAt: TimestampSchema, expiresAt: TimestampSchema, evaluatedAt: TimestampSchema,
   status: z.enum(["active", "released", "expired"]), closedAt: TimestampSchema.nullable(),
-  closureReason: z.enum(["explicit_release", "undo", "expiry"]).nullable(),
+  closureReason: z.enum(["explicit_release", "undo", "skip", "expiry"]).nullable(),
 }).superRefine((r,ctx)=>{
   const start=Date.parse(r.reservedAt),end=Date.parse(r.expiresAt),at=Date.parse(r.evaluatedAt);
   const closed=r.closedAt===null?null:Date.parse(r.closedAt);
@@ -85,7 +85,7 @@ export const PolicyReservationSnapshotSchema = z.strictObject({
     ? closed===null&&r.closureReason===null&&at<end
     : r.status==='expired'
       ? closed===end&&r.closureReason==='expiry'&&at>=end
-      : closed!==null&&closed>=start&&closed<=end&&closed<=at&&['explicit_release','undo'].includes(r.closureReason??'');
+      : closed!==null&&closed>=start&&closed<=end&&closed<=at&&['explicit_release','undo','skip'].includes(r.closureReason??'');
   if(!validDuration||at<start||!coherent)ctx.addIssue({code:'custom',message:'Policy reservation snapshot must preserve its bounded lifecycle'});
 });
 export type PolicyReservationSnapshot = z.infer<typeof PolicyReservationSnapshotSchema>;

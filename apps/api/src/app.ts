@@ -5,7 +5,7 @@ import { AccountSessionSchema, CONTRACT_VERSION, DemoBootstrapSchema, ErrorEnvel
 import { createDemoQueue, demoBootstrap } from "@sortfm/contracts/fixtures";
 import { loadConfig, type ApiConfig } from "./config";
 
-export async function buildApp(options: {config?: ApiConfig; logger?: boolean; capabilities?: Partial<{spotify: boolean; database: boolean; ml: boolean}>; registerRoutes?: (app: FastifyInstance) => void | Promise<void>} = {}) {
+export async function buildApp(options: {config?: ApiConfig; logger?: boolean; capabilities?: Partial<{spotify: boolean; database: boolean; ml: boolean}>; beforeRoutes?: (app: FastifyInstance) => void | Promise<void>; registerRoutes?: (app: FastifyInstance) => void | Promise<void>} = {}) {
   const config = options.config ?? loadConfig();
   const app = Fastify({
     bodyLimit: 64 * 1024,
@@ -29,6 +29,9 @@ export async function buildApp(options: {config?: ApiConfig; logger?: boolean; c
     if (origin && origin !== config.webOrigin && origin !== config.apiOrigin) return reply.code(403).send({code: "ORIGIN_NOT_ALLOWED", message: "Origin is not allowed.", retryable: false});
   });
   await app.register(cors, {origin: [config.webOrigin, config.apiOrigin], credentials: true, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type", "Accept"]});
+
+  // Security installers must run before any application route or startup hook.
+  await options.beforeRoutes?.(app);
 
   app.get(PUBLIC_ROUTES.health.path, async () => PUBLIC_ROUTES.health.response.parse({status: "ok", service: "api", contractVersion: CONTRACT_VERSION, capabilities: {demo: config.demoEnabled, spotify: false, database: false, ml: false, ...options.capabilities}}));
   app.get(PUBLIC_ROUTES.demoBootstrap.path, async (_request, reply) => {

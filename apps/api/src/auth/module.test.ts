@@ -170,3 +170,16 @@ test('real HTTP socket serves login, credentialed session reads, sync and summar
   expect(progress.status).toBe('complete');
   expect(await (await fetch(`${address}/api/library/summary`, {headers:{Cookie:session}})).json()).toMatchObject({total:1, remaining:1});
 });
+
+test('background importer startup is enabled by default and can be disabled before ready',async()=>{
+ for(const backgroundImportEnabled of [undefined,true,false]){
+  const config=loadSpotifyConfig(env),store=new TestStore();let recoveryReads=0,starts=0;
+  store.resumableUserIds=async()=>{recoveryReads++;return [];};
+  const module=createSpotifyModule({config,store,backgroundImportEnabled,http:new SpotifyHttp({fetch:async()=>{throw Error('unexpected provider call');}})});
+  const start=module.importer.start.bind(module.importer);module.importer.start=()=>{starts++;start();};
+  const app=await buildApp({config,registerRoutes:module.registerRoutes});apps.push(app);
+  expect(starts).toBe(backgroundImportEnabled===false?0:1);
+  expect(recoveryReads).toBe(backgroundImportEnabled===false?0:1);
+  await app.close();
+ }
+});

@@ -19,7 +19,7 @@ function cookieValue(request: FastifyRequest, name: string) {
 }
 
 /** Instantiate once per API process. D supplies the production store. No memory fallback. */
-export function createSpotifyModule(options: {config: SpotifyConfig; store: A1Store; http?: SpotifyHttp; playbackCallback?:(query:{state?:string;code?:string;error?:string},browserToken?:string,sessionToken?:string)=>Promise<PlaybackReturnTo>}) {
+export function createSpotifyModule(options: {config: SpotifyConfig; store: A1Store; http?: SpotifyHttp; backgroundImportEnabled?: boolean; playbackCallback?:(query:{state?:string;code?:string;error?:string},browserToken?:string,sessionToken?:string)=>Promise<PlaybackReturnTo>}) {
   const {config, store} = options;
   const http = options.http ?? new SpotifyHttp({timeoutMs:config.requestTimeoutMs});
   const auth = new AuthService(config, store, http);
@@ -89,7 +89,8 @@ export function createSpotifyModule(options: {config: SpotifyConfig; store: A1St
     }));
     app.get(PUBLIC_ROUTES.syncStatus.path, safe(async req => {noInput(req); const account = await owner(req); return importer.status(account.user.id);}));
     app.get(PUBLIC_ROUTES.librarySummary.path, safe(async req => {noInput(req); const account = await owner(req); return LibrarySummarySchema.parse(await importer.summary(account.user.id));}));
-    app.addHook('onReady', async () => {importer.start();});
+    // Pilot runtime disables recovery before ready; default lifecycle is unchanged.
+    app.addHook('onReady', async () => {if (options.backgroundImportEnabled !== false) importer.start();});
     app.addHook('onClose', async () => {await importer.close();});
   };
   return {registerRoutes, auth, client, importer};

@@ -55,15 +55,14 @@ describe('library feature assembly',()=>{
   expect(()=>assembleLibraryCandidates([row(),row()],options)).toThrow('DUPLICATE_TRACK');
   expect(()=>assembleLibraryCandidates([row()],{...options,now:'bad'})).toThrow();
  });
- test('recent count reflects only fresh limited observations, wrong users rejected',()=>{
-  const one=row();
+ test('recent count reflects fresh limited observations and foreign-owner context stays missing',()=>{
+  const one=spotifyRow();
   const context:TasteContext={userId:'user:1',fetchedAt:now,source:'spotify-recently-played',completeHistory:false,error:null,
     events:[{trackId:one.track.trackId,playedAt:'2026-11-06T12:00:00Z'},
-      {trackId:one.track.trackId,playedAt:'2026-11-08T12:00:00Z'},
       {trackId:one.track.trackId,playedAt:'2026-08-01T12:00:00Z'}]};
   expect(assembleLibraryCandidates([one],{...options,tasteContext:context})[0]!.features.values.recent_play_count).toBe(1);
   expect(assembleLibraryCandidates([one],{...options,tasteContext:{...context,fetchedAt:'2026-11-01T12:00:00Z'}})[0]!.features.values.recent_play_count).toBeUndefined();
-  expect(()=>assembleLibraryCandidates([one],{...options,tasteContext:{...context,userId:'other'}})).toThrow('CONTEXT_USER_MISMATCH');
+  expect(assembleLibraryCandidates([one],{...options,tasteContext:{...context,userId:'other'}})).toEqual(assembleLibraryCandidates([one],options));
  });
  test('real metadata plus approved SoundNet preserves provenance and rights basis',()=>{
   const one=row();one.track.trackId='4uLU6hMCjMI75M1A2tKUQC';one.track.source='spotify';one.track.spotifyUri=`spotify:track:${one.track.trackId}`;
@@ -98,3 +97,119 @@ test('feedback split matches Python SHA256 compact tuple fixtures',()=>{
  expect(()=>feedbackSplit('bad/user','demo:one')).toThrow();
 });
 const SPLIT_EXPECTED:('train'|'holdout')[]=['train','train','holdout','train','train','train','train','holdout','holdout','train','train','train'];
+
+const recentTrackA='0000000000000000000001';
+const recentTrackB='0000000000000000000002';
+function spotifyRow(trackId=recentTrackA):MlLibraryRow {
+ const one=row();one.track.trackId=trackId;one.track.source='spotify';one.track.spotifyUri=`spotify:track:${trackId}`;return one;
+}
+function recentContext(events:TasteContext['events']):TasteContext {
+ return {userId:options.userId,fetchedAt:now,source:'spotify-recently-played',completeHistory:false,error:null,events};
+}
+
+describe('incomplete cached listening observations',()=>{
+ test('an unmatched track stays missing rather than receiving an invented zero',()=>{
+  const context=recentContext([{trackId:recentTrackA,playedAt:'2026-11-06T12:00:00Z'}]);
+  const result=assembleLibraryCandidates([spotifyRow(recentTrackA),spotifyRow(recentTrackB)],{...options,tasteContext:context});
+  expect(result.map(candidate=>candidate.features.values.recent_play_count)).toEqual([1,undefined]);
+ });
+ test('offset-equivalent copies of one play count only once',()=>{
+  const context=recentContext([
+   {trackId:recentTrackA,playedAt:'2026-11-06T12:00:00Z'},
+   {trackId:recentTrackA,playedAt:'2026-11-06T07:00:00-05:00'},
+  ]);
+  expect(assembleLibraryCandidates([spotifyRow()],{...options,tasteContext:context})[0]!.features.values.recent_play_count).toBe(1);
+ });
+ test('different play times remain distinct and the same instant can count once for each track',()=>{
+  const context=recentContext([
+   {trackId:recentTrackA,playedAt:'2026-11-06T12:00:00Z'},
+   {trackId:recentTrackA,playedAt:'2026-11-06T12:00:00.000Z'},
+   {trackId:recentTrackA,playedAt:'2026-11-06T13:00:00Z'},
+   {trackId:recentTrackB,playedAt:'2026-11-06T12:00:00Z'},
+  ]);
+  expect(assembleLibraryCandidates([spotifyRow(recentTrackA),spotifyRow(recentTrackB)],{...options,tasteContext:context})
+   .map(candidate=>candidate.features.values.recent_play_count)).toEqual([2,1]);
+ });
+ test('an empty incomplete sample leaves all tracks missing',()=>{
+  const result=assembleLibraryCandidates([spotifyRow(recentTrackA),spotifyRow(recentTrackB)],{...options,tasteContext:recentContext([])});
+  expect(result.map(candidate=>candidate.features.values.recent_play_count)).toEqual([undefined,undefined]);
+ });
+ test('only events inside the trailing 30-day window contribute and the boundary is inclusive',()=>{
+  const context=recentContext([
+   {trackId:recentTrackA,playedAt:'2026-10-08T12:00:00.000Z'},
+   {trackId:recentTrackA,playedAt:'2026-10-08T11:59:59.999Z'},
+   {trackId:recentTrackB,playedAt:'2026-09-01T12:00:00.000Z'},
+  ]);
+  expect(assembleLibraryCandidates([spotifyRow(recentTrackA),spotifyRow(recentTrackB)],{...options,tasteContext:context})
+   .map(candidate=>candidate.features.values.recent_play_count)).toEqual([1,undefined]);
+ });
+ test('a cache exactly 24 hours old is usable but one millisecond older is missing',()=>{
+  const context=recentContext([{trackId:recentTrackA,playedAt:'2026-11-06T11:00:00Z'}]);
+  context.fetchedAt='2026-11-06T12:00:00.000Z';
+  expect(assembleLibraryCandidates([spotifyRow()],{...options,tasteContext:context})[0]!.features.values.recent_play_count).toBe(1);
+  context.fetchedAt='2026-11-06T11:59:59.999Z';
+  expect(assembleLibraryCandidates([spotifyRow()],{...options,tasteContext:context})[0]!.features.values.recent_play_count).toBeUndefined();
+ });
+ test('a play exactly at the fetch and as-of instant is usable',()=>{
+  expect(assembleLibraryCandidates([spotifyRow()],{...options,tasteContext:recentContext([{trackId:recentTrackA,playedAt:now}])})[0]!
+   .features.values.recent_play_count).toBe(1);
+ });
+ test.each([
+  {name:'after as-of',fetchedAt:now,playedAt:'2026-11-07T12:00:00.001Z'},
+  {name:'after fetch but before as-of',fetchedAt:'2026-11-07T10:00:00Z',playedAt:'2026-11-07T11:00:00Z'},
+ ])('a future event $name invalidates the whole sample',({fetchedAt,playedAt})=>{
+  const context={...recentContext([
+   {trackId:recentTrackA,playedAt:'2026-11-06T12:00:00Z'},
+   {trackId:recentTrackB,playedAt},
+  ]),fetchedAt};
+  const result=assembleLibraryCandidates([spotifyRow(recentTrackA),spotifyRow(recentTrackB)],{...options,tasteContext:context});
+  expect(result.map(candidate=>candidate.features.values.recent_play_count)).toEqual([undefined,undefined]);
+ });
+ test.each([
+  {name:'null event',event:null},
+  {name:'string event',event:'not an event'},
+  {name:'missing track',event:{playedAt:'2026-11-06T12:00:00Z'}},
+  {name:'non-Spotify track ID',event:{trackId:'demo:track',playedAt:'2026-11-06T12:00:00Z'}},
+  {name:'short Spotify track ID',event:{trackId:recentTrackB.slice(1),playedAt:'2026-11-06T12:00:00Z'}},
+  {name:'invalid Spotify track characters',event:{trackId:'000000000000000000000_',playedAt:'2026-11-06T12:00:00Z'}},
+  {name:'missing timestamp',event:{trackId:recentTrackB}},
+  {name:'unparseable timestamp',event:{trackId:recentTrackB,playedAt:'bad'}},
+  {name:'date-only timestamp',event:{trackId:recentTrackB,playedAt:'2026-11-06'}},
+  {name:'non-ISO timestamp',event:{trackId:recentTrackB,playedAt:'November 6, 2026 12:00:00 GMT'}},
+  {name:'timestamp without timezone',event:{trackId:recentTrackB,playedAt:'2026-11-06T12:00:00'}},
+  {name:'numeric timestamp',event:{trackId:recentTrackB,playedAt:0}},
+  {name:'impossible calendar date',event:{trackId:recentTrackB,playedAt:'2026-02-30T12:00:00Z'}},
+ ])('a malformed cached $name invalidates the whole sample without throwing',({event})=>{
+  const context={...recentContext([]),events:[{trackId:recentTrackA,playedAt:'2026-11-06T12:00:00Z'},event]} as unknown as TasteContext;
+  const result=assembleLibraryCandidates([spotifyRow(recentTrackA),spotifyRow(recentTrackB)],{...options,tasteContext:context});
+  expect(result.map(candidate=>candidate.features.values.recent_play_count)).toEqual([undefined,undefined]);
+ });
+ test.each([
+  {name:'future fetch',patch:{fetchedAt:'2026-11-07T12:00:00.001Z'}},
+  {name:'invalid fetch time',patch:{fetchedAt:'bad'}},
+  {name:'date-only fetch time',patch:{fetchedAt:'2026-11-07'}},
+  {name:'timezone-free fetch time',patch:{fetchedAt:'2026-11-07T12:00:00'}},
+  {name:'wrong source',patch:{source:'other-provider'}},
+  {name:'claims complete history',patch:{completeHistory:true}},
+  {name:'provider error',patch:{error:{code:'PROVIDER_FAILED',message:'Unavailable',retryable:true}}},
+  {name:'missing events',patch:{events:undefined}},
+  {name:'null events',patch:{events:null}},
+  {name:'non-array events',patch:{events:{}}},
+ ])('malformed or unavailable context ($name) leaves listening observations missing',({patch})=>{
+  const context={...recentContext([{trackId:recentTrackA,playedAt:'2026-11-06T12:00:00Z'}]),...patch} as unknown as TasteContext;
+  expect(assembleLibraryCandidates([spotifyRow()],{...options,tasteContext:context})[0]!.features.values.recent_play_count).toBeUndefined();
+ });
+ test('reading the cached sample never mutates rows, event order, timestamps, or context',()=>{
+  const rows=[spotifyRow(recentTrackB),spotifyRow(recentTrackA)];
+  const context=recentContext([
+   {trackId:recentTrackA,playedAt:'2026-11-06T13:00:00Z'},
+   {trackId:recentTrackB,playedAt:'2026-11-06T07:00:00-05:00'},
+   {trackId:recentTrackA,playedAt:'2026-11-06T12:00:00Z'},
+   {trackId:recentTrackB,playedAt:'2026-11-06T12:00:00.000Z'},
+  ]);
+  const beforeRows=structuredClone(rows),beforeContext=structuredClone(context);
+  const candidates=assembleLibraryCandidates(rows,{...options,tasteContext:context});
+  expect(candidates.map(candidate=>candidate.features.values.recent_play_count)).toEqual([1,2]);
+  expect(rows).toEqual(beforeRows);expect(context).toEqual(beforeContext);
+ });
+});

@@ -1,6 +1,6 @@
 # C1 backend adapter
 
-Server-only bridge from D's repository to the frozen Python C1 API. This directory owns transport, feature assembly, deterministic feedback splits, and snapshot forwarding. A2 owns queue/review routes, exposure persistence and durable feedback delivery; the integration lead owns runtime configuration. No dependencies or shared/public contracts were changed.
+Server-only bridge from D's repository to the frozen Python C1 API. This directory owns transport, feature assembly, deterministic feedback splits, and snapshot forwarding. A2 owns queue/review routes, exposure persistence and durable feedback delivery; the integration lead owns runtime configuration. Listening coverage uses the additive server-only contract from `613a47e`; the feature schema, Python inputs and public exposure DTO remain unchanged.
 
 The [public reads registrar](READS.md) adds authenticated insights and analytics GETs with actual metrics, library summary and audio progress. Root installs it; no retraining or mutation endpoint is added.
 
@@ -53,8 +53,33 @@ Use the authenticated backend user ID, never an unchecked browser-supplied ident
 
 - Metadata: elapsed save age, release year age, duration, and primary-artist library count. Neither current mutation status nor current decisions become predictors or labels. Old age alone does not imply dislike; C1 governs the weak recent-save prior.
 - Audio: only validated, already normalized musical descriptors from permitted compatible `soundnet`/`licensed` sources (or synthetic audio for synthetic tracks). Invalid fields become null individually; absent or unpermitted audio degrades to metadata. Zeros remain observations. Audio does not override metadata or supply externally computed centroids.
-- Listening context: optional user-matched A1 recent-play sample fetched within 24 hours; events must be no later than the fetch and within 30 days of scoring. Unknown/stale context omits counts. A zero from a valid sample means no matching events **in that incomplete sample**, not zero lifetime listening. No top-track labels or synthetic listening history are inferred.
+- Listening context: optional owner-matched A1 recent-play sample fetched within 24 hours, containing at most 50 validated Spotify events. Deduplicate each track and timestamp instant, including offset-equivalent timestamps. Only positive matched counts within the trailing 30-day inclusion window reach `recent_play_count`; absent tracks and empty samples remain missing. This window is a filter over an incomplete sample, not a claim of 30 days of history. Malformed, future, stale, failed or foreign-owner context supplies no listening features. Recent plays remain observations, never Keep labels. No top-track labels or synthetic listening history are inferred.
 - No provider request, enrichment wait, fitting, or feedback fetch occurs in `.score()`.
+
+## Cached listening for new exposures
+
+`prepareListeningContext(raw, {userId, now})` validates an unknown cached value and returns `{tasteContext, listeningContext}`. The usable context is detached, sorted, deduplicated and filtered; the separate `ListeningContextSnapshot` preserves original sample counts and freshness. `readCachedTasteContext(reader, options)` performs one owner-bound cache read through a structural `getTasteContext(userId): Promise<unknown>` port. Its default deadline is 1000ms; optional `cacheReadTimeoutMs` accepts integer values from 1–60000. Read rejection or expiry returns `read_error` with null context and unknown counts. Late resolution/rejection cannot replace the result, and no retry occurs. The deadline bounds waiting; the database remains responsible for canceling its underlying query.
+
+Root can wire A's asynchronous `load` boundary as follows, once D's cache reader is present:
+
+```ts
+import {assembleLibraryCandidatesWithListeningContext} from './ml';
+
+const cachedContextReader = {
+  getTasteContext: (userId: string) => a1Store.transaction(tx =>
+    tx.getTasteContext ? tx.getTasteContext(userId) : Promise.resolve(null)),
+};
+const load = (rows: Parameters<typeof assembleLibraryCandidatesWithListeningContext>[0],
+  {userId, now}: {userId: string; now: number}) =>
+  assembleLibraryCandidatesWithListeningContext(rows, {
+    userId, now: new Date(now).toISOString(), metadataTraining,
+  }, cachedContextReader);
+// load returns {candidates, listeningContext}; it never scores, fits or observes.
+```
+
+Read once per fresh batch and persist the returned coverage beside each exact candidate feature snapshot. Keep it on server-only exposure, frozen calibration-candidate and adaptive-draft records; it does not enter the feature vector or Python request. Existing exposures, saved batches, labeled vectors and model artifacts must be replayed unchanged without another cache read. The synchronous assembler remains compatible and applies the same listening validation when supplied `tasteContext` directly, but durable coverage requires the asynchronous result above (or separately retaining `prepareListeningContext`'s snapshot).
+
+Coverage statuses are `fresh`, `missing`, `read_error`, `owner_mismatch`, `invalid`, `provider_error`, `future` and `stale`. Fresh samples report cached, distinct and in-window event counts; a fresh empty sample truthfully reports zero sample events while every per-track count stays missing. A validated but unusable owner envelope retains its original fetch time and cached sample size, with usable event counts unknown. Foreign-owner or malformed context retains no cache metadata. No raw provider errors or listening event identities enter the coverage record. The clock and permission are copied before awaiting cache access.
 
 ## Feedback and immutable exposure rules
 
@@ -73,6 +98,8 @@ Assign exposure IDs before scoring and retry the original assembled candidates u
 The client validates request/response DTOs and response identities, performs one request per call, and bounds fetch plus body reading with a deadline. `MlClientError` exposes safe `code`, `status`, and `retryable` fields without raw response bodies, credentials, or transport causes. Configuration, schema and identity failures are explicit. A2 controls bounded queue fallback and durable retry policy; the client does not silently replace learned predictions or retry mutations.
 
 ## Verification
+
+Listening adapter verification on `a31cc32` plus root's `613a47e` contract: 83 focused feature/helper/coverage tests passed, with 236 assertions; full Bun suite 865 passed, 127 skipped, zero failed. Typecheck, root build, standalone ML module bundle and diff checks passed. Independent review found and verified the cache-deadline fix, then reported no remaining actionable findings. Live database/ML integration gates were disabled; no provider requests, fits, model promotions, artifact rewrites or production service changes were performed. Root owns integration of A's asynchronous boundaries and D's durable coverage/cache reader. Build retains the existing two Zod annotation warnings.
 
 From the repository root:
 

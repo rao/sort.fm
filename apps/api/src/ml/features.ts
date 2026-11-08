@@ -6,6 +6,7 @@ import {
   type FeatureVector, type ReviewResult, type SavedTrackInput, type ScoringCandidate,
   type TasteContext, type TrackCard,
 } from '@sortfm/contracts';
+import {prepareListeningContext,readCachedTasteContext,type ListeningContextReader,type ListeningContextOptions} from './listening-context';
 
 /** Structural match for D Repository.library(), without a runtime DB dependency. */
 export interface MlLibraryRow {
@@ -32,20 +33,11 @@ function artistKey(track:TrackCard):string {
   return primary.id===null ? `name:${primary.name.normalize('NFKC').trim().toLowerCase()}` : `id:${primary.id}`;
 }
 
-function recentCounts(options:FeatureAssemblyOptions,asOf:number):Map<string,number>|null {
-  const context=options.tasteContext;
+function recentCounts(options:FeatureAssemblyOptions):Map<string,number>|null {
+  const context=prepareListeningContext(options.tasteContext,{userId:options.userId,now:options.now}).tasteContext;
   if(!context)return null;
-  if(context.userId!==options.userId)throw new Error('CONTEXT_USER_MISMATCH');
-  const fetched=Date.parse(context.fetchedAt);
-  // A1's available event sample is incomplete. Missing/stale context is not zero plays.
-  if(context.source!=='spotify-recently-played'||context.completeHistory!==false||context.error!==null
-    ||!Number.isFinite(fetched)||fetched>asOf||asOf-fetched>DAY_MS)return null;
   const counts=new Map<string,number>();
-  for(const event of context.events){
-    const played=Date.parse(event.playedAt);
-    if(Number.isFinite(played)&&played<=fetched&&played>=asOf-30*DAY_MS)
-      counts.set(event.trackId,(counts.get(event.trackId)??0)+1);
-  }
+  for(const event of context.events)counts.set(event.trackId,(counts.get(event.trackId)??0)+1);
   return counts;
 }
 
@@ -57,7 +49,7 @@ export function assembleLibraryCandidates(rows:readonly MlLibraryRow[],options:F
   if(new Set(tracks.map(track=>track.trackId)).size!==tracks.length)throw new Error('DUPLICATE_TRACK');
   const artistCounts=new Map<string,number>();
   for(const track of tracks)artistCounts.set(artistKey(track),(artistCounts.get(artistKey(track))??0)+1);
-  const recent=recentCounts(options,asOf);
+  const recent=recentCounts(options);
   return tracks.map((track,index)=>{
     const year=track.releaseDate===null?null:Number(track.releaseDate.slice(0,4));
     const values:FeatureVector['values']={
@@ -66,7 +58,8 @@ export function assembleLibraryCandidates(rows:readonly MlLibraryRow[],options:F
       duration_ms:track.durationMs,
       artist_library_count:artistCounts.get(artistKey(track))!,
     };
-    if(recent!==null)values.recent_play_count=recent.get(track.trackId)??0;
+    const observedCount=recent?.get(track.trackId);
+    if(observedCount!==undefined)values.recent_play_count=observedCount;
     let provenance:FeatureVector['provenance']=track.source==='synthetic'?'synthetic':'spotify';
     const bases=permission.rightsBasis?[`Metadata: ${permission.rightsBasis}`]:[];
     const audio=rows[index]!.audioFeatures;
@@ -96,6 +89,15 @@ export function assembleLibraryCandidates(rows:readonly MlLibraryRow[],options:F
       values,provenance,permittedForTraining:permission.permittedForTraining,
       ...(bases.length?{rightsBasis:bases.join('; ')}:{})})};
   });
+}
+
+/** New exposures only. Persist the returned coverage beside the exact candidate snapshots. */
+export async function assembleLibraryCandidatesWithListeningContext(
+  rows:readonly MlLibraryRow[],options:Omit<FeatureAssemblyOptions,'tasteContext'>&ListeningContextOptions,reader:ListeningContextReader,
+) {
+  const frozenOptions={...options,...(options.metadataTraining?{metadataTraining:{...options.metadataTraining}}:{})};
+  const {tasteContext,listeningContext}=await readCachedTasteContext(reader,frozenOptions);
+  return {candidates:assembleLibraryCandidates(rows,{...frozenOptions,tasteContext}),listeningContext};
 }
 
 /** Same compact ASCII-ID tuple/hash rule as Python C1's new-feedback assignment. */

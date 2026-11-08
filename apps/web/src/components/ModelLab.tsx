@@ -16,6 +16,7 @@ import {
 	type LabEvidence,
 } from "../data/model-lab";
 import "../styles/model-lab.css";
+import "../styles/scrollbars.css";
 
 const modelNames = {
 	E1: "Save age",
@@ -38,12 +39,13 @@ const signed = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(3)}`;
 
 function Histogram({ bins, label }: { bins: number[]; label: string }) {
 	const max = Math.max(1, ...bins);
+	const ranges = ["0–33", "33–67", "67–100"];
 	return (
 		<figure className="ml-histogram">
 			<figcaption>{label}</figcaption>
 			{bins.map((n, i) => (
-				<div className="ml-bin" key={i}>
-					<span>{["0–33⅓%", "33⅓–66⅔%", "66⅔–100%"][i]}</span>
+				<div className="ml-bin" key={ranges[i]}>
+					<span>{ranges[i]}</span>
 					<div aria-hidden="true">
 						<i style={{ width: `${(n / max) * 100}%` }} />
 					</div>
@@ -51,8 +53,8 @@ function Histogram({ bins, label }: { bins: number[]; label: string }) {
 				</div>
 			))}
 			<p>
-				Uncalibrated removal estimates · lower scores lean Keep. Bins include
-				their lower edge; the final bin includes 100%.
+				Uncalibrated removal estimates, in percent. Range labels are rounded;
+				lower scores lean Keep.
 			</p>
 		</figure>
 	);
@@ -232,9 +234,7 @@ export function ModelLab({
 								{(state.refreshError || state.retrainError) && (
 									<p role="alert">{state.refreshError || state.retrainError}</p>
 								)}
-								{state.retrainNotice && (
-									<p role="status">{state.retrainNotice}</p>
-								)}
+								{state.retrainNotice && <output>{state.retrainNotice}</output>}
 								{state.warnings.map((w) => (
 									<p key={w} className="ml-note">
 										{w}
@@ -361,7 +361,7 @@ export function ModelLab({
 							</Empty>
 						) : (
 							<>
-								<div
+								<fieldset
 									className="ml-actions"
 									aria-label="Measured training cohort"
 								>
@@ -378,7 +378,7 @@ export function ModelLab({
 											{label}
 										</Button>
 									))}
-								</div>
+								</fieldset>
 								<Counts
 									values={[
 										["Training labels", run.train],
@@ -395,10 +395,10 @@ export function ModelLab({
 									These two runs share the same test panel; they are not
 									independent replications.
 								</p>
-								<div
+								<section
 									className="ml-table-wrap"
+									// biome-ignore lint/a11y/noNoninteractiveTabindex: Named table regions need keyboard focus for scrolling.
 									tabIndex={0}
-									role="region"
 									aria-label="Measured model comparison"
 								>
 									<table>
@@ -435,7 +435,7 @@ export function ModelLab({
 											))}
 										</tbody>
 									</table>
-								</div>
+								</section>
 								<aside className="ml-note">
 									<strong>No reliable winner on this panel.</strong>
 									<p>
@@ -467,7 +467,10 @@ export function ModelLab({
 								<div className="ml-split">
 									<div>
 										<h3>Frozen score distribution</h3>
-										<div className="ml-actions" aria-label="Distribution model">
+										<fieldset
+											className="ml-actions"
+											aria-label="Distribution model"
+										>
 											{run.models.map((m) => (
 												<Button
 													key={m.id}
@@ -479,7 +482,7 @@ export function ModelLab({
 													{m.id}
 												</Button>
 											))}
-										</div>
+										</fieldset>
 										<Histogram
 											bins={selectedModel!.bins}
 											label={`${model} · same ${run.test} evaluation songs`}
@@ -614,10 +617,10 @@ export function ModelLab({
 										Correlated features and scaling affect these terms; they are
 										not causal importance scores.
 									</p>
-									<div
+									<section
 										className="ml-table-wrap"
+										// biome-ignore lint/a11y/noNoninteractiveTabindex: Named table regions need keyboard focus for scrolling.
 										tabIndex={0}
-										role="region"
 										aria-label="Measured feature contributions"
 									>
 										<table>
@@ -650,7 +653,7 @@ export function ModelLab({
 													))}
 											</tbody>
 										</table>
-									</div>
+									</section>
 									<p>
 										Showing the six largest terms; other features and the
 										intercept also contribute. Listening fields were unavailable
@@ -724,18 +727,18 @@ export function ModelLab({
 									calibrated confidence.
 								</p>
 								<ul>
-									{policy.reasons.map((reason, i) => (
-										<li key={i}>{reason}</li>
+									{[...new Set(policy.reasons)].map((reason) => (
+										<li key={reason}>{reason}</li>
 									))}
 								</ul>
 							</>
 						)}
 						<h3>Recorded review outcomes</h3>
 						{outcomes.length ? (
-							<div
+							<section
 								className="ml-table-wrap"
+								// biome-ignore lint/a11y/noNoninteractiveTabindex: Named table regions need keyboard focus for scrolling.
 								tabIndex={0}
-								role="region"
 								aria-label="C2 recorded review outcomes"
 							>
 								<table>
@@ -764,7 +767,7 @@ export function ModelLab({
 										))}
 									</tbody>
 								</table>
-							</div>
+							</section>
 						) : (
 							<p>
 								No completed review outcomes linked to a C2 exposure in loaded

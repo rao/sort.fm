@@ -39,9 +39,8 @@ export function ActionButtons({
 	onAction: (action: ReviewAction) => void;
 }) {
 	return (
-		<div
-			className="mt-6 grid grid-cols-4 gap-2 sm:gap-3"
-			role="group"
+		<fieldset
+			className="mt-6 grid min-w-0 grid-cols-4 gap-2 border-0 p-0 sm:gap-3"
 			aria-label="Song decisions"
 		>
 			{(["ARCHIVE", "UNLIKE", "SKIP", "KEEP"] as const).map((action) => (
@@ -60,17 +59,25 @@ export function ActionButtons({
 						onClick={() => onAction(action)}
 						aria-label={`${actionLabels[action]} song (${keys[action]})`}
 						aria-keyshortcuts={
-							{ KEEP: "ArrowRight", ARCHIVE: "ArrowLeft", SKIP: "ArrowUp", UNLIKE: "ArrowDown" }[action]
+							{
+								KEEP: "ArrowRight",
+								ARCHIVE: "ArrowLeft",
+								SKIP: "ArrowUp",
+								UNLIKE: "ArrowDown",
+							}[action]
 						}
 					>
 						{actionLabels[action]}
 					</Button>
-					<kbd aria-hidden="true" className="text-caption-2-medium text-text-tertiary">
+					<span
+						aria-hidden="true"
+						className="text-caption-2-medium text-text-tertiary"
+					>
 						{keys[action]}
-					</kbd>
+					</span>
 				</div>
 			))}
-		</div>
+		</fieldset>
 	);
 }
 

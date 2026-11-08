@@ -1,4 +1,5 @@
 import {
+	useCallback,
 	useEffect,
 	useRef,
 	useState,
@@ -219,9 +220,10 @@ export function Draft() {
 	);
 	const [sound, setSound] = useState(false);
 	const audioRef = useRef<AudioContext | null>(null);
-	const tick = () => {
+	const tick = useCallback(() => {
 		if (!sound) return;
-		const context = audioRef.current ?? (audioRef.current = new AudioContext());
+		audioRef.current ??= new AudioContext();
+		const context = audioRef.current;
 		void context.resume();
 		const oscillator = context.createOscillator();
 		const gain = context.createGain();
@@ -237,7 +239,7 @@ export function Draft() {
 		gain.connect(context.destination);
 		oscillator.start();
 		oscillator.stop(context.currentTime + 0.065);
-	};
+	}, [sound]);
 	useEffect(
 		() => () => {
 			void audioRef.current?.close();
@@ -263,16 +265,19 @@ export function Draft() {
 	const go = (next: Screen) => {
 		window.location.hash = `/${next}`;
 	};
-	const act = (action: ReviewAction) => {
-		if (state.busy || transitioning || !current) return;
-		setTransitioning(true);
-		setDirection(action);
-		tick();
-		void store.decide(action).finally(() => {
-			if (store.getSnapshot().queue[0]?.track.trackId === current.trackId)
-				setTransitioning(false);
-		});
-	};
+	const act = useCallback(
+		(action: ReviewAction) => {
+			if (state.busy || transitioning || !current) return;
+			setTransitioning(true);
+			setDirection(action);
+			tick();
+			void store.decide(action).finally(() => {
+				if (store.getSnapshot().queue[0]?.track.trackId === current.trackId)
+					setTransitioning(false);
+			});
+		},
+		[state.busy, transitioning, current, tick, store],
+	);
 	useEffect(() => {
 		void store.load();
 	}, [store]);
@@ -321,7 +326,7 @@ export function Draft() {
 		};
 		window.addEventListener("keydown", handle);
 		return () => window.removeEventListener("keydown", handle);
-	}, [screen, dialog, state.busy, current, latest, sound, transitioning]);
+	}, [screen, dialog, latest, act, store]);
 	const exit =
 		direction === "KEEP"
 			? { x: 190, rotate: 12 }
@@ -344,8 +349,8 @@ export function Draft() {
 	return (
 		<MotionConfig reducedMotion="user">
 			<div className={cx("draft-root", !showPlayback && "playback-hidden")}>
-				<a
-					href="#draft-main"
+				<button
+					type="button"
 					className="d-skip"
 					onClick={(e) => {
 						e.preventDefault();
@@ -353,7 +358,7 @@ export function Draft() {
 					}}
 				>
 					Skip to content
-				</a>
+				</button>
 				<div className="d-draft-strip">
 					<span>
 						<i /> sort.fm music desk · draft 03
@@ -548,6 +553,7 @@ export function Draft() {
 									</a>
 								</div>
 								<button
+									type="button"
 									className="d-profile"
 									onClick={() => setDialog("account")}
 								>
@@ -632,6 +638,7 @@ export function Draft() {
 														<span>songs reconsidered</span>
 														<div
 															className="d-segments"
+															role="img"
 															aria-label={`${completed.length} of ${demoTracks.length} reviewed`}
 														>
 															{demoTracks.map((t, i) => (
@@ -757,6 +764,7 @@ export function Draft() {
 																		variant="secondary"
 																		iconOnly
 																		leadingIcon={RiArrowGoBackLine}
+																		className="d-undo"
 																		aria-label="Undo latest decision"
 																		disabled={!latest || state.busy}
 																		onClick={() =>
@@ -766,9 +774,8 @@ export function Draft() {
 																	/>
 																	<span>UNDO</span>
 																</div>
-																<div
+																<fieldset
 																	className="d-decision-bar"
-																	role="group"
 																	aria-label="Song decisions"
 																>
 																	{decisions.map((d) => (
@@ -800,7 +807,7 @@ export function Draft() {
 																		aria-label="About audio preview"
 																		onClick={() => setDialog("audio")}
 																	/>
-																</div>
+																</fieldset>
 																<div className="d-device-side">
 																	<Button
 																		variant="secondary"
@@ -836,6 +843,7 @@ export function Draft() {
 																		: "Drag the sleeve. Follow your instinct."}
 																</span>
 																<button
+																	type="button"
 																	onClick={() => setDialog("shortcuts")}
 																	aria-label="Keyboard shortcuts"
 																>
@@ -1030,9 +1038,8 @@ export function Draft() {
 													</p>
 												</PageHeading>
 												<div className="d-toolbar">
-													<div
+													<fieldset
 														className="d-filter-tabs"
-														role="group"
 														aria-label="Filter decisions"
 													>
 														{["ALL", "KEEP", "ARCHIVE", "UNLIKE", "SKIP"].map(
@@ -1050,7 +1057,7 @@ export function Draft() {
 																</Button>
 															),
 														)}
-													</div>
+													</fieldset>
 													<SearchField
 														aria-label="Search decision history"
 														placeholder="Find a song"
@@ -1076,6 +1083,7 @@ export function Draft() {
 															<Button
 																variant="secondary"
 																leadingIcon={RiArrowGoBackLine}
+																className="d-undo"
 																disabled={!e.result.canUndo || state.busy}
 																onClick={() =>
 																	void store.undo(e.result.decisionId)
@@ -1187,6 +1195,7 @@ export function Draft() {
 															</Button>
 														</div>
 														<button
+															type="button"
 															className="d-text-button"
 															onClick={() => {
 																setPracticeIndex((i) => i + 1);
@@ -1312,10 +1321,19 @@ export function Draft() {
 											</small>
 										</span>
 									</div>
-									<button onClick={() => setDialog("audio")}>
+									<button
+										type="button"
+										className="d-player-preview"
+										aria-label="Preview unavailable: fictional demo track"
+										onClick={() => setDialog("audio")}
+									>
 										<RiHeadphoneLine size={20} />
 										<span>
-											Preview unavailable <small>Fictional demo track</small>
+											<span className="d-preview-desktop">
+												Preview unavailable
+											</span>
+											<span className="d-preview-mobile">No preview</span>
+											<small>Fictional demo track</small>
 										</span>
 									</button>
 									<span className="d-player-end">PLAYER 01 · DEMO</span>
@@ -1331,13 +1349,16 @@ export function Draft() {
 						</div>
 					</div>
 				)}
-				<span className="sr-only" role="status" aria-live="polite">
+				<output className="sr-only" aria-live="polite">
 					{state.notice}
-				</span>
+				</output>
 				<dialog
 					ref={dialogRef}
 					className="d-dialog"
 					onCancel={() => setDialog(null)}
+					onKeyDown={(e) => {
+						if (e.key === "Escape") setDialog(null);
+					}}
 					onClick={(e) => {
 						if (e.target === e.currentTarget) setDialog(null);
 					}}

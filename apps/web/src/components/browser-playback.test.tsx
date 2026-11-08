@@ -156,3 +156,29 @@ test("grant recovery preserves local pause and mute for confirmed audio", () => 
 	expect(html).toMatch(/<button(?![^>]*disabled)[^>]*>Pause<\/button>/);
 	expect(html).toMatch(/<button(?![^>]*disabled)[^>]*>Mute<\/button>/);
 });
+
+test("compact player keeps setup controls discoverable and errors outside collapsed options", () => {
+	const p = props();
+	const idle = renderToStaticMarkup(<BrowserPlaybackView {...p} />);
+	expect(idle).toContain(
+		'<output class="browser-player-message" aria-live="polite"></output>',
+	);
+	const html = renderToStaticMarkup(
+		<BrowserPlaybackView {...p} error="Playback needs attention" />,
+	);
+	const settings = html.match(
+		/<details class="browser-player-settings"[\s\S]*?<\/details>/,
+	)?.[0];
+	expect(settings).toBeDefined();
+	expect(settings).not.toMatch(/^<details[^>]*\bopen/);
+	for (const label of [
+		"Player options",
+		"Check connection",
+		"Playback volume",
+		"Play each new song",
+	])
+		expect(settings).toContain(label);
+	expect(settings).not.toContain("Playback needs attention");
+	expect(html).toContain("Playback needs attention");
+	expect(html).toContain("Enable browser player");
+});

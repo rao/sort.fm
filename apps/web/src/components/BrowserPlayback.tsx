@@ -5,6 +5,7 @@ import {
 	type BrowserPlayerState,
 	playbackMatchesTrack,
 } from "../state/browser-player";
+import { RiArrowUpSLine } from "@remixicon/react";
 import { Cover, Icon } from "./ui";
 
 export type PlaybackConnection = PlaybackConnectionStatus;
@@ -262,14 +263,6 @@ export function BrowserPlaybackView(props: Props) {
 										: "Browser playback unavailable"}
 							</span>
 						))}
-					<button
-						type="button"
-						className="text-button"
-						disabled={checking || state.busy}
-						onClick={props.onCheck}
-					>
-						Check connection
-					</button>
 				</div>
 				<label className="browser-seek">
 					<span>{time(seekDraft ?? position)}</span>
@@ -297,62 +290,81 @@ export function BrowserPlaybackView(props: Props) {
 					<span>{time(duration)}</span>
 				</label>
 			</div>
-			<div className="browser-player-options">
-				{state.volumeSupported ? (
-					<div className="browser-volume">
-						<button
-							type="button"
-							className="text-button"
-							disabled={!sdkReady || state.busy}
-							onClick={props.onMute}
-							aria-pressed={state.volume === 0}
-						>
-							{state.volume === 0 ? "Unmute" : "Mute"}
-						</button>
-						<input
-							type="range"
-							aria-label="Playback volume"
-							min={0}
-							max={100}
-							step={1}
-							value={volumeDraft ?? Math.round(state.volume * 100)}
-							disabled={!sdkReady || state.busy}
-							onChange={(event) =>
-								setVolumeDraft(Number(event.currentTarget.value))
-							}
-							onPointerUp={commitVolume}
-							onKeyUp={commitVolume}
-							onBlur={commitVolume}
-						/>
-					</div>
-				) : (
-					<span className="fine-print">Use your device's volume buttons.</span>
-				)}
-				<label className="browser-auto">
-					<input
-						type="checkbox"
-						checked={state.autoAdvance}
-						onChange={(event) => props.onAuto(event.currentTarget.checked)}
-					/>
-					Play each new song
-				</label>
-				{track && (
-					<a
-						className="text-link"
-						href={`https://open.spotify.com/track/${track.trackId}`}
-						target="_blank"
-						rel="noreferrer"
+			<details className="browser-player-settings">
+				<summary aria-label="Player options">
+					Options <RiArrowUpSLine aria-hidden="true" size={16} />
+				</summary>
+				<div className="browser-player-options">
+					<button
+						type="button"
+						className="text-button"
+						disabled={checking || state.busy}
+						onClick={props.onCheck}
 					>
-						Open in Spotify <Icon name="external" size={13} />
-					</a>
-				)}
-			</div>
+						Check connection
+					</button>
+					{state.volumeSupported ? (
+						<div className="browser-volume">
+							<button
+								type="button"
+								className="text-button"
+								disabled={!sdkReady || state.busy}
+								onClick={props.onMute}
+								aria-pressed={state.volume === 0}
+							>
+								{state.volume === 0 ? "Unmute" : "Mute"}
+							</button>
+							<input
+								type="range"
+								aria-label="Playback volume"
+								min={0}
+								max={100}
+								step={1}
+								value={volumeDraft ?? Math.round(state.volume * 100)}
+								disabled={!sdkReady || state.busy}
+								onChange={(event) =>
+									setVolumeDraft(Number(event.currentTarget.value))
+								}
+								onPointerUp={commitVolume}
+								onKeyUp={commitVolume}
+								onBlur={commitVolume}
+							/>
+						</div>
+					) : (
+						<span className="fine-print">
+							Use your device's volume buttons.
+						</span>
+					)}
+					<label className="browser-auto">
+						<input
+							type="checkbox"
+							checked={state.autoAdvance}
+							onChange={(event) => props.onAuto(event.currentTarget.checked)}
+						/>
+						Play each new song
+					</label>
+					<p className="browser-player-detail-message">
+						{connection?.reason ?? state.message}
+					</p>
+				</div>
+			</details>
+
+			{track && (
+				<a
+					className="text-link browser-open-spotify"
+					href={`https://open.spotify.com/track/${track.trackId}`}
+					target="_blank"
+					rel="noreferrer"
+				>
+					Open in Spotify <Icon name="external" size={13} />
+				</a>
+			)}
 			<output className="browser-player-message" aria-live="polite">
 				{error ??
 					state.error ??
-					(!track?.isPlayable && track
+					(track && !track.isPlayable
 						? "This track is unavailable for playback."
-						: (connection?.reason ?? state.message))}
+						: "")}
 			</output>
 		</section>
 	);

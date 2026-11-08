@@ -45,8 +45,8 @@ export function Insights({
 				</button>
 			</div>
 			<p className="fine-print">
-				Fits your persisted feedback. Existing song estimates keep the model
-				version used when they were served.
+				Trains on your saved feedback. Queued songs keep their original
+				estimates.
 			</p>
 			{state.retrainError && (
 				<p role="alert" className="inline-error">
@@ -60,7 +60,7 @@ export function Insights({
 	);
 	if (!metrics)
 		return (
-			<div className="page">
+			<div className="page insights-page">
 				<header className="page-heading">
 					<h1>Your model is not available yet.</h1>
 					<p>
@@ -84,10 +84,12 @@ export function Insights({
 	return (
 		<div className="page insights-page">
 			<header className="page-heading">
-				<span className="eyebrow">THE THINKING BEHIND THE QUEUE</span>
-				<a className="text-button" href="#/model">
-					Open Model Lab →
-				</a>
+				<div className="inspector-heading-row">
+					<span className="eyebrow">THE THINKING BEHIND THE QUEUE</span>
+					<a className="text-link" href="#/model">
+						Model Lab <Icon name="arrow" size={16} />
+					</a>
+				</div>
 				<h1>No black boxes. Just your taste.</h1>
 				<p>A clear view of what the model knows, and what it doesn't.</p>
 			</header>

@@ -62,15 +62,21 @@ export function Dashboard({
 				<div>
 					<div>
 						<h2>
-							{complete
-								? live
-									? "No songs waiting for review"
-									: "Your demo session is complete"
-								: "Your next chapter is waiting"}
+							{complete ? (
+								live ? (
+									"No songs waiting for review"
+								) : (
+									"Your demo session is complete"
+								)
+							) : (
+								<>
+									Your next <em>sort</em> is waiting
+								</>
+							)}
 						</h2>
 						<p>
 							{live
-								? `${state.summary?.total ?? "—"} currently liked · ${state.remaining ?? "—"} remaining to review · ${state.summary?.reviewed ?? "—"} retained decisions`
+								? `${state.remaining?.toLocaleString() ?? "—"} songs ready to review`
 								: `${active.length} of ${total} songs reviewed • ${state.queue.length} in your queue`}
 						</p>
 					</div>
@@ -87,11 +93,19 @@ export function Dashboard({
 						label="Session review progress"
 					/>
 				)}
-				<p className="fine-print">
-					{live
-						? "Counts come from the server. Current library membership and historical decisions describe different populations."
-						: "This session is a local demo. Your Spotify library has not changed."}
-				</p>
+				{live ? (
+					<details className="dashboard-count-note">
+						<summary>About these counts</summary>
+						<p>
+							{state.summary?.total.toLocaleString() ?? "—"} currently liked ·{" "}
+							{state.summary?.reviewed.toLocaleString() ?? "—"} retained
+							decisions. Library membership and past decisions are counted
+							separately.
+						</p>
+					</details>
+				) : (
+					<p className="fine-print">Demo only · no Spotify changes.</p>
+				)}
 			</section>
 			{keeps.length > 0 && (
 				<section className="keepers">

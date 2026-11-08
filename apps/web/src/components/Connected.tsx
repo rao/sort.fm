@@ -210,7 +210,7 @@ export function ConnectedLibrary({
 		}
 	};
 	return (
-		<div className="page library-page">
+		<div className="page library-page connected-library-page">
 			<header className="page-heading">
 				<span className="eyebrow">YOUR SPOTIFY LIBRARY</span>
 				<h1>Your music, coming into focus.</h1>
@@ -232,7 +232,7 @@ export function ConnectedLibrary({
 						</h2>
 						<p>
 							{summary
-								? `${summary.remaining.toLocaleString()} available to review. Counts reflect the latest confirmed library snapshot.`
+								? `${summary.remaining.toLocaleString()} ready to review.`
 								: "No review decisions are made during import."}
 						</p>
 						<span className="subtle-tag">
@@ -257,12 +257,20 @@ export function ConnectedLibrary({
 						</span>
 						<div>
 							<strong>
-								{status ? `Import ${status.status}` : "Reading import status…"}
+								{status
+									? `Import ${status.status}`
+									: error
+										? "Import status unavailable"
+										: "Reading import status…"}
 							</strong>
 							<p aria-live="polite">
 								{status
 									? `${status.processed.toLocaleString()} processed${status.total === null ? "" : ` of ${status.total.toLocaleString()}`} · ${status.failed} unavailable`
-									: "Connecting to the library service"}
+									: error
+										? summary
+											? "Your saved library is still available."
+											: "Check the connection to try again."
+										: "Connecting to the library service"}
 							</p>
 						</div>
 					</div>
@@ -285,38 +293,40 @@ export function ConnectedLibrary({
 								type="button"
 								onClick={() => setRevision((v) => v + 1)}
 							>
-								Refresh import status
+								Refresh status
 							</button>
 							<button type="button" className="text-button" onClick={onConnect}>
 								Reconnect Spotify
 							</button>
 						</div>
 					)}
-					{!active && (
-						<button
-							type="button"
-							className="button secondary wide"
-							disabled={busy || !status}
-							onClick={() => void start()}
-						>
-							{busy
-								? "Starting import…"
-								: status?.status === "idle"
-									? "Import Liked Songs"
-									: status?.status === "failed"
-										? "Retry import"
-										: "Sync Liked Songs again"}
-						</button>
-					)}
-					{summary && summary.remaining > 0 && !active && (
-						<button
-							className="button primary wide"
-							type="button"
-							onClick={onReview}
-						>
-							Start sorting <Icon name="arrow" size={17} />
-						</button>
-					)}
+					<div className="import-actions">
+						{!active && (
+							<button
+								type="button"
+								className="button secondary import-sync"
+								disabled={busy || !status}
+								onClick={() => void start()}
+							>
+								{busy
+									? "Starting import…"
+									: status?.status === "idle"
+										? "Import Liked Songs"
+										: status?.status === "failed"
+											? "Retry import"
+											: "Sync Liked Songs again"}
+							</button>
+						)}
+						{summary && summary.remaining > 0 && !active && (
+							<button
+								className="button primary import-sort"
+								type="button"
+								onClick={onReview}
+							>
+								Start sorting <Icon name="arrow" size={17} />
+							</button>
+						)}
+					</div>
 					{status?.status === "complete" && summary?.remaining === 0 && (
 						<p className="fine-print">
 							No songs are waiting for review. You can revisit saved decisions
@@ -324,14 +334,12 @@ export function ConnectedLibrary({
 						</p>
 					)}
 					{status?.status === "complete" && (
-						<a className="button secondary wide" href="#/calibrate">
-							Teach your taste · labels only
+						<a className="text-link import-teach" href="#/calibrate">
+							Teach your taste
 						</a>
 					)}
 					<p className="fine-print">
-						Import reads your library. Archive and Unlike only change Spotify
-						after you choose them in review. Audio enrichment can continue
-						separately.
+						Sync only reads your library. Changes happen when you sort.
 					</p>
 				</section>
 			</div>

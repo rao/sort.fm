@@ -8,6 +8,7 @@ import "./styles/app.css";
 import "@fontsource/vt323/latin.css";
 import "@fontsource-variable/bricolage-grotesque";
 import "./styles/music-desk.css";
+import "./styles/desk-refinements.css";
 import "./styles/scrollbars.css";
 
 // Demo is an explicit entry point and never constructs a live client.

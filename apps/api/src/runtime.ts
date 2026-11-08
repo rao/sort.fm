@@ -1,4 +1,4 @@
-import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, PostgresPlaybackStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
+import {connectDatabase, PostgresA1Store, PostgresCalibrationStore, PostgresCalibrationBatchStore, PostgresPlaybackStore, Repository, MusicaeQueue, type Database} from '@sortfm/db';
 import {PUBLIC_ROUTES} from '@sortfm/contracts';
 import {createDemoQueue} from '@sortfm/contracts/fixtures';
 import {QueueService} from './reviews/queue';
@@ -13,7 +13,7 @@ import {loadConfig} from './config';
 import {loadSpotifyConfig} from './auth/config';
 import {createSpotifyModule} from './auth/module';
 import type {SpotifyHttp,Fetch} from './spotify/http';
-import {CalibrationQueue,CalibrationService,createCalibrationModule} from './calibration';
+import {CalibrationQueue,CalibrationService,CalibrationBatchService,createCalibrationModule} from './calibration';
 import {createPlaybackModule,PlaybackService,PlaybackControls,type PlaybackTransport} from './playback';
 
 /** Integration bootstrap. Missing external services leave the isolated demo usable. */
@@ -62,6 +62,24 @@ export async function buildRuntime(options: {
    });
    playbackDatabaseReady=true;
   } catch {startupIssues.push('PLAYBACK_DATABASE_UNAVAILABLE');}
+ }
+
+ // Batch2 is optional. Its sealed-label view must be installed by migration 015;
+ // an older database must keep ordinary calibration, feedback and playback alive.
+ let calibrationBatchDatabaseReady=false;
+ if(database) {
+  try {
+   await database.transaction(async tx=>{
+    const [migration]=await tx`SELECT name FROM schema_migrations WHERE name='015_calibration_batch2.sql'`;
+    if(!migration)throw new Error('BATCH_MIGRATION_REQUIRED');
+    await tx`SELECT batch_id,user_id,experiment,seed,algorithm_version,model_version,selected_at,snapshot FROM calibration_batches LIMIT 0`;
+    await tx`SELECT batch_item_id,user_id,batch_id,track_id,sampling_group,assignment,provenance,candidate,selected_at,position,status,exposure_id,replacement_for FROM calibration_batch_items LIMIT 0`;
+    await tx`SELECT user_id,batch_item_id,exposure_id FROM calibration_batch_exposures LIMIT 0`;
+    await tx`SELECT user_id,idempotency_key,exposure_id,batch_item_id,created_at FROM calibration_batch_skips LIMIT 0`;
+    await tx`SELECT user_id,decision_id,track_id,label,split,labeled_at,features FROM ml_training_examples LIMIT 0`;
+   });
+   calibrationBatchDatabaseReady=true;
+  } catch {startupIssues.push('CALIBRATION_BATCH_DATABASE_UNAVAILABLE');}
  }
 
  const repository=database?new Repository(database):null;
@@ -137,6 +155,12 @@ export async function buildRuntime(options: {
  const calibration=spotify&&calibrationStore?createCalibrationModule({
   auth:spotify.auth,config:{...config,secureCookies:config.apiOrigin.startsWith('https:')},
   service:new CalibrationService(calibrationStore,{...(feedback?{feedback}:{})}),
+  // Saved batches resume without a scorer; new creation explicitly reports
+  // unavailable scoring. Labels continue through the existing feedback worker.
+  ...(calibrationBatchDatabaseReady&&database?{batch:new CalibrationBatchService(new PostgresCalibrationBatchStore(database),{
+   assemble:(rows,{userId,now})=>assembleLibraryCandidates(rows,{userId,now:new Date(now).toISOString(),metadataTraining}),
+   ...(ml?{score:(userId,candidates,modelVersion)=>ml!.score(userId,candidates,modelVersion)}:{}),
+  })}:{}),
   queue:new CalibrationQueue(calibrationStore,{
    assemble:(rows,{userId,now})=>assembleLibraryCandidates(rows,{userId,now:new Date(now).toISOString(),metadataTraining}),
    ...(ml?{score:(userId,candidates)=>ml!.score(userId,candidates)}:{}),

@@ -38,10 +38,20 @@ const queue=QueueResultSchema.parse(await(await request('/api/queue?mode=demo&li
 check(queue.mode==='demo'&&queue.items.every(item=>item.track.source==='synthetic'),'Demo queue leaked live tracks.');
 await request('/api/queue',401);
 await request('/api/ml/insights',401);
-for(const path of ['/api/calibration/queue','/api/calibration/history']){
+for(const path of ['/api/calibration/queue','/api/calibration/history','/api/calibration/batch2']){
  const response=await request(path,401,{headers:{origin:web}});
  check(response.headers.get('cache-control')?.includes('no-store'),'Calibration responses must not be cached.');
  check(response.headers.get('access-control-allow-origin')===web,'Calibration browser origin is not allowed.');
+}
+// Valid bodies reach authentication, but no cookie means no batch reservation or Skip.
+for(const [path,body] of [
+ ['/api/calibration/batch2',{seed:42}],
+ ['/api/calibration/batch2/skip',{exposureId:'00000000-0000-4000-8000-000000000001',idempotencyKey:'00000000-0000-4000-8000-000000000002'}],
+] as const){
+ const response=await request(path,401,{method:'POST',headers:{origin:web,'content-type':'application/json'},body:JSON.stringify(body)});
+ check(response.headers.get('cache-control')?.includes('no-store'),'Batch responses must not be cached.');
+ check(response.headers.get('access-control-allow-origin')===web,'Batch browser origin is not allowed.');
+ await request(path,403,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
 }
 // This request cannot fit a model: it carries no owner session or cookie.
 await request('/api/ml/retrain',401,{method:'POST',headers:{origin:web}});

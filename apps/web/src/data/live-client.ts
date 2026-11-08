@@ -2,6 +2,7 @@ import {
 	PUBLIC_ROUTES,
 	ErrorEnvelopeSchema,
 	ReviewRequestSchema,
+	QueueQuerySchema,
 	PlayRequestSchema,
 	UndoRequestSchema,
 	UuidSchema,
@@ -235,6 +236,10 @@ export function createLiveApi(
 	}
 	return {
 		...shared,
+		queue: (query: Parameters<typeof shared.queue>[0] = {}) => {
+			const parsed = QueueQuerySchema.parse(query);
+			return read(`queue:${JSON.stringify(parsed)}`, () => shared.queue(parsed));
+		},
 		authUrl: `${base}${PUBLIC_ROUTES.authStart.path}`,
 		session: () => read("session", shared.session),
 		summary: () => read("summary", () => extra(PUBLIC_ROUTES.librarySummary)),

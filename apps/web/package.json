@@ -21,6 +21,7 @@
     "@remixicon/react": "^4.9.0",
     "@sortfm/contracts": "workspace:*",
     "@tailwindcss/postcss": "^4.3.5",
+    "@vercel/analytics": "^2.0.1",
     "motion": "^14.10.1",
     "react": "^19.2.0",
     "react-aria-components": "^1.22.1",

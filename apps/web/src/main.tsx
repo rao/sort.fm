@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ConnectedRoot } from "./components/Connected";
+import { WebAnalytics } from "./components/WebAnalytics";
 import { createDemoClient, type DemoScenario } from "./data/demo-client";
 import { DirectionProvider } from "#ui/components/foundations/direction/direction";
 import "./styles/app.css";
@@ -31,6 +32,7 @@ createRoot(document.getElementById("root")!).render(
 	<StrictMode>
 		<DirectionProvider locale="en-US">
 			{client ? <App client={client} /> : <ConnectedRoot />}
+			<WebAnalytics />
 		</DirectionProvider>
 	</StrictMode>,
 );

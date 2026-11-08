@@ -1,6 +1,6 @@
 # C2 controlled pilot gate
 
-Production continues to use `C2_POLICY_ENABLED=false` and `REVIEW_SELECTION_POLICY=c1` (both are also the defaults). The accepted integration is `1b1e5e2`. No claim of improved generalization follows from policy simulations or integration fixtures.
+Production continues to use `C2_POLICY_ENABLED=false` and `REVIEW_SELECTION_POLICY=c1` (both are also the defaults). The guarded pilot runtime is integrated in `738888f`, browser Undo correction in `b016ee5`, and real guarded backend/ML acceptance in `df626bf`. No claim of improved generalization follows from policy simulations or integration fixtures.
 
 ## Evidence and limits
 
@@ -43,3 +43,9 @@ LinUCB can be selected in the same isolated instance after the first lifecycle p
 4. Let a card expire, refresh/reselect, restart the pilot API/ML, and confirm exact replay/release behavior. Interrupt only policy selection and confirm fresh C1 fallback with no later retrospective reward attribution.
 5. Recheck permanent sealed exclusions and calibration isolation. Any Spotify Archive/Unlike transaction is limited to a specifically authorized track and requires explicit provider-state verification; controlled fixtures are not that proof.
 6. Record the real results and failure recovery before considering any change to production defaults. This pilot validates reliability and observability; efficacy needs a separately prespecified prospective evaluation.
+
+## Latest isolated readiness checkpoint
+
+Root reran the guarded runtime against actual local Python ML and disposable PostgreSQL:162 assertions passed, including committed reward/fit receipts, Skip, Undo revocation, restart persistence, select-only outage fallback and explicit C1 rollback. The full merged regression passed1,027 tests /5,550 assertions plus13 actual database/runtime/Batch3 tests /818 assertions. Browser nonmutating Undo is corrected; real browser verification remains outstanding.
+
+Private real-account setup is prepared and copied under fresh restricted roles with migration016 only in the pilot schema. Target-only copy receipts and common eligibility/exclusion preflight passed. Production is still on015 and C1. No live pilot has started and no fresh login or real policy action is claimed. Local model bootstrap, source pause coordination and the browser acceptance sequence above are the remaining activation gates.

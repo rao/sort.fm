@@ -1,0 +1,102 @@
+@reference "./globals.css";
+
+.music-loading {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 24px;
+	min-block-size: 320px;
+	padding: 40px 24px;
+	text-align: center;
+	color: var(--d-ink);
+}
+.music-loading-compact {
+	min-block-size: 240px;
+}
+.music-loading-equalizer {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	block-size: 56px;
+}
+.music-loading-equalizer i {
+	display: block;
+	inline-size: 6px;
+	block-size: 36px;
+	border-radius: 3px;
+	background: var(--d-ink);
+	transform: scaleY(0.35);
+	animation: music-loading-beat 1.25s ease-in-out infinite;
+}
+.music-loading-equalizer i:nth-child(2n) {
+	block-size: 48px;
+	animation-delay: -0.7s;
+}
+.music-loading-equalizer i:nth-child(3n) {
+	background: var(--d-accent);
+	animation-delay: -0.35s;
+}
+.music-loading-equalizer i:nth-child(4) {
+	block-size: 56px;
+	animation-delay: -0.95s;
+}
+.music-loading-status {
+	display: grid;
+	gap: 8px;
+}
+.music-loading-title {
+	@apply text-title-3-semibold;
+}
+.music-loading-message {
+	@apply text-body-2-regular;
+	max-inline-size: 32ch;
+	color: var(--d-muted);
+	text-wrap: balance;
+}
+.music-loading-actions {
+	display: flex;
+	justify-content: center;
+	margin-block-start: 8px;
+}
+.music-loading-actions a {
+	@apply text-caption-1-medium;
+	display: inline-flex;
+	align-items: center;
+	min-block-size: 44px;
+	padding: 8px 12px;
+	color: var(--d-muted);
+	text-decoration: underline;
+	text-underline-offset: 4px;
+}
+.music-loading-actions a:hover {
+	color: var(--d-ink);
+}
+.connection-gate.music-loading-gate {
+	display: grid;
+	grid-template-rows: auto 1fr;
+	gap: 24px;
+	min-block-size: 100dvh;
+	padding: 32px clamp(20px, 5vw, 64px);
+	background: var(--d-paper);
+}
+.music-loading-gate > .music-loading {
+	align-self: center;
+	padding-block: 32px 80px;
+}
+@keyframes music-loading-beat {
+	0%,
+	100% {
+		transform: scaleY(0.35);
+	}
+	50% {
+		transform: scaleY(1);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.music-loading-equalizer i {
+		animation: none;
+		transform: scaleY(0.7);
+	}
+}

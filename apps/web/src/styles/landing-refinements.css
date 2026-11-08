@@ -1,0 +1,202 @@
+@reference "./globals.css";
+
+/* Keep the public preview on the same shell, LCD and decision wheel as ReviewPlayer. */
+.desk-landing.desk-landing {
+	display: grid;
+	grid-template-rows: auto 1fr auto;
+	min-block-size: 100dvh;
+}
+.desk-landing .landing-nav {
+	block-size: 72px;
+	padding-block: 12px;
+}
+.desk-landing > main {
+	display: grid;
+	grid-template-rows: 1fr auto;
+	gap: 24px;
+	inline-size: 100%;
+	max-inline-size: 1160px;
+	margin-inline: auto;
+	padding-block: 24px;
+}
+.desk-landing .desk-hero {
+	inline-size: 100%;
+	padding-block: 16px;
+	gap: 48px;
+}
+.desk-landing .desk-hero-device {
+	--landing-art-size: 176px;
+	--landing-wheel-size: 160px;
+	inline-size: 360px;
+	max-inline-size: 100%;
+	justify-self: center;
+	padding: 12px;
+	transform: rotate(-2deg);
+	animation: none;
+}
+.desk-landing .desk-hero-device .desk-device-label {
+	margin-block-end: 8px;
+}
+.desk-landing .desk-hero-device .desk-lcd {
+	padding: 8px;
+}
+.desk-landing .desk-hero-device .desk-lcd-status {
+	margin-block-end: 8px;
+}
+.desk-landing .desk-hero-device .main-art {
+	inline-size: var(--landing-art-size);
+	block-size: var(--landing-art-size);
+}
+.desk-landing .desk-hero-device .song-details {
+	padding: 8px 0 0;
+}
+.desk-landing .desk-hero-device .desk-device-controls {
+	gap: 16px;
+	margin-block: 12px 8px;
+}
+.desk-landing .desk-hero-device .desk-wheel {
+	inline-size: var(--landing-wheel-size);
+	min-inline-size: var(--landing-wheel-size);
+	block-size: var(--landing-wheel-size);
+}
+.desk-landing .desk-preview-side-key {
+	display: grid;
+	place-items: center;
+	inline-size: 32px;
+	block-size: 32px;
+	border: 2px solid var(--d-metal-edge);
+	border-radius: 3px;
+	background: var(--d-metal-top);
+	box-shadow: 2px 2px 0 var(--r-shadow);
+}
+.desk-landing .desk-preview-choice {
+	@apply text-caption-1-medium;
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0;
+	inline-size: 44px;
+	block-size: 32px;
+	font-family: "VT323", monospace;
+	color: var(--d-device-ink);
+}
+.desk-landing .desk-preview-archive {
+	left: 0;
+	top: calc(50% - 16px);
+}
+.desk-landing .desk-preview-keep {
+	right: 0;
+	top: calc(50% - 16px);
+}
+.desk-landing .desk-preview-skip {
+	left: calc(50% - 22px);
+	top: 2px;
+}
+.desk-landing .desk-preview-unlike {
+	left: calc(50% - 22px);
+	bottom: 2px;
+	color: var(--d-accent);
+}
+.desk-landing .desk-preview-start {
+	position: absolute;
+	left: calc(50% - 22px);
+	top: calc(50% - 22px);
+	display: grid;
+	place-items: center;
+	inline-size: 44px;
+	block-size: 44px;
+	min-block-size: 44px;
+	padding: 0;
+	border: 2px solid var(--d-metal-edge);
+	border-radius: 50%;
+	background: var(--d-orange);
+	color: var(--d-on-accent);
+	box-shadow:
+		inset 2px 2px 0 color-mix(in srgb, var(--r-highlight) 50%, transparent),
+		0 3px 0 var(--d-metal-edge);
+}
+.desk-landing .desk-preview-start:hover {
+	background: var(--d-accent);
+	color: var(--d-on-accent);
+}
+.desk-landing .desk-how {
+	inline-size: 100%;
+	margin-block: 0;
+	padding: 20px 24px;
+	gap: 32px;
+}
+.desk-landing .desk-how h2 {
+	margin-block-start: 8px;
+}
+.desk-landing .desk-how .fine-print {
+	margin-block-start: 8px;
+}
+.desk-landing.desk-landing .landing-footer {
+	min-block-size: 56px;
+	padding-block: 12px;
+}
+.desk-landing .landing-footer .logo {
+	@apply text-title-3-semibold;
+}
+
+/* Let content grow at zoom or on short screens; never conceal overflow. */
+@media (min-width: 901px) {
+	.desk-landing > main {
+		gap: 16px;
+		padding-block: 16px;
+	}
+	.desk-landing .landing-nav {
+		block-size: 64px;
+	}
+	.desk-landing .desk-hero {
+		padding-block: 8px;
+	}
+	.desk-landing .desk-hero-device {
+		--landing-art-size: clamp(112px, calc(100dvh - 656px), 176px);
+		--landing-wheel-size: clamp(128px, calc(100dvh - 640px), 160px);
+	}
+	.desk-landing .desk-how {
+		padding-block: 16px;
+	}
+}
+
+@media (max-width: 900px) {
+	.desk-landing .desk-hero {
+		grid-template-columns: 1fr;
+		gap: 40px;
+		padding-block: 16px;
+	}
+	.desk-landing .desk-how {
+		grid-template-columns: 1fr;
+		gap: 16px;
+	}
+}
+
+@media (max-width: 420px) {
+	.desk-landing .desk-hero-device {
+		inline-size: 100%;
+		--landing-art-size: 152px;
+		--landing-wheel-size: 144px;
+	}
+	.desk-landing .desk-how {
+		padding: 20px;
+	}
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+	.desk-landing .desk-hero-device {
+		transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+	.desk-landing .desk-hero-device:hover {
+		transform: perspective(900px) translateY(-4px) rotate(-1deg) rotateY(-3deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce), (pointer: coarse) {
+	.desk-landing .desk-hero-device {
+		transform: none;
+		transition: none;
+	}
+}

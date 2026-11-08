@@ -1,3 +1,127 @@
+@reference "./globals.css";
+
+/* The public demo is a listening invitation, not a provider setup screen. */
+.music-desk .demo-library-page .import-layout {
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	align-items: start;
+	gap: 24px;
+}
+.music-desk .demo-library-page .library-collection {
+	min-width: 0;
+	padding: 24px;
+	gap: 20px;
+}
+.music-desk .demo-library-page .collection-art {
+	max-width: 200px;
+	margin: 4px 0;
+}
+.music-desk .demo-library-page .collection-copy h2 {
+	@apply text-title-3-semibold;
+	margin: 8px 0;
+}
+.music-desk .demo-library-page .collection-copy > p {
+	@apply text-body-2-regular;
+	line-height: 1.7;
+}
+.music-desk .demo-library-page .subtle-tag {
+	color: var(--d-muted);
+	margin-top: 12px;
+}
+.music-desk .demo-library-page .demo-start-panel {
+	display: grid;
+	gap: 20px;
+	padding: 28px;
+	min-width: 0;
+}
+.music-desk .demo-library-page .demo-start-panel > .eyebrow {
+	color: var(--d-muted);
+}
+.music-desk .demo-library-page .demo-start-panel > h2 {
+	@apply text-title-2-medium;
+	margin: -8px 0 0;
+	text-wrap: balance;
+}
+.music-desk .demo-library-page .import-stage {
+	margin: 0;
+	gap: 12px;
+}
+.music-desk .demo-library-page .import-stage > div {
+	min-width: 0;
+}
+.music-desk .demo-library-page .import-stage strong {
+	@apply text-body-2-medium;
+}
+.music-desk .demo-library-page .import-stage p {
+	@apply text-caption-1-regular;
+	margin: 4px 0 0;
+}
+.music-desk .demo-library-page .stage-icon {
+	width: 36px;
+	height: 36px;
+	background: var(--d-soft);
+	color: var(--d-ink);
+	border: 1px solid var(--d-line);
+}
+.music-desk .demo-library-page .demo-start-copy {
+	@apply text-body-2-regular;
+	margin: 0;
+	line-height: 1.8;
+}
+.music-desk .demo-library-page .demo-start-button {
+	justify-self: start;
+	min-height: 44px;
+	height: auto;
+	max-width: 100%;
+	padding: 12px 16px;
+	gap: 8px;
+	color: var(--d-on-accent);
+}
+.music-desk .demo-library-page .import-note {
+	@apply text-caption-1-regular;
+	margin: 0;
+	padding-top: 16px;
+	border-top: 1px solid var(--d-line);
+	text-align: start;
+	line-height: 1.8;
+}
+.music-desk .demo-library-page :is(.inline-error, .smooth-progress) {
+	margin: 0;
+}
+@media (max-width: 1000px) {
+	.music-desk .demo-library-page .import-layout {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 20px;
+	}
+	.music-desk .demo-library-page .library-collection {
+		flex-direction: row;
+		align-items: center;
+	}
+	.music-desk .demo-library-page .collection-art {
+		max-width: 144px;
+		flex-shrink: 0;
+	}
+	.music-desk .demo-library-page .demo-start-panel {
+		padding: 24px;
+		order: -1;
+	}
+}
+@media (max-width: 480px) {
+	.music-desk .demo-library-page .library-collection {
+		padding: 16px;
+		gap: 16px;
+	}
+	.music-desk .demo-library-page .collection-art {
+		max-width: 88px;
+	}
+	.music-desk .demo-library-page .collection-copy h2 {
+		@apply text-headline-medium;
+	}
+	.music-desk .demo-library-page .demo-start-panel {
+		padding: 20px;
+		gap: 16px;
+	}
+}
+
 /* Rich connected screens use the same compact rhythm as the music desk. */
 .music-desk :is(.dashboard-page, .connected-library-page, .insights-page)
 	.page-heading {

@@ -6,6 +6,7 @@ import { ReviewStore, actionFromKey } from "./state/review";
 import { Cover, EmptyState, Icon, Modal, Progress } from "./components/ui";
 import { Landing } from "./components/Landing";
 import { Library } from "./components/Library";
+import { MusicLoading } from "./components/MusicLoading";
 import { CalibrationWorkspace } from "./components/Calibration";
 import { CalibrationStore } from "./state/calibration";
 import { CorrectionStore } from "./state/corrections";
@@ -471,6 +472,10 @@ export default function App({
 							setRoute("review");
 						}}
 					/>
+				) : live && !state.bootstrap && !state.error ? (
+					<MusicLoading message="Finding your next song.">
+						<a href="#/library">View import</a>
+					</MusicLoading>
 				) : live && !state.bootstrap ? (
 					<EmptyState
 						title={

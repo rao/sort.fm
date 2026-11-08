@@ -32,6 +32,7 @@ import {
 	type MusicView,
 } from "./history";
 import type { Graph, GraphNode } from "./graph";
+import { MusicLoading } from "../MusicLoading";
 import "./constellation.css";
 
 export function ConstellationExplorer({
@@ -584,21 +585,9 @@ export function TasteConstellation({
 				</div>
 			)}
 			{busy && (
-				<div className="tc-status" aria-live="polite">
-					<span className="tc-loading-mark" aria-hidden="true">
-						✦
-					</span>
-					<h3 className="text-headline-medium">
-						{currentLibrary
-							? "Finding acoustic neighbors…"
-							: "Loading your library…"}
-					</h3>
-					<p>
-						{currentLibrary
-							? "Projecting observed audio into two dimensions. You can keep using Model Lab."
-							: "Only eligible songs will enter this map."}
-					</p>
-				</div>
+				<MusicLoading compact message={currentLibrary
+					? "Finding acoustic neighbors…"
+					: "Loading your library…"} />
 			)}
 			{ready && (
 				<>

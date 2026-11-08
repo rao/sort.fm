@@ -1,5 +1,6 @@
 import type { ProjectionCache } from "./taste-constellation/history";
 import { Batch3Evaluation } from "./Batch3Evaluation";
+import { MusicLoading } from "./MusicLoading";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Button } from "#ui/components/base/buttons/button";
 import {
@@ -192,7 +193,7 @@ export function ModelLab({
 			<ModelGuide />
 			{tab === "constellation" && (
 				<Suspense
-					fallback={<div className="ml-empty">Loading constellation…</div>}
+					fallback={<MusicLoading compact message="Preparing your constellation." />}
 				>
 					<TasteConstellation
 						key={state.bootstrap?.session.user?.id ?? "anonymous"}

@@ -16,6 +16,7 @@ import {
 } from "../state/calibration";
 import type { CalibrationSession } from "../data/calibration-client";
 import { Cover, EmptyState, Icon } from "./ui";
+import { MusicLoading } from "./MusicLoading";
 
 export function CalibrationWorkspace({
 	store,
@@ -223,7 +224,9 @@ export function CalibrationView({
 							{state.ready ? `${state.queue.length} loaded` : "Connecting…"}
 						</span>
 					</div>
-					{!state.ready ? (
+					{!state.ready && (state.loading || !state.error) ? (
+						<MusicLoading message="Finding a little variety." />
+					) : !state.ready ? (
 						<EmptyState
 							title={
 								state.loading

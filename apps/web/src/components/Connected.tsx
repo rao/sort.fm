@@ -11,7 +11,8 @@ import {
 	type LiveApi,
 } from "../data/live-client";
 import { Landing } from "./Landing";
-import { EmptyState, Icon, Logo, Progress } from "./ui";
+import { MusicLoading } from "./MusicLoading";
+import { Icon, Logo, Progress } from "./ui";
 
 export function ConnectedRoot() {
 	const [session, setSession] = useState<AccountSession | null>(null);
@@ -99,14 +100,13 @@ export function ConnectedRoot() {
 		);
 	if (loading)
 		return (
-			<div className="connection-gate">
+			<div className="connection-gate music-loading-gate">
 				<Logo />
-				<EmptyState title="Finding your place in the music">
-					<output>Checking your Spotify session…</output>
-					<a className="button secondary" href="?mode=demo#/library">
+				<MusicLoading message="Getting your music desk ready.">
+					<a href="?mode=demo#/library">
 						Explore the demo
 					</a>
-				</EmptyState>
+				</MusicLoading>
 			</div>
 		);
 	return (

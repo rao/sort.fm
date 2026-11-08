@@ -1,7 +1,17 @@
 import { demoTracks } from "../data/demo-catalog";
-import { RiArrowRightLine, RiSpotifyFill, RiPlayFill } from "@remixicon/react";
+import {
+	RiArchiveLine,
+	RiArrowGoBackLine,
+	RiArrowRightLine,
+	RiArrowUpLine,
+	RiEqualizerLine,
+	RiHeartLine,
+	RiSpotifyFill,
+	RiThumbDownLine,
+} from "@remixicon/react";
 import { Button, ButtonLink } from "#ui/components/base/buttons/button";
-import { Cover, Logo } from "./ui";
+import { Cover, Logo, duration } from "./ui";
+import "../styles/landing-refinements.css";
 export function Landing({ onConnect }: { onConnect: () => void }) {
 	const example = demoTracks[0]!;
 	return (
@@ -9,7 +19,6 @@ export function Landing({ onConnect }: { onConnect: () => void }) {
 			<header className="landing-nav">
 				<Logo />
 				<nav aria-label="Main navigation">
-					<a href="#how-it-works">How it works</a>
 					<Button
 						variant="secondary"
 						leadingIcon={RiSpotifyFill}
@@ -53,60 +62,78 @@ export function Landing({ onConnect }: { onConnect: () => void }) {
 						</div>
 						<small>No Spotify account needed for the demo.</small>
 					</div>
-					<div className="desk-device desk-hero-device">
+					<section className="desk-device desk-hero-device" aria-label="Preview of the song sorter">
 						<div className="desk-device-label">
 							<strong>sort.fm</strong>
 							<span>Personal music sorter · 01</span>
 							<i aria-hidden="true" />
 						</div>
-						<div className="desk-lcd desk-hero-lcd">
+						<div className="desk-lcd">
 							<div className="desk-lcd-status">
-								<span>Ready to rediscover</span>
-								<span>Demo tape</span>
+								<span><i aria-hidden="true" />Ready to rediscover</span>
+								<span>Demo preview</span>
 							</div>
-							<Cover track={example} typography />
-							<h2>{example.title}</h2>
-							<p>
-								{example.artists[0]?.name} / {example.album}
-							</p>
-							<div className="desk-equalizer" aria-hidden="true">
-								{[
-									14, 23, 9, 32, 19, 28, 12, 30, 17, 25, 10, 21, 34, 16, 27, 11,
-									29, 18, 31, 13, 24,
-								].map((h) => (
-									<i key={h} style={{ height: h }} />
-								))}
+							<Cover track={example} typography className="main-art" />
+							<div className="song-details">
+								<div className="song-title-line">
+									<h2>{example.title}</h2>
+									<span className="duration">{duration(example.durationMs)}</span>
+								</div>
+								<p>{example.artists[0]?.name} <span>•</span> {example.album}</p>
 							</div>
 						</div>
-						<div className="desk-hero-wheel">
-							<span>YOUR MUSIC</span>
-							<a
-								className="desk-power"
-								href="?mode=demo#/review"
-								aria-label="Power on the demo player"
-							>
-								<RiPlayFill size={30} />
-							</a>
-							<span>YOUR CALL</span>
+						<div className="desk-device-controls">
+							<div className="desk-device-side" aria-hidden="true">
+								<span className="desk-preview-side-key"><RiArrowGoBackLine size={18} /></span>
+								<span>Undo</span>
+							</div>
+							<div className="desk-wheel">
+								{/* Decision labels illustrate the real wheel; only the demo link is interactive. */}
+								<div className="desk-preview-choice desk-preview-archive" aria-hidden="true">
+									<RiArchiveLine size={16} /><span>Archive</span>
+								</div>
+								<div className="desk-preview-choice desk-preview-skip" aria-hidden="true">
+									<RiArrowUpLine size={16} /><span>Skip</span>
+								</div>
+								<div className="desk-preview-choice desk-preview-keep" aria-hidden="true">
+									<RiHeartLine size={16} /><span>Keep</span>
+								</div>
+								<div className="desk-preview-choice desk-preview-unlike" aria-hidden="true">
+									<RiThumbDownLine size={16} /><span>Unlike</span>
+								</div>
+								<ButtonLink
+									className="desk-preview-start"
+									iconOnly
+									leadingIcon={RiArrowRightLine}
+									href="?mode=demo#/review"
+									aria-label="Try the demo song sorter"
+									title="Try the demo song sorter"
+								/>
+							</div>
+							<div className="desk-device-side" aria-hidden="true">
+								<span className="desk-preview-side-key"><RiEqualizerLine size={18} /></span>
+								<span>Details</span>
+							</div>
 						</div>
 						<div className="desk-device-footer">
-							<span>Designed for changing taste</span>
-							<span aria-hidden="true">▦▦▦</span>
+							<span>Try the demo to start swiping.</span>
+							<span aria-hidden="true">← ↑ ↓ →</span>
 						</div>
-					</div>
+					</section>
 				</section>
 				<section className="desk-how" id="how-it-works">
 					<div>
 						<span className="eyebrow">One song swipe at a time</span>
 						<h2>
-							A little less scrolling.
-							<br />A lot more listening.
+							Swipe through your music.
+							<br />Keep what still hits.
 						</h2>
 					</div>
 					<div>
 						<p>
-							Keep it, archive it, or decide later. Your choices help the model
-							learn your taste; you make the final call.
+							Swipe right to keep, left to archive, up to skip, or down to
+							unlike. Your swipes teach the model your taste; you make the
+							final call.
 						</p>
 						<p className="fine-print">
 							Archive keeps a playlist copy before unliking. Unlike removes

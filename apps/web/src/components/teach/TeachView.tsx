@@ -10,6 +10,7 @@ import { cx } from "#ui/utils/cx";
 import type { ViewProps } from "../Calibration";
 import { calibrationLocked } from "../../state/calibration";
 import { Cover, EmptyState } from "../ui";
+import { MusicLoading } from "../MusicLoading";
 import { PreferenceCard } from "./PreferenceCard";
 import { synchronization } from "./status";
 import "./teach.css";
@@ -87,7 +88,9 @@ export function TeachView({
 								: "Connecting…"}
 						</span>
 					</div>
-					{!state.ready ? (
+					{!state.ready && (state.loading || !state.error) ? (
+						<MusicLoading message="Finding a fresh listen." />
+					) : !state.ready ? (
 						<EmptyState
 							title={
 								state.loading

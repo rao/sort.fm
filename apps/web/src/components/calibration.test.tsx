@@ -7,6 +7,7 @@ import {
 	createCalibrationClient,
 } from "../data/calibration-client";
 import { calibrationFixture } from "../test-support/calibration-fixture";
+import { TeachView } from "./teach/TeachView";
 const callbacks = {
 	onAction: () => {},
 	onRefresh: () => {},
@@ -55,3 +56,33 @@ test("calibration cannot silently turn into demo cleanup", () => {
 	expect(html).toContain("Teach sort.fm with your connected library");
 	expect(html).not.toContain("Would remove");
 });
+
+test.each([
+	["research calibration", CalibrationView, "Retry calibration"],
+	["ordinary Teach", TeachView, "Retry Teach"],
+] as const)(
+	"%s keeps initial loading distinct from recoverable failure",
+	async (_name, View, retry) => {
+		const f = calibrationFixture();
+		const store = new CalibrationStore(
+			createCalibrationClient(
+				f.api,
+				f.session,
+				calibrationJournal(f.storage, "owner"),
+			),
+		);
+		const initial = store.getSnapshot();
+		const render = (state: typeof initial) =>
+			renderToStaticMarkup(<View state={state} {...callbacks} />);
+		const loading = render(initial);
+		expect(loading).toContain("Tuning in");
+		expect(loading).not.toContain(retry);
+		const failed = render({ ...initial, error: "Service unavailable" });
+		expect(failed).toContain(retry);
+		expect(failed).not.toContain("Tuning in");
+		await store.load();
+		const ready = render(store.getSnapshot());
+		expect(ready).toContain(store.getSnapshot().queue[0]!.track.title);
+		expect(ready).not.toContain("Tuning in");
+	},
+);

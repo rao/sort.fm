@@ -15,6 +15,7 @@ import {
 	calibrationActionFromKey,
 	calibrationLocked,
 } from "../state/calibration";
+import type { CalibrationSession } from "../data/calibration-client";
 import { Cover, EmptyState, Icon, duration, savedDate } from "./ui";
 
 export function CalibrationWorkspace({
@@ -99,7 +100,7 @@ function ConnectedCalibration({ store }: { store: CalibrationStore }) {
 	);
 }
 type ViewProps = {
- onSession?:(session:"ordinary"|"batch2",seed?:number)=>void;
+ onSession?:(session:CalibrationSession,seed?:number)=>void;
 	state: CalibrationState;
 	onAction: (action: CalibrationAction) => void;
 	onRefresh: () => void;
@@ -124,6 +125,8 @@ export function CalibrationView({
 		state.loading || state.busy || state.refreshing || state.retraining;
 	const current = state.queue[0];
 	const active = state.history.filter((item) => item.state === "active");
+	const batch3 = state.session === "batch3";
+	const experiment = batch3 && state.experiment?.phase === "ready" ? state.experiment : null;
 	return (
 		<div className="workspace calibration-workspace">
 			<div className="workspace-heading">
@@ -141,15 +144,30 @@ export function CalibrationView({
                     <div className="playback-actions">
                         <button type="button" className="button secondary small" aria-pressed={state.session==="ordinary"} disabled={state.busy||state.loading||state.refreshing||state.retraining||!!state.pending} onClick={()=>onSession?.("ordinary")}>Open calibration</button>
                         <button type="button" className="button secondary small" aria-pressed={state.session==="batch2"} disabled={state.busy||state.loading||state.refreshing||state.retraining||!!state.pending} onClick={()=>onSession?.("batch2",seed)}>Start / resume Batch 2</button>
-                        {!state.batch && <label className="fine-print">Sampling seed <input aria-label="Batch 2 sampling seed" type="number" min="0" max="2147483647" value={seed} disabled={reading||!!state.pending} onChange={e=>{const value=Number(e.target.value);if(Number.isInteger(value)&&value>=0&&value<=2147483647)setSeed(value);}} /></label>}
+                        <button type="button" className="button secondary small" aria-pressed={batch3} disabled={reading||!!state.pending} onClick={()=>onSession?.("batch3")}>Resume Batch 3</button>
+                        {!batch3 && !state.batch && <label className="fine-print">Sampling seed <input aria-label="Batch 2 sampling seed" type="number" min="0" max="2147483647" value={seed} disabled={reading||!!state.pending} onChange={e=>{const value=Number(e.target.value);if(Number.isInteger(value)&&value>=0&&value<=2147483647)setSeed(value);}} /></label>}
                     </div>
-                    {state.batch ? <>
+                    {batch3 ? <><p><strong>Batch 3{experiment ? ` · ${experiment.labeled} / 60 labels saved` : " · Preparation"}</strong></p><p className="fine-print">40 permanent evaluation songs · 20 training songs · no uncertainty-selected songs. Collection opens after preparation is complete.</p></> : state.batch ? <>
                         <p><strong>Batch 2 · {state.batch.labeled} / 70 labels saved</strong></p>
                         <p className="fine-print">{state.batch.trainingLabeled} / 45 training labels · {state.batch.sealedLabeled} / 25 sealed evaluation labels. Evaluation labels stay outside training and routine model metrics.</p>
                         <p className="fine-print">Your selection is saved. Skip records no preference and requests a replacement from the same group.</p>
                     </> : <p className="fine-print">Batch 2 saves 70 songs: 25 random, 25 diverse, and 20 uncertain. It resumes the same selection after refresh.</p>}
                 </div>
             </section>
+			{batch3 && !experiment ? (
+                <section className="model-panel" aria-label="Batch 3 preparation" aria-busy={reading}>
+                    <span className="eyebrow">BATCH 3 · PREPARATION</span>
+                    <h2>{state.experiment?.phase === "reserved" ? "60 songs reserved" : "Preparation pending"}</h2>
+                    <p>Your saved session will open here when preparation is complete. Songs and label history stay hidden until then.</p>
+                    {state.experiment?.phase === "reserved" && state.experiment.groups.filter(group => group.target > 0).map(group => (
+                        <div className="data-row" key={group.group}><span>{group.group === "A" ? "Permanent evaluation songs" : "Training songs"}</span><strong>{group.reserved} / {group.target} reserved</strong></div>
+                    ))}
+                    {(state.refreshError || state.error) && <p className="inline-error" role="alert">{state.refreshError ?? state.error}</p>}
+                    {state.pending && <p className="fine-print">Your unfinished command is saved. Check preparation status to reconcile its outcome before continuing.</p>}
+                    <button type="button" className="button secondary" disabled={reading} onClick={onRefresh}>Check preparation status</button>
+                    <p className="fine-print">This page resumes an existing session. Preparation is managed separately; no songs are labeled or changed here.</p>
+                </section>
+            ) : <>
 			<div className="calibration-banner">
 				<span>
 					<Icon name="spark" size={17} />
@@ -276,17 +294,17 @@ export function CalibrationView({
 					) : (
 						<EmptyState
 							title={
-								state.batch ? (state.batch.labeled===70?"Batch 2 is complete":"No replacement available") : state.skipped
+								experiment ? (state.remaining === 0 ? "Batch 3 collection finished" : "No songs available right now") : state.batch ? (state.batch.labeled===70?"Batch 2 is complete":"No replacement available") : state.skipped
 									? "A little room to reconsider"
 									: "This selection is complete"
 							}
 						>
 							<p>
-								{state.batch ? `${state.batch.labeled} of 70 preference labels saved. Skipped songs remain unlabeled.` : state.skipped
+								{experiment ? `${experiment.labeled} of 60 preference labels saved. ${state.skipped} skipped without labels; skipped evaluation songs are never replaced.` : state.batch ? `${state.batch.labeled} of 70 preference labels saved. Skipped songs remain unlabeled.` : state.skipped
 									? `${state.skipped} songs skipped locally. No labels were saved for those skips.`
 									: `${state.remaining ?? 0} eligible songs remain on the server.`}
 							</p>
-							{state.skipped > 0 && !state.batch && (
+							{state.skipped > 0 && !state.batch && !batch3 && (
 								<button
 									type="button"
 									className="button secondary"
@@ -310,11 +328,20 @@ export function CalibrationView({
 						<p className="fine-print">{state.fallbackReason}</p>
 					)}
 					<p className="fine-print">
-						{state.batch ? "Batch skips are saved and replaced within their original group." : "Skip is local to this session."} Labels and Undo never save, remove, or archive a Spotify song.
+						{batch3 ? "Evaluation skips are permanent and never replaced. Training replacements use the saved selection when available." : state.batch ? "Batch skips are saved and replaced within their original group." : "Skip is local to this session."} Labels and Undo never save, remove, or archive a Spotify song.
 					</p>
 				</section>
 				<aside className="workspace-aside">
-					<section className="model-panel">
+                    {experiment ? <section className="model-panel">
+                        <div className="panel-heading"><span className="accent-icon"><Icon name="spark" /></span><h2>Every answer, in its place.</h2></div>
+                        <progress aria-label="Batch 3 labels saved" value={experiment.labeled} max={60} />
+                        <div className="data-row"><span>Evaluation labels saved</span><strong>{experiment.sealedLabeled} / 40</strong></div>
+                        <div className="data-row"><span>Training labels saved</span><strong>{experiment.trainingLabeled} / 20</strong></div>
+                        <div className="data-row"><span>Skipped without a label</span><strong>{state.skipped}</strong></div>
+                        <p className="fine-print">The 40 evaluation songs stay permanently reserved and outside training. Skipping one never draws a replacement.</p>
+                        <p className="fine-print">These are collection counts. Model predictions and experimental results stay hidden while you label.</p>
+                        <button type="button" className="text-button" disabled={reading} onClick={onRefresh}>Refresh saved progress</button>
+                    </section> : <section className="model-panel">
 						<div className="panel-heading">
 							<span className="accent-icon">
 								<Icon name="spark" />
@@ -378,7 +405,7 @@ export function CalibrationView({
 						<p className="fine-print">
 							{state.batch ? "Batch 2 reserves 25 random songs for later evaluation. Those labels never enter C1 fitting or routine evaluation metrics." : "This is an online selection across your library. It is not the offline sealed evaluation cohort."}
 						</p>
-					</section>
+					</section>}
 				</aside>
 			</div>
 			<section className="calibration-history">
@@ -444,6 +471,7 @@ export function CalibrationView({
 					active. Cleanup decisions have their own separate history.
 				</p>
 			</section>
+            </>}
 		</div>
 	);
 }

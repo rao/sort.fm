@@ -36,10 +36,15 @@ export function BrowserPlayback({
 	const [now, setNow] = useState(Date.now());
 	const lifecycle = useRef(0);
 	const pending = useRef(false);
+	// A failed SDK/token/control request can revoke a grant after the initial
+	// availability read. Re-read on failure transitions instead of repeatedly
+	// reconnecting a device with stale authorization. This performs GETs only.
+	const playerFailed = state.connection === "error";
 	useEffect(() => store.retain(), [store]);
 	useEffect(() => {
 		store.select(track?.spotifyUri ?? null, track?.isPlayable ?? false);
 	}, [store, track?.spotifyUri, track?.isPlayable]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Player failure transitions invalidate cached grant availability even when the gateway is unchanged.
 	useEffect(() => {
 		const generation = ++lifecycle.current;
 		pending.current = true;
@@ -70,7 +75,7 @@ export function BrowserPlayback({
 			lifecycle.current++;
 			pending.current = false;
 		};
-	}, [gateway]);
+	}, [gateway, playerFailed]);
 	useEffect(() => {
 		const clock = setInterval(() => setNow(Date.now()), 1000);
 		const poll = setInterval(() => {
@@ -264,6 +269,16 @@ export function BrowserPlaybackView(props: Props) {
 										: "Browser playback unavailable"}
 							</span>
 						))}
+					{(!ready || error || state.error) && (
+						<button
+							type="button"
+							className="text-button"
+							disabled={checking || state.busy}
+							onClick={props.onCheck}
+						>
+							Check connection
+						</button>
+					)}
 				</div>
 				<label className="browser-seek">
 					<span>{time(seekDraft ?? position)}</span>
@@ -296,14 +311,6 @@ export function BrowserPlaybackView(props: Props) {
 					Options <RiArrowUpSLine aria-hidden="true" size={16} />
 				</summary>
 				<div className="browser-player-options">
-					<button
-						type="button"
-						className="text-button"
-						disabled={checking || state.busy}
-						onClick={props.onCheck}
-					>
-						Check connection
-					</button>
 					{state.volumeSupported ? (
 						<div className="browser-volume">
 							<button
@@ -355,10 +362,18 @@ export function BrowserPlaybackView(props: Props) {
 			)}
 			<output className="browser-player-message" aria-live="polite">
 				{error ??
-					state.error ??
-					(track && !track.isPlayable
-						? "This track is unavailable for playback."
-						: "")}
+					(connection?.status === "reconnect_required"
+						? !connection.sdkReady && !connection.controlReady
+							? "Step 1 of 2: connect browser streaming. After returning, connect playback controls to finish setup."
+							: !connection.sdkReady
+								? "Reconnect browser streaming. Your playback controls are already connected."
+								: "Step 2 of 2: connect playback controls. Browser streaming is already connected."
+						: (state.error ??
+							(track && !track.isPlayable
+								? "This track is unavailable for playback."
+								: !ready
+									? (connection?.reason ?? state.message)
+									: "")))}
 			</output>
 		</section>
 	);

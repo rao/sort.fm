@@ -160,9 +160,7 @@ test("grant recovery preserves local pause and mute for confirmed audio", () => 
 test("compact player keeps setup controls discoverable and errors outside collapsed options", () => {
 	const p = props();
 	const idle = renderToStaticMarkup(<BrowserPlaybackView {...p} />);
-	expect(idle).toContain(
-		'<output class="browser-player-message" aria-live="polite"></output>',
-	);
+	expect(idle).toContain("Enable the browser player to listen here");
 	const html = renderToStaticMarkup(
 		<BrowserPlaybackView {...p} error="Playback needs attention" />,
 	);
@@ -173,12 +171,68 @@ test("compact player keeps setup controls discoverable and errors outside collap
 	expect(settings).not.toMatch(/^<details[^>]*\bopen/);
 	for (const label of [
 		"Player options",
-		"Check connection",
 		"Playback volume",
 		"Play each new song",
 	])
 		expect(settings).toContain(label);
 	expect(settings).not.toContain("Playback needs attention");
+	expect(settings).not.toContain("Check connection");
+	expect(html).toContain("Check connection");
 	expect(html).toContain("Playback needs attention");
 	expect(html).toContain("Enable browser player");
+});
+
+test("missing grants explain both consent stages outside Options and replace stale SDK errors", () => {
+	const p = props();
+	for (const sdkReady of [false, true]) {
+		const html = renderToStaticMarkup(
+			<BrowserPlaybackView
+				{...p}
+				state={{ ...p.state, connection: "error", error: "Old player error" }}
+				connection={{
+					status: "reconnect_required",
+					sdkReady,
+					controlReady: false,
+					reason: "Connect the remaining playback permissions.",
+				}}
+			/>,
+		);
+		const output = html.match(
+			/<output class="browser-player-message"[^>]*>(.*?)<\/output>/,
+		)?.[1];
+		expect(output).toContain(sdkReady ? "Step 2 of 2" : "Step 1 of 2");
+		expect(output).toContain(
+			sdkReady ? "playback controls" : "browser streaming",
+		);
+		expect(output).not.toContain("Old player error");
+		expect(html).toContain("Connect Spotify playback");
+		expect(html).not.toContain(">Reconnect player<");
+	}
+});
+
+test("device failure remains visible when both grants are valid; healthy playback stays compact", () => {
+	const p = props();
+	const failed = renderToStaticMarkup(
+		<BrowserPlaybackView
+			{...p}
+			state={{
+				...p.state,
+				connection: "error",
+				error: "This browser cannot initialize protected Spotify playback.",
+			}}
+		/>,
+	);
+	expect(failed).toContain("Reconnect player");
+	expect(failed).toContain("Check connection");
+	expect(failed).toMatch(
+		/<output[^>]*>This browser cannot initialize protected Spotify playback\.<\/output>/,
+	);
+	expect(failed).not.toContain("Step 1 of 2");
+	const ready = renderToStaticMarkup(
+		<BrowserPlaybackView {...p} state={{ ...p.state, connection: "ready" }} />,
+	);
+	expect(ready).not.toContain("Check connection");
+	expect(ready).toContain(
+		'<output class="browser-player-message" aria-live="polite"></output>',
+	);
 });

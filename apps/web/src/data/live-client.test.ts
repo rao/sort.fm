@@ -298,7 +298,7 @@ test("UNDO_PENDING preserves the original label and retry identity until confirm
 	let pending = true;
 	const keys: string[] = [];
 	const client = {
-		...f.client,
+		...createLiveClient(f.api, f.session, f.journal, { timeoutMs: 5, intervalMs: 1 }),
 		undo: async (id: string, request: Parameters<typeof f.client.undo>[1]) => {
 			keys.push(request.idempotencyKey);
 			if (pending)

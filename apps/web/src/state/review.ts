@@ -450,6 +450,7 @@ export class ReviewStore {
 		const recovering = this.state.retry !== null;
 		const revision = ++this.readRevision;
 		let refreshDetails = false;
+		let accepted = false;
 		// Set the guard before the first await: keyboard, pointer and clicks share one lock.
 		this.update({
 			busy: true,
@@ -468,7 +469,7 @@ export class ReviewStore {
 					throw new Error(
 						"The review queue changed. Reload the session to continue.",
 					);
-				const result = ReviewResultSchema.parse(
+				let result = ReviewResultSchema.parse(
 					await this.client.decide(command.request),
 				);
 				if (
@@ -480,6 +481,9 @@ export class ReviewStore {
 					throw new Error(
 						"The decision response did not match this song. Retry to reconcile the command.",
 					);
+				accepted = true;
+				if (result.status === "PENDING" && this.client.live)
+					result = await this.client.live.waitForSettlement(result, "COMPLETE");
 				if (result.status === "FAILED_TERMINAL")
 					throw new TerminalReviewError(
 						result.error?.message ??
@@ -516,16 +520,41 @@ export class ReviewStore {
 				);
 				if (!entry && !this.client.live)
 					throw new Error("This decision could not be found.");
-				const result = ReviewResultSchema.parse(
-					await this.client.undo(command.decisionId, command.request),
-				);
+				let result: ReviewResult;
+				try {
+					result = ReviewResultSchema.parse(
+						await this.client.undo(command.decisionId, command.request),
+					);
+					accepted = true;
+				} catch (error) {
+					if (
+						!this.client.live ||
+						!entry ||
+						!(error instanceof ApiError) ||
+						error.status !== 409 ||
+						error.error.code !== "UNDO_PENDING" ||
+						error.error.retryable !== true
+					)
+						throw error;
+					accepted = true;
+					result = await this.client.live.waitForSettlement(
+						entry.result,
+						"UNDONE",
+					);
+				}
 				if (
 					result.decisionId !== command.decisionId ||
-					(entry && result.trackId !== entry.result.trackId)
+					(entry &&
+						(result.trackId !== entry.result.trackId ||
+							result.exposureId !== entry.result.exposureId ||
+							result.action !== entry.result.action ||
+							result.idempotencyKey !== entry.result.idempotencyKey))
 				)
 					throw new Error(
 						"The restoration response did not match this decision.",
 					);
+				if (result.status === "PENDING" && this.client.live && entry)
+					result = await this.client.live.waitForSettlement(result, "UNDONE");
 				if (result.status === "FAILED_TERMINAL")
 					throw new TerminalReviewError(
 						result.error?.message ??
@@ -569,7 +598,7 @@ export class ReviewStore {
 			// before inserting a decision. Only a fresh attempt can be discarded;
 			// a retry must retain any earlier ambiguous outcome until history settles it.
 			if (
-				!recovering && command.kind === "decide" && this.client.live &&
+				!recovering && !accepted && command.kind === "decide" && this.client.live &&
 				error instanceof ApiError && error.status === 409 &&
 				(error.error.code === "BATCH_TRACK_RESERVED" || error.error.code === "POLICY_EXPOSURE_CLOSED") &&
 				error.error.retryable === false
@@ -597,6 +626,7 @@ export class ReviewStore {
 			// No other terminal or ambiguous response proves that no mutation occurred.
 			if (
 				!recovering &&
+				!accepted &&
 				this.client.live &&
 				error instanceof ApiError &&
 				error.status === 501 &&

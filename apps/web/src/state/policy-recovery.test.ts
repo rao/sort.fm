@@ -20,7 +20,10 @@ function fixture(
 			return f.transport(input, init);
 		}) as typeof fetch,
 	});
-	const client = createLiveClient(api, f.session, f.journal);
+	const client = createLiveClient(api, f.session, f.journal, {
+		timeoutMs: 5,
+		intervalMs: 1,
+	});
 	return { ...f, requests, client, store: new ReviewStore(client) };
 }
 

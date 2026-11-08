@@ -84,7 +84,17 @@ export interface Journal {
 	write(command: PendingCommand): void;
 	clear(): void;
 }
+export type SettlementOptions = {
+	intervalMs?: number;
+	timeoutMs?: number;
+	now?: () => number;
+	wait?: (ms: number) => Promise<void>;
+};
 export interface LiveGateway {
+	waitForSettlement(
+		expected: ReviewResult,
+		target: "COMPLETE" | "UNDONE",
+	): Promise<ReviewResult>;
 	snapshot(): Promise<LiveSnapshot>;
 	reviewSnapshot(): Promise<LiveReviewSnapshot>;
 	details(): Promise<LiveDetails>;
@@ -190,12 +200,14 @@ export function createLiveApi(
 		key: string,
 		operation: () => Promise<T>,
 		fresh = false,
+		retry = true,
 	): Promise<T> {
 		const existing = !fresh && inFlight.get(key);
 		if (existing) return existing as Promise<T>;
 		const request = operation()
 			.catch(async (error) => {
 				if (
+					!retry ||
 					!(error instanceof ApiError) ||
 					!error.error.retryable ||
 					isUnauthorized(error)
@@ -257,8 +269,8 @@ export function createLiveApi(
 			return read(`queue:${JSON.stringify(parsed)}`, () => shared.queue(parsed));
 		},
 		authUrl: `${base}${PUBLIC_ROUTES.authStart.path}`,
-		session: (options?: { fresh?: boolean }) =>
-			read("session", shared.session, options?.fresh),
+		session: (options?: { fresh?: boolean; retry?: boolean }) =>
+			read("session", shared.session, options?.fresh, options?.retry),
 		summary: () => read("summary", () => extra(PUBLIC_ROUTES.librarySummary)),
 		importStatus: () => read("import", () => extra(PUBLIC_ROUTES.syncStatus)),
 		startImport: () => extra(PUBLIC_ROUTES.sync),
@@ -269,8 +281,8 @@ export function createLiveApi(
 		retrain: () => extra(PUBLIC_ROUTES.retrain),
 		insights: (options?: { fresh?: boolean }) =>
 			read("insights", shared.insights, options?.fresh),
-		history: (options?: { fresh?: boolean }) =>
-			read("history", shared.history, options?.fresh),
+		history: (options?: { fresh?: boolean; retry?: boolean }) =>
+			read("history", shared.history, options?.fresh, options?.retry),
 	};
 }
 export type LiveApi = ReturnType<typeof createLiveApi>;
@@ -279,14 +291,15 @@ export function createLiveClient(
 	api: LiveApi,
 	session: AccountSession,
 	journal: Journal,
+	settlement: SettlementOptions = {},
 ): ReviewClient {
 	if (session.mode !== "spotify" || !session.user)
 		throw new Error("Connect Spotify to review your library.");
 	const ownerId = session.user.id;
-	async function assertOwner(write = false) {
+	async function assertOwner(write = false, retry = true) {
 		// A prior background read must not authorize a later mutation after an
 		// account switch. Check the owner anew at every operation boundary.
-		const current = await api.session({ fresh: true });
+		const current = await api.session({ fresh: true, retry });
 		if (current.mode !== "spotify" || current.user?.id !== ownerId)
 			throw new ApiError(401, {
 				code: "SESSION_CHANGED",
@@ -303,6 +316,87 @@ export function createLiveClient(
 				retryable: false,
 			});
 		return current;
+	}
+	async function waitForSettlement(
+		expected: ReviewResult,
+		target: "COMPLETE" | "UNDONE",
+	): Promise<ReviewResult> {
+		if (expected.error?.retryable === false)
+			throw new ApiError(409, expected.error);
+		const now = settlement.now ?? Date.now;
+		const wait =
+			settlement.wait ??
+			((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+		const timeoutMs = settlement.timeoutMs ?? 10_000;
+		const intervalMs = settlement.intervalMs ?? 250;
+		const deadline = now() + timeoutMs;
+		let active = true;
+		const timeout = () =>
+			new Error(
+				"This decision is still settling. Check the saved outcome or retry with its original request key.",
+			);
+		const checkDeadline = () => {
+			if (!active || now() >= deadline) throw timeout();
+		};
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const expired = new Promise<never>((_, reject) => {
+			timer = setTimeout(() => {
+				active = false;
+				reject(timeout());
+			}, timeoutMs);
+		});
+		// A stalled GET is bounded by the whole polling deadline, not just the per-request timeout.
+		// Late reads can finish but cannot apply a result or start another request.
+		const poll = async () => {
+			while (true) {
+				checkDeadline();
+				await wait(Math.min(intervalMs, deadline - now()));
+				checkDeadline();
+				await assertOwner(false, false);
+				checkDeadline();
+				const history = await api.history({ fresh: true, retry: false });
+				checkDeadline();
+				await assertOwner(false, false);
+				checkDeadline();
+				if (history.items.some((item) => item.mode !== "spotify"))
+					throw new Error("Live history returned demo decisions.");
+				const matches = history.items.filter(
+					(item) =>
+						item.decisionId === expected.decisionId ||
+						item.idempotencyKey === expected.idempotencyKey,
+				);
+				const result = matches[0];
+				if (!result) continue;
+				if (
+					matches.length !== 1 ||
+					result.mode !== expected.mode ||
+					result.decisionId !== expected.decisionId ||
+					result.trackId !== expected.trackId ||
+					result.exposureId !== expected.exposureId ||
+					result.action !== expected.action ||
+					result.idempotencyKey !== expected.idempotencyKey
+				)
+					throw new Error(
+						"The saved outcome did not match this decision. Review remains paused for recovery.",
+					);
+				if (result.error?.retryable === false)
+					throw new ApiError(409, result.error);
+				if (
+					result.status === target ||
+					result.status === "FAILED_TERMINAL" ||
+					result.status === "FAILED_RETRYABLE" ||
+					result.status === "UNDONE"
+				)
+					return result;
+				// An accepted Undo retains COMPLETE and its active label until UNDONE.
+			}
+		};
+		try {
+			return await Promise.race([poll(), expired]);
+		} finally {
+			active = false;
+			clearTimeout(timer);
+		}
 	}
 	async function readReview(current: AccountSession): Promise<LiveReviewSnapshot> {
 		const [queue, summary] = await Promise.all([
@@ -367,6 +461,7 @@ export function createLiveClient(
 	}
 	return {
 		live: {
+			waitForSettlement,
 			snapshot,
 			reviewSnapshot: async () => readReview(await assertOwner()),
 			details: async () => {

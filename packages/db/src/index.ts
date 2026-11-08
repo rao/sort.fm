@@ -20,3 +20,5 @@ export {PostgresPolicyStore} from './policy-store';
 
 export {reviewExclusionManifestDigest,type ReviewExclusionManifest,type ReviewExclusionPolicy} from './review-exclusions';
 export {PostgresCalibrationExperimentStore} from "./calibration-experiment";
+
+export {PostgresConstellationStore} from './constellation';

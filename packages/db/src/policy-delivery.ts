@@ -1,5 +1,7 @@
 import {z} from 'zod';import {IdSchema,UuidSchema,TimestampSchema,PolicyAssociationReceiptSchema,PolicyReleaseReceiptSchema,type PolicyDeliveryLease,type PolicyDeliveryAck} from '@sortfm/contracts';
 import {Database,json,type Transaction} from './client';import * as p from './policy-core';
+// Fixed cross-clock tolerance; never extends the DB-authoritative grace or lease.
+const ABSENCE_CLOCK_SKEW_MS=500;
 const ackSchema=z.discriminatedUnion('kind',[
  z.strictObject({userId:IdSchema,eventId:UuidSchema,leaseId:UuidSchema,kind:z.literal('associate'),receipt:PolicyAssociationReceiptSchema}),
  z.strictObject({userId:IdSchema,eventId:UuidSchema,leaseId:UuidSchema,kind:z.literal('release'),receipt:PolicyReleaseReceiptSchema}),
@@ -27,8 +29,10 @@ export class PolicyDeliveryRepository {
    }else if(v.kind==='release'){
     const r=v.receipt;if(row.kind!=='release'||r.userId!==v.userId||r.requestId!==row.payload.requestId||r.exposureId!==row.exposure_id||(binding.track_id!==null&&r.trackId!==binding.track_id)||Date.parse(r.effectiveClosedAt)>Date.parse(r.expiresAt)||(r.outcome==='released'&&Date.parse(r.effectiveClosedAt)>Date.parse(r.recordedAt)))p.fail('POLICY_RECEIPT_MISMATCH');
    }else{
-    const at=await p.now(tx),checked=Date.parse(v.checkedAt);
-    if(row.kind!=='release'||v.exposureId!==row.exposure_id||intent.draft.kind!=='adaptive'||intent.publication!==null||binding.published||checked<new Date(row.lease_started_at).getTime()||checked>at||checked<new Date(intent.expires_at).getTime()+60000)p.fail('POLICY_RECEIPT_MISMATCH');
+    const at=await p.now(tx),checked=Date.parse(v.checkedAt),started=new Date(row.lease_started_at).getTime(),graceAt=new Date(intent.expires_at).getTime()+60000;
+    // A pre-grace claim must be retried under a fresh lease. Preserve checkedAt
+    // verbatim in the receipt; tolerate clock skew without inventing proof time.
+    if(row.kind!=='release'||v.exposureId!==row.exposure_id||intent.draft.kind!=='adaptive'||intent.publication!==null||binding.published||started<graceAt||at<graceAt||at<started||checked<started-ABSENCE_CLOCK_SKEW_MS||checked>at+ABSENCE_CLOCK_SKEW_MS)p.fail('POLICY_RECEIPT_MISMATCH');
    }
    const absence=v.kind==='release_absent';await tx`UPDATE policy_delivery_events SET completed_at=clock_timestamp(),disposition=${absence?'absent_after_deadline':'acknowledged'},receipt=${json(absence?v:v.receipt)}::jsonb,lease_id=NULL,lease_until=NULL,worker_id=NULL,error_code=NULL WHERE event_id=${row.event_id}`;
    if(row.kind==='release')await tx`UPDATE policy_selection_intents SET status=CASE WHEN expires_at<=clock_timestamp() THEN 'expired' ELSE 'closed' END,lease_id=NULL,lease_until=NULL WHERE user_id=${v.userId} AND request_id=${row.request_id} AND status='release_pending'`;

@@ -236,3 +236,85 @@ test('a fresh C1 fallback may load a new batch while the abandoned adaptive draf
  expect(first.request.candidates.every(c=>c.features.values.recent_play_count===1)).toBe(true);
  expect(last.items.every(c=>c.features.values.recent_play_count===2)).toBe(true);
 });
+
+test('whole queue deadline includes switching a 20-card C1 publication before adaptive selection',async()=>{
+ const s=setup(),row=s.snapshot.library[0]!;
+ s.snapshot.library=Array.from({length:2397},(_,n)=>({...row,track:{...row.track,trackId:id(n+1),spotifyUri:`spotify:track:${id(n+1)}` as const}}));
+ s.snapshot.eligibleTrackIds=s.snapshot.library.map(row=>row.track.trackId);s.snapshot.remaining=2397;
+ await new PolicyQueueService(s.store,{now:()=>now}).get(owner,query);
+ expect(s.current()!.publication!.items).toHaveLength(20);
+ let finish!:()=>void,releaseCalls=0;
+ const gate=new Promise<void>(resolve=>{finish=resolve;}),release=s.store.releaseSelection;
+ s.store.releaseSelection=async input=>{releaseCalls++;await gate;return release(input);};
+ const queue=new PolicyQueueService(s.store,{now:()=>now,enabled:true,strategy:'epsilon_greedy',client:s.client,requestTimeoutMs:5});
+ try{
+  const outcome=await Promise.race([queue.get(owner,query).then(()=>({code:'unexpected-success'}),error=>error),Bun.sleep(100).then(()=>({code:'missing-request-deadline'}))]);
+  expect(outcome).toMatchObject({code:'QUEUE_PREPARING',statusCode:503,retryable:true});
+  expect(releaseCalls).toBe(1);expect(s.requests).toHaveLength(0);
+  const retry=queue.get(owner,query);finish();const result=await retry;
+  expect(result.items).toHaveLength(1);expect(releaseCalls).toBe(1);expect(s.requests).toHaveLength(1);
+  expect(s.intents).toHaveLength(2);expect(s.published).toHaveLength(2);expect(s.released).toHaveLength(1);
+  expect((await queue.get(owner,query)).items).toEqual(result.items);expect(s.requests).toHaveLength(1);
+ }finally{finish();}
+});
+
+test('identical concurrent requests share work, isolate returned objects, and do not cache consumed cards',async()=>{
+ const s=setup();let finish!:()=>void,reads=0;
+ const gate=new Promise<void>(resolve=>{finish=resolve;}),read=s.store.currentSelection;
+ s.store.currentSelection=async user=>{reads++;await gate;return read(user);};
+ const queue=new PolicyQueueService(s.store,{now:()=>now,enabled:true,strategy:'linucb',client:s.client});
+ const first=queue.get(owner,query),second=queue.get(owner,query);
+ await expect(queue.get(owner,{...query,limit:1})).rejects.toMatchObject({code:'POLICY_SELECTION_BUSY',statusCode:409,retryable:true});
+ finish();const [a,b]=await Promise.all([first,second]);
+ expect(reads).toBe(1);expect(a).toEqual(b);expect(a).not.toBe(b);a.items.length=0;expect(b.items).toHaveLength(1);
+ expect(s.intents).toHaveLength(1);expect(s.requests).toHaveLength(1);
+ s.current()!.servableExposureIds=[];s.current()!.replayable=false;s.snapshot.eligibleTrackIds=[id(3)];
+ const replacement=await queue.get(owner,query);
+ expect(reads).toBe(2);expect(replacement.items[0]!.track.trackId).toBe(id(3));expect(s.intents).toHaveLength(2);
+});
+
+test('timed-out owner does not block another owner and a late failure clears its flight',async()=>{
+ const s=setup();let fail!:(error:Error)=>void;
+ const gate=new Promise<never>((_,reject)=>{fail=reject;});
+ s.store.currentSelection=async user=>user===owner?gate:null;
+ s.store.reviewCandidates=async()=>({...s.snapshot,library:[],eligibleTrackIds:[],remaining:0});
+ const queue=new PolicyQueueService(s.store,{requestTimeoutMs:5});
+ const pending=queue.get(owner,query);
+ expect((await queue.get('spotify:other',query)).items).toEqual([]);
+ await expect(pending).rejects.toMatchObject({code:'QUEUE_PREPARING'});
+ fail(new Error('late private database failure'));
+ await Bun.sleep(0);
+ s.store.currentSelection=async()=>null;
+ expect((await queue.get(owner,query)).remaining).toBe(0);
+});
+
+import {createLiveApi} from '../../../../web/src/data/live-client';
+test('HTTP and existing browser client expose typed retry during ordinary replacement then replay one late publication',async()=>{
+ const s=setup();let finish!:()=>void,publishCalls=0;
+ const gate=new Promise<void>(resolve=>{finish=resolve;}),publish=s.store.publishSelection;
+ s.store.publishSelection=async input=>{publishCalls++;await gate;return publish(input);};
+ const queue=new PolicyQueueService(s.store,{now:()=>now,enabled:true,strategy:'epsilon_greedy',client:s.client,requestTimeoutMs:10});
+ const app=Fastify();
+ await app.register(createReviewQueueModule({queue,config:{secureCookies:false,webOrigin:'http://127.0.0.1:5173',apiOrigin:'http://127.0.0.1:3000'},auth:{session:async()=>({user:{id:owner}})}}).registerRoutes);
+ const statuses:number[]=[];
+ const api=createLiveApi({fetch:(async input=>{
+  const response=await app.inject(String(input));statuses.push(response.statusCode);
+  expect(response.headers['cache-control']).toBe('no-store');
+  return new Response(response.body,{status:response.statusCode,headers:{'content-type':'application/json'}});
+ }) as typeof fetch});
+ try {
+  await expect(api.queue(query)).rejects.toMatchObject({status:503,error:{code:'QUEUE_PREPARING',retryable:true,message:'Your review queue is still being prepared. Retry shortly.'}});
+  expect(publishCalls).toBe(1);expect(s.requests).toHaveLength(1);expect(s.released).toHaveLength(0);
+  const retry=api.queue(query);finish();const result=await retry;
+  // Allow the browser's bounded read retry without coupling this API regression
+  // to whether the current client automatically retries once or only manually.
+  expect(statuses.at(-1)).toBe(200);expect(statuses.slice(0,-1).every(status=>status===503)).toBe(true);
+  expect(statuses.length).toBeGreaterThanOrEqual(2);expect(statuses.length).toBeLessThanOrEqual(3);expect(result.items).toHaveLength(1);
+  expect((await api.queue(query)).items).toEqual(result.items);
+  expect(s.intents).toHaveLength(1);expect(s.published).toHaveLength(1);expect(s.released).toHaveLength(0);
+ }finally{finish();await app.close();}
+});
+
+test('request deadline rejects invalid budgets and keeps browser transport headroom',()=>{
+ for(const requestTimeoutMs of [0,-1,NaN,Infinity,1.5,15001])expect(()=>new PolicyQueueService(setup().store,{requestTimeoutMs})).toThrow('Invalid queue request deadline');
+});

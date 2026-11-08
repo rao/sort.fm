@@ -12,6 +12,8 @@ export interface PolicyQueueOptions extends QueueOptions {
   enabled?:boolean;strategy?:'c1'|'epsilon_greedy'|'linucb';client?:PolicyClient;
   config?:Partial<Omit<PolicyConfig,'strategy'>>;seed?:number;
   selectionTimeoutMs?:number;leaseMs?:number;reservationMs?:number;
+  /** HTTP wait budget only; durable selection continues after this expires. */
+  requestTimeoutMs?:number;
 }
 const fallbackVersion=(strategy:string)=>`queue:c1-fallback:${strategy}:v1`;
 
@@ -22,12 +24,16 @@ export class PolicyQueueService {
   private readonly timeout:number;
   private readonly leaseMs:number;
   private readonly reservationMs:number;
+  private readonly requestTimeoutMs:number;
+  private readonly inFlight=new Map<string,{fingerprint:string;promise:Promise<QueueResult>}>();
   private readonly assemble:NonNullable<QueueOptions['assemble']>;
   constructor(private readonly store:QueueStore,private readonly options:PolicyQueueOptions={}) {
     this.now=options.now??Date.now;
     this.strategy=options.enabled?options.strategy??'c1':'c1';
     this.timeout=options.selectionTimeoutMs??15000;this.leaseMs=options.leaseMs??60000;
     this.reservationMs=options.reservationMs??300000;
+    this.requestTimeoutMs=options.requestTimeoutMs??12000;
+    if(!Number.isInteger(this.requestTimeoutMs)||this.requestTimeoutMs<=0||this.requestTimeoutMs>15000)throw new Error('Invalid queue request deadline');
     if(!Number.isInteger(this.timeout)||this.timeout<=0||!Number.isInteger(this.leaseMs)||this.leaseMs>120000
       ||this.leaseMs<this.timeout+1000||!Number.isInteger(this.reservationMs)||this.reservationMs<30000||this.reservationMs>900000)throw new Error('Invalid policy queue deadlines');
     PolicyConfigSchema.parse({...options.config,strategy:this.strategy});
@@ -62,6 +68,28 @@ export class PolicyQueueService {
   async get(userId:string,input:{limit:number;policy:QueuePolicy;mode:'spotify'|'demo'}):Promise<QueueResult> {
     const query=QueueQuerySchema.parse(input);
     if(query.mode!=='spotify')throw new SpotifyError('MODE_NOT_SUPPORTED','Use the explicit demo endpoint for demo data.',400);
+    const fingerprint=JSON.stringify([query.mode,query.policy,query.limit]);
+    let flight=this.inFlight.get(userId);
+    if(flight&&flight.fingerprint!==fingerprint)throw new SpotifyError('POLICY_SELECTION_BUSY','A review selection is being prepared. Retry shortly.',409,true);
+    if(!flight) {
+      flight={fingerprint,promise:this.getSelection(userId,query)};
+      this.inFlight.set(userId,flight);
+      const pending=flight;
+      const clear=()=>{if(this.inFlight.get(userId)===pending)this.inFlight.delete(userId);};
+      // Observe failures even when all HTTP callers have timed out. Never cache
+      // completed results: the next request must recheck durable eligibility.
+      void flight.promise.then(clear,clear);
+    }
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    try {
+      const deadline=new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new SpotifyError(
+        'QUEUE_PREPARING','Your review queue is still being prepared. Retry shortly.',503,true)),this.requestTimeoutMs);});
+      // A response timeout must not cancel publication, abandon its reservation,
+      // or create a competing fallback. Retries join the same durable operation.
+      return structuredClone(await Promise.race([flight.promise,deadline]));
+    } finally {if(timer!==undefined)clearTimeout(timer);}
+  }
+  private async getSelection(userId:string,query:{limit:number;policy:QueuePolicy;mode:'spotify'|'demo'}):Promise<QueueResult> {
     const current=await this.store.currentSelection(userId);
     if(current&&current.userId!==userId)throw new Error('POLICY_OWNER_MISMATCH');
     if(current?.replayable&&current.servableExposureIds.length) {

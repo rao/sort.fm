@@ -1,8 +1,10 @@
 /* The desktop and its nested tables share the same square, inset scroll rails. */
 :where(
 		html:has(.draft-root),
+		html:has(.music-desk),
 		html:has(.model-lab),
 		.draft-root *,
+		.music-desk *,
 		.model-lab *
 	) {
 	--scroll-track: var(--d-soft, var(--color-background-secondary-default));
@@ -12,8 +14,10 @@
 }
 :where(
 		html:has(.draft-root),
+		html:has(.music-desk),
 		html:has(.model-lab),
 		.draft-root *,
+		.music-desk *,
 		.model-lab *
 	)::-webkit-scrollbar {
 	width: 12px;
@@ -21,8 +25,10 @@
 }
 :where(
 		html:has(.draft-root),
+		html:has(.music-desk),
 		html:has(.model-lab),
 		.draft-root *,
+		.music-desk *,
 		.model-lab *
 	)::-webkit-scrollbar-track {
 	background: var(--scroll-track);
@@ -30,8 +36,10 @@
 }
 :where(
 		html:has(.draft-root),
+		html:has(.music-desk),
 		html:has(.model-lab),
 		.draft-root *,
+		.music-desk *,
 		.model-lab *
 	)::-webkit-scrollbar-thumb {
 	background: var(--scroll-thumb);
@@ -41,8 +49,10 @@
 }
 :where(
 		html:has(.draft-root),
+		html:has(.music-desk),
 		html:has(.model-lab),
 		.draft-root *,
+		.music-desk *,
 		.model-lab *
 	)::-webkit-scrollbar-corner {
 	background: var(--scroll-track);
@@ -50,8 +60,10 @@
 @supports not selector(::-webkit-scrollbar) {
 	:where(
 			html:has(.draft-root),
+			html:has(.music-desk),
 			html:has(.model-lab),
 			.draft-root *,
+			.music-desk *,
 			.model-lab *
 		) {
 		scrollbar-color: var(--scroll-thumb) var(--scroll-track);
@@ -61,8 +73,10 @@
 @media (forced-colors: active) {
 	:where(
 			html:has(.draft-root),
+			html:has(.music-desk),
 			html:has(.model-lab),
 			.draft-root *,
+			.music-desk *,
 			.model-lab *
 		) {
 		--scroll-track: Canvas;

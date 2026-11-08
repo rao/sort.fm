@@ -97,7 +97,7 @@ test("history disables Undo with an explanation while model training is in fligh
 	const html = renderToStaticMarkup(
 		<History state={state} onUndo={() => {}} />,
 	);
-	expect(html).toMatch(/class="button ghost small" disabled=""/);
+	expect(html).toMatch(/class="button ghost small desk-undo" disabled=""/);
 	expect(html).toContain("Training is in progress");
 });
 

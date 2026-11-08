@@ -1,5 +1,7 @@
 # Pocket player UI draft
 
+**Current status (2026-11-08):** The approved music desk is now integrated into the normal app at `/`. `draft.html` remains a fictional design reference. The historical sections below describe earlier draft milestones; see the connected integration section at the end for current scope and verification.
+
 Local preview: `http://127.0.0.1:5198/draft.html#/review`
 Landing page: `http://127.0.0.1:5198/draft.html#/home`
 
@@ -69,3 +71,24 @@ Frozen histogram labels use rounded whole-number ranges (0–33 / 33–67 / 67�
 Integration lint follow-up: semantic fieldsets for named control groups, named sections for table regions, output elements for status notices, explicit button types, stable histogram/reason keys, and complete callback dependencies. Each table retains keyboard focus and arrow-key scrolling; three attribute-local Biome suppressions document this legitimate use of tabindex. SwipeCard's decorative shortcut glyphs remain hidden from screen readers while each button retains its accessible shortcut label. No App, Calibration, backend, contracts or model logic changes.
 
 Validation: typecheck, production frontend build and draft build passed (existing Zod annotation and bundle-size warnings remain). Focused Model Lab suite: 10 passed, 0 failed, 33 assertions. Seven touched source files passed Biome 2.3.4 lint using the web rules and the integration lead's Tailwind parser setting in an isolated temporary config; full integration lint remains the lead's check. Browser: desktop document exactly 1280 × 720, sidebar ends at 720 and profile at 702; mobile 390 × 844 preview fits its 82px control with no horizontal overflow; player/history disabled Undo opacity is 1. Comparison table keyboard ArrowRight moved scrollLeft from 0 to 40 while retaining focus and green themed thumb. Frozen distribution labels show rounded ranges. The new shell is still a separate fictional draft at draft.html; localhost itself does not prevent Spotify integration, and existing connected flows remain in index.html.
+
+
+## Connected music desk integration — 2026-11-08
+
+The production entry now applies the approved retro shell to the existing connected React app. Use `http://127.0.0.1:5198/` for the existing Spotify session/login flow, or `http://127.0.0.1:5198/?mode=demo#/review` for explicit fictional QA. Localhost itself does not disable Spotify; the previous `draft.html` entry deliberately used demo data.
+
+- Sort wraps the real SwipeCard/ReviewStore in the tactile device. Actual song metadata, artwork, exposure predictions and authoritative decisions are retained. Archive/Unlike capability guards, retry/recovery and Undo remain active.
+- Teach keeps the combined Batch 3 CalibrationWorkspace and its state/client untouched. Demo songs cannot become personal training labels.
+- Library exposes Overview plus Sync. Import status and library summary settle independently, so a denied/unavailable import-status read cannot discard a successful summary or hide an already-imported collection.
+- History keeps persisted decisions, search/filter and Undo. Model exposes Lab plus the original rich Inspector. Missing metrics remain unavailable, and frozen measured evidence stays distinct from live predictions.
+- Account identity and connection controls appear on both desktop and phone. Playback remains the existing BrowserPlayback/SDK integration; hiding its controls leaves its session mounted. Calibration still passes its selected track to playback.
+- No success toast. Accessible announcements remain, and an opaque disabled Undo is present in the device and after the last track. Errors and uncertain outcomes retain explicit recovery controls.
+- Shared light/night tokens, one-word channels, themed scrollbars and compact laptop/phone layouts. Short viewports use artwork beside metadata to keep all four choices reachable. Mobile playback says “No preview” with its full accessible explanation.
+
+Verification: root typecheck, all-web Biome lint, production/API build, separate draft build, and foundation HTTP smoke passed. Root suite: **1,030 passed, 182 environment-gated skipped, 0 failed; 5,556 assertions**. Web suite: **239 passed, 0 failed; 1,117 assertions**. Local HTTP socket checks required sandbox escalation; no Spotify calls were made by those checks. Existing Zod annotation and JS chunk-size warnings remain (production JS approximately 557 kB / 168 kB gzip).
+
+Independent review found and resolved two regressions: Undo after queue exhaustion and vertical touch gesture cancellation. An empty-queue Undo regression test was added, and the swipe surface again uses `touch-action: none`. Mobile QA also caught/fixed account controls behind the navigation layer and night-mode selected-key contrast.
+
+Browser verification used only explicit fictional demos: Keep, Undo, queue completion, account dialog, playback toggle, Library/Sync, History, Teach connection gate, Model Lab/Inspector and light/night themes. Laptop checked at 1280×720; phone checked in a temporary 390×844 frame with no horizontal overflow, all four choices visible and clean compact preview controls. The temporary QA page was removed. The IAB viewport override and one older QA tab timed out; a fresh tab plus responsive frame supplied the visual checks without touching other chats' tabs.
+
+Acceptance boundary: **No new real-account OAuth, provider mutation or audible Spotify playback was exercised in this UI pass.** Integration lead owns canonical merge/deployment and the separate read-only real-account smoke. API/contracts/model code is unchanged. Earlier standalone commit `1814466` allows server-authorized Keep/Skip Undo in read-only sessions and is already integrated by the lead.

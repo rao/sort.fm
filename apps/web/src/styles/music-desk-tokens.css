@@ -1,0 +1,74 @@
+/* Approved music desk palette, shared by live and explicit demo sessions. */
+:root {
+	--d-ground: #9bb8ab;
+	--d-paper: #fcf2d7;
+	--d-ink: #273d35;
+	--d-muted: #596457;
+	--d-line: #a5ac90;
+	--d-accent: #a83e24;
+	--d-on-accent: #fff9e4;
+	--d-soft: #e8ddbb;
+	--r-edge: #354b40;
+	--r-shadow: #476353;
+	--r-chrome: #31584d;
+	--r-chrome-text: #fff3cd;
+	--r-highlight: #fffdf0;
+	--r-button: #e9e3c7;
+	--r-yellow: #f3cb5e;
+	--r-key-ink: #273d35;
+	--r-blue: #a7c5d2;
+	--r-coral: #e69a7b;
+	--r-green: #b9c987;
+	--r-lilac: #c3b2cf;
+	--r-grid: #839f94;
+	--d-metal-top: #fff3c9;
+	--d-metal-mid: #e8cf91;
+	--d-metal-edge: #8e805a;
+	--d-device-ink: #394837;
+	--d-device-muted: #62654e;
+	--d-orange: #d65932;
+	--font-inter: "Verdana";
+	--font-sans: "Verdana", sans-serif;
+	--color-background-primary-default: var(--d-paper);
+	--color-background-secondary-default: var(--d-soft);
+	--color-background-tertiary-default: var(--d-soft);
+	--color-background-tertiary-hover: var(--r-button);
+	--color-border-button-default: var(--r-edge);
+	--color-border-button-hover: var(--r-edge);
+	--color-border-button-active: var(--r-edge);
+	--gradient-button-primary-default: linear-gradient(
+		var(--d-orange),
+		var(--d-orange)
+	);
+	--gradient-button-primary-hover: linear-gradient(
+		var(--d-accent),
+		var(--d-accent)
+	);
+}
+:root.dark {
+	--d-ground: #263f37;
+	--d-paper: #354d40;
+	--d-ink: #fff3cd;
+	--d-muted: #c7cfaf;
+	--d-line: #788969;
+	--d-accent: #ffc37b;
+	--d-on-accent: #fff9e4;
+	--d-soft: #465e48;
+	--r-edge: #111f19;
+	--r-shadow: #132b20;
+	--r-chrome: #192e26;
+	--r-chrome-text: #f5e7bc;
+	--r-highlight: #779071;
+	--r-button: #547355;
+	--r-yellow: #e4bd5c;
+	--r-blue: #7399a2;
+	--r-coral: #d39375;
+	--r-green: #98b274;
+	--r-lilac: #b0a0bf;
+	--r-grid: #355148;
+	--d-metal-top: #81926e;
+	--d-metal-mid: #63754f;
+	--d-metal-edge: #2e452d;
+	--d-device-ink: #fff1c7;
+	--d-device-muted: #e2e5bf;
+}

@@ -5,6 +5,10 @@ import { ConnectedRoot } from "./components/Connected";
 import { createDemoClient, type DemoScenario } from "./data/demo-client";
 import { DirectionProvider } from "#ui/components/foundations/direction/direction";
 import "./styles/app.css";
+import "@fontsource/vt323/latin.css";
+import "@fontsource-variable/bricolage-grotesque";
+import "./styles/music-desk.css";
+import "./styles/scrollbars.css";
 
 // Demo is an explicit entry point and never constructs a live client.
 // Fault fixtures are opt-in and scoped to this local demo adapter.

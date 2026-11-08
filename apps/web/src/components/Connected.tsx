@@ -138,6 +138,23 @@ export function ConnectedRoot() {
 	);
 }
 
+export async function loadLibraryOverview(api: LiveApi) {
+	const [status, summary] = await Promise.allSettled([
+		api.importStatus(),
+		api.summary(),
+	]);
+	return {
+		status: status.status === "fulfilled" ? status.value : null,
+		summary: summary.status === "fulfilled" ? summary.value : null,
+		error:
+			[status, summary]
+				.flatMap((result) =>
+					result.status === "rejected" ? [errorMessage(result.reason)] : [],
+				)
+				.join(" · ") || null,
+	};
+}
+
 export function ConnectedLibrary({
 	api,
 	onReview,
@@ -159,15 +176,15 @@ export function ConnectedLibrary({
 		let timer: ReturnType<typeof setTimeout>;
 		async function poll() {
 			try {
-				const [next, counts] = await Promise.all([
-					api.importStatus(),
-					api.summary(),
-				]);
+				const result = await loadLibraryOverview(api);
 				if (disposed) return;
-				setStatus(next);
-				setSummary(counts);
-				setError(null);
-				if (next.status === "pending" || next.status === "running")
+				if (result.status) setStatus(result.status);
+				if (result.summary) setSummary(result.summary);
+				setError(result.error);
+				if (
+					result.status?.status === "pending" ||
+					result.status?.status === "running"
+				)
 					timer = setTimeout(() => void poll(), 1500);
 			} catch (cause) {
 				if (!disposed) setError(errorMessage(cause));

@@ -2,14 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PUBLIC_ROUTES, type ReviewAction } from "@sortfm/contracts";
 import type { ReviewClient } from "./data/demo-client";
 import { ReviewStore, actionFromKey } from "./state/review";
-import {
-	Cover,
-	EmptyState,
-	Icon,
-	Logo,
-	Modal,
-	Progress,
-} from "./components/ui";
+import { Cover, EmptyState, Icon, Modal, Progress } from "./components/ui";
 import { Landing } from "./components/Landing";
 import { Library } from "./components/Library";
 import { CalibrationWorkspace } from "./components/Calibration";
@@ -31,7 +24,8 @@ import { ModelLab } from "./components/ModelLab";
 import { Insights } from "./components/Insights";
 import { Dashboard } from "./components/Dashboard";
 import { ModelPanel } from "./components/ModelPanel";
-import { ActionButtons, SwipeCard } from "./components/SwipeCard";
+import { MusicDeskChrome } from "./components/MusicDesk";
+import { ReviewPlayer, ReviewUndo } from "./components/ReviewPlayer";
 const routes = [
 	"library",
 	"calibrate",
@@ -120,7 +114,16 @@ export default function App({
 	const [modal, setModal] = useState<
 		"connect" | "shortcuts" | "playback" | null
 	>(null);
-	const [toastDismissed, setToastDismissed] = useState(-1);
+	const [night, setNight] = useState(false);
+	const [showDetails, setShowDetails] = useState(
+		() => window.innerWidth >= 1100,
+	);
+	const [showPlayback, setShowPlayback] = useState(
+		() => window.innerWidth > 600,
+	);
+	useEffect(() => {
+		document.documentElement.classList.toggle("dark", night);
+	}, [night]);
 	const canRemove = !live || !!client.live?.session.capabilities.spotifyWrite;
 	const isReview = route === "review";
 	const current = state.queue[0];
@@ -214,7 +217,7 @@ export default function App({
 		const observer = new ResizeObserver(updateHeight);
 		observer.observe(footer);
 		return () => observer.disconnect();
-	}, [route]);
+	}, [route, showPlayback]);
 	const decide = (action: ReviewAction) => {
 		if (!canRemove && (action === "ARCHIVE" || action === "UNLIKE"))
 			setModal("connect");
@@ -342,7 +345,7 @@ export default function App({
 			</>
 		);
 	return (
-		<div className="app-shell" ref={shellRef}>
+		<div className="app-shell music-desk" data-route={route} ref={shellRef}>
 			<button
 				type="button"
 				className="skip-link"
@@ -350,40 +353,21 @@ export default function App({
 			>
 				Skip to content
 			</button>
-			<header className="app-header">
-				<Logo />
-				<nav aria-label="Workspace navigation">
-					{[
-						["review", "Sort", "music"],
-						["calibrate", "Teach", "spark"],
-						["dashboard", "Library", "library"],
-						["history", "History", "clock"],
-					].map(([path, label, icon]) => (
-						<a
-							key={path}
-							href={`#/${path}`}
-							className={route === path ? "active" : ""}
-							aria-current={route === path ? "page" : undefined}
-						>
-							<Icon name={icon as "music"} size={17} />
-							{label}
-						</a>
-					))}
-				</nav>
-				<div className="header-right">
-					<span className="demo-badge">
-						<span /> {live ? "SPOTIFY CONNECTED" : "DEMO MODE"}
-					</span>
-					<button
-						type="button"
-						className="avatar-button"
-						onClick={() => setModal("connect")}
-						aria-label="Account and Spotify connection"
-					>
-						{live ? client.live?.session.user?.displayName.slice(0, 1) : "D"}
-					</button>
-				</div>
-			</header>
+			<MusicDeskChrome
+				route={route}
+				session={client.live?.session ?? state.bootstrap?.session ?? null}
+				total={
+					live ? (state.summary?.total ?? null) : state.bootstrap ? total : null
+				}
+				remaining={
+					live ? state.remaining : state.bootstrap ? state.queue.length : null
+				}
+				night={night}
+				playbackVisible={showPlayback}
+				onNight={() => setNight((v) => !v)}
+				onPlayback={() => setShowPlayback((v) => !v)}
+				onAccount={() => setModal("connect")}
+			/>
 			<div className="demo-strip">
 				{route === "calibrate" ? (
 					<>
@@ -404,7 +388,7 @@ export default function App({
 					Model Lab <Icon name="arrow" size={13} />
 				</a>
 			</div>
-			<main id="main" tabIndex={-1}>
+			<main id="main" key={route} tabIndex={-1}>
 				{route === "calibrate" ? (
 					<CalibrationWorkspace store={calibration} />
 				) : live && route === "library" ? (
@@ -491,11 +475,9 @@ export default function App({
 					<div className="workspace">
 						<div className="workspace-heading">
 							<div>
-								<span className="eyebrow">
-									A LITTLE SPACE FOR THE MUSIC YOU LOVE
-								</span>
-								<h1>Still your kind of music?</h1>
-								<p>Keep what moves you. Make room for what’s next.</p>
+								<span className="eyebrow">NOW SORTING</span>
+								<h1>Does it still hit?</h1>
+								<p>Give it a moment. Go with your gut.</p>
 							</div>
 							<div className="session-counter">
 								<strong>
@@ -517,66 +499,20 @@ export default function App({
 							</div>
 						</div>
 
-						<div className="workspace-grid">
-							<section className="review-column" aria-label="Review songs">
-								<div className="queue-overline">
-									<span>
-										<i className="status-dot" />
-										YOUR DAILY REDISCOVERY
-									</span>
-									<span>
-										{live
-											? `${state.queue.length} loaded`
-											: `${String(completed.length + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`}
-									</span>
-								</div>
-								<SwipeCard
-									key={current.track.trackId}
-									item={current}
-									next={state.queue[1]}
-									busy={
-										state.busy ||
-										state.retraining ||
-										!!state.retry ||
-										state.refreshing ||
-										!!state.refreshError
-									}
-									departure={state.departure}
-									onAction={decide}
-								/>
-								<ActionButtons
-									canRemove={canRemove}
-									disabled={
-										state.busy ||
-										state.retraining ||
-										!!state.retry ||
-										state.refreshing ||
-										!!state.refreshError
-									}
-									onAction={decide}
-								/>
-								<div className="review-helper">
-									<span>
-										{state.busy
-											? "Saving your decision…"
-											: "Drag the cover or use your arrow keys"}
-									</span>
-									<button
-										type="button"
-										className="text-button"
-										onClick={() => setModal("shortcuts")}
-									>
-										Keyboard shortcuts <kbd>?</kbd>
-									</button>
-								</div>
-								<p className="destructive-note">
-									<Icon name="info" size={13} />{" "}
-									{canRemove
-										? "Unlike removes without archiving. Undo is available after confirmation."
-										: "Archive and Unlike are unavailable in this read-only session. Reconnect when library write access is enabled."}
-								</p>
-							</section>
-							<div className="workspace-aside">
+						<div
+							className={`workspace-grid ${showDetails ? "" : "desk-details-hidden"}`}
+						>
+							<ReviewPlayer
+								state={state}
+								canRemove={canRemove}
+								showDetails={showDetails}
+								onAction={decide}
+								onUndo={(id) => void store.undo(id)}
+								onDetails={() => setShowDetails((v) => !v)}
+								onListen={() => setShowPlayback(true)}
+								onShortcuts={() => setModal("shortcuts")}
+							/>
+							<div className="workspace-aside" hidden={!showDetails}>
 								<ModelPanel
 									prediction={current.prediction}
 									labeled={labeled}
@@ -605,6 +541,11 @@ export default function App({
 								</section>
 							</div>
 						</div>
+					</div>
+				)}
+				{route === "review" && !current && (
+					<div className="desk-completion-undo">
+						<ReviewUndo state={state} onUndo={(id) => void store.undo(id)} />
 					</div>
 				)}
 			</main>
@@ -694,37 +635,28 @@ export default function App({
 					)}
 				</div>
 			)}
-			{route !== "calibrate" &&
-				state.notice &&
-				state.noticeRevision !== toastDismissed &&
-				!state.error && (
-					<output className="undo-toast">
-						<span className="toast-check">
-							<Icon name="check" size={16} />
-						</span>
-						<span>{state.notice}</span>
-						{state.noticeUndoId && (
-							<button
-								type="button"
-								className="text-button"
-								disabled={state.busy || state.retraining || state.refreshing}
-								onClick={() => void store.undo(state.noticeUndoId!)}
-							>
-								<Icon name="undo" size={15} /> Undo
-							</button>
-						)}
+			{route !== "calibrate" && (
+				<output className="sr-only" aria-live="polite">
+					{state.notice}
+				</output>
+			)}
+			{playback ? (
+				<footer
+					className="player-bar desk-playback"
+					ref={footerRef}
+					hidden={!showPlayback}
+				>
+					<div className="desk-playback-label">
+						<span>Playback</span>
 						<button
 							type="button"
 							className="icon-button"
-							aria-label="Dismiss notification"
-							onClick={() => setToastDismissed(state.noticeRevision)}
+							aria-label="Hide playback controls"
+							onClick={() => setShowPlayback(false)}
 						>
-							<Icon name="close" size={15} />
+							<Icon name="close" size={16} />
 						</button>
-					</output>
-				)}
-			{playback ? (
-				<footer className="player-bar" ref={footerRef}>
+					</div>
 					{playbackStopped ? (
 						<output aria-live="polite">
 							Playback stopped for sign-out. Retry sign out or reconnect Spotify
@@ -747,7 +679,22 @@ export default function App({
 				</footer>
 			) : (
 				route !== "calibrate" && (
-					<footer className="player-bar" ref={footerRef}>
+					<footer
+						className="player-bar desk-playback"
+						ref={footerRef}
+						hidden={!showPlayback}
+					>
+						<div className="desk-playback-label">
+							<span>Playback</span>
+							<button
+								type="button"
+								className="icon-button"
+								aria-label="Hide playback controls"
+								onClick={() => setShowPlayback(false)}
+							>
+								<Icon name="close" size={16} />
+							</button>
+						</div>
 						<div className="player-track">
 							{current && <Cover track={current.track} />}
 							<div>
@@ -762,11 +709,17 @@ export default function App({
 						<button
 							type="button"
 							className="player-status"
+							aria-label={
+								live
+									? "Playback unavailable for this song"
+									: "Preview unavailable: fictional demo track"
+							}
 							onClick={() => setModal("playback")}
 						>
 							<Icon name="headphones" size={18} />
 							<span>
-								Preview unavailable{" "}
+								<span className="desk-preview-long">Preview unavailable</span>
+								<span className="desk-preview-short">No preview</span>{" "}
 								<span>
 									•{" "}
 									{live ? "Open this song in Spotify" : "Fictional demo track"}

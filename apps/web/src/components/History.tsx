@@ -106,7 +106,7 @@ export function History({
 							</span>
 							<button
 								type="button"
-								className="button ghost small"
+								className="button ghost small desk-undo"
 								disabled={
 									!result.canUndo ||
 									state.busy ||
@@ -152,8 +152,8 @@ export function History({
 				<Icon name="info" size={18} />
 				<p>
 					{state.bootstrap?.session.mode === "spotify"
-						? "These are persisted server decisions. Song details may be unavailable for previously reviewed tracks. Archive saves a private playlist copy before unliking. Undo"
-						: "Demo history lives in this tab and resets on reload. In a connected library, Archive saves a private playlist copy before unliking. Undo"}
+						? "These are persisted server decisions. Song details may be unavailable for previously reviewed tracks. Archive saves a private playlist copy before unliking. Undo "
+						: "Demo history lives in this tab and resets on reload. In a connected library, Archive saves a private playlist copy before unliking. Undo "}
 					restores the like, but Spotify may change its saved order.
 				</p>
 			</div>

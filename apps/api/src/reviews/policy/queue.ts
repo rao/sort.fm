@@ -3,6 +3,7 @@ import {CONTRACT_VERSION,FEATURE_VERSION,FeatureVectorSchema,PolicyConfigSchema,
 import {assembleLibraryCandidates} from '../../ml/features';
 import type {PolicyClient} from '../../ml/client';
 import {SpotifyError} from '../../spotify/errors';
+import {PersistenceError} from '@sortfm/db';
 import {QueueService,type QueueOptions} from '../queue';
 import {abandonSelection,publishAdaptive,releaseIdentity} from './selection';
 
@@ -49,6 +50,15 @@ export class PolicyQueueService {
   private empty(snapshot:ReviewCandidateSnapshot):QueueResult {
     return {contractVersion:CONTRACT_VERSION,mode:'spotify',items:[],remaining:snapshot.remaining,nextCursor:null,fallbackReason:null};
   }
+  private async prepare(input:Parameters<QueueStore['prepareSelection']>[0]) {
+    try {return await this.store.prepareSelection(input);}
+    catch(error) {
+      if(error instanceof PersistenceError&&error.code==='POLICY_SELECTION_BUSY') {
+        throw new SpotifyError('POLICY_SELECTION_BUSY','A review selection is being prepared. Retry shortly.',409,true);
+      }
+      throw error;
+    }
+  }
   async get(userId:string,input:{limit:number;policy:QueuePolicy;mode:'spotify'|'demo'}):Promise<QueueResult> {
     const query=QueueQuerySchema.parse(input);
     if(query.mode!=='spotify')throw new SpotifyError('MODE_NOT_SUPPORTED','Use the explicit demo endpoint for demo data.',400);
@@ -78,7 +88,7 @@ export class PolicyQueueService {
         modelVersion:snapshot.fitReceipt.modelVersion,feedbackRevision:snapshot.fitReceipt.synchronizedFeedbackRevision,config}};
       let intent:SelectionIntent|undefined;
       try {
-        const prepared=await this.store.prepareSelection({userId,requestId:crypto.randomUUID(),draft,
+        const prepared=await this.prepare({userId,requestId:crypto.randomUUID(),draft,
           feedbackRevision:snapshot.feedbackRevision,membershipRevision:snapshot.membershipRevision,leaseMs:this.leaseMs,reservationMs:this.reservationMs});
         if(prepared.outcome==='replay')return this.render(prepared.intent,await this.store.reviewCandidates(userId),query.limit);
         if(prepared.outcome!=='claimed')return this.empty(snapshot);
@@ -87,7 +97,10 @@ export class PolicyQueueService {
         if(published.outcome!=='rejected')return this.render(published.intent,await this.store.reviewCandidates(userId),query.limit);
         // Rejection already schedules release under D's fence. A stale worker
         // must never close another worker's recovered publication.
-      } catch {
+      } catch(error) {
+        // Another request owns the preparation. Do not create a competing C1
+        // fallback or release work for an intent this request never acquired.
+        if(error instanceof SpotifyError&&error.code==='POLICY_SELECTION_BUSY')throw error;
         if(intent)await abandonSelection(this.store,intent);
       }
       snapshot=await this.store.reviewCandidates(userId);
@@ -104,7 +117,7 @@ export class PolicyQueueService {
     await service.get(userId,query);
     if(!items.length)return this.empty(snapshot);
     if(fallback)for(const item of items)item.exposure.policyVersion=fallbackVersion(this.strategy);
-    const prepared=await this.store.prepareSelection({userId,requestId:crypto.randomUUID(),draft:{kind:'c1',items},
+    const prepared=await this.prepare({userId,requestId:crypto.randomUUID(),draft:{kind:'c1',items},
       feedbackRevision:snapshot.feedbackRevision,membershipRevision:snapshot.membershipRevision,leaseMs:this.leaseMs,reservationMs:this.reservationMs});
     if(prepared.outcome==='replay')return this.render(prepared.intent,await this.store.reviewCandidates(userId),query.limit);
     if(prepared.outcome!=='claimed')return this.empty(snapshot);

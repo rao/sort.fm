@@ -186,3 +186,26 @@ test('lost publication response cannot abandon a committed page under an obsolet
   const next=await queue.get(owner,query);
   expect(next.items[0]!.exposure).toEqual(committed.exposure);expect(s.intents).toHaveLength(1);expect(s.requests).toHaveLength(1);
 });
+
+import Fastify from 'fastify';
+import {PersistenceError} from '@sortfm/db';
+import {createReviewQueueModule} from '../module';
+test('a different concurrent prepare returns retryable409 without another select or fallback intent for every strategy',async()=>{
+  for(const strategy of ['c1','epsilon_greedy','linucb'] as const) {
+    const s=setup();let preparations=0;
+    // D throws for a different request ID; in_progress is only a same-ID replay.
+    s.store.prepareSelection=async()=>{preparations++;throw new PersistenceError('POLICY_SELECTION_BUSY');};
+    const queue=new PolicyQueueService(s.store,{now:()=>now,strategy,enabled:true,client:s.client});
+    const app=Fastify();
+    await app.register(createReviewQueueModule({queue,
+      config:{secureCookies:false,webOrigin:'http://127.0.0.1:5173',apiOrigin:'http://127.0.0.1:3000'},
+      auth:{session:async()=>({user:{id:owner}})},
+    }).registerRoutes);
+    try {
+      const response=await app.inject('/api/queue');
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({code:'POLICY_SELECTION_BUSY',message:'A review selection is being prepared. Retry shortly.',retryable:true});
+      expect(preparations).toBe(1);expect(s.requests).toHaveLength(0);expect(s.published).toHaveLength(0);expect(s.released).toHaveLength(0);
+    } finally {await app.close();}
+  }
+});

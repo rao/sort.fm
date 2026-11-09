@@ -2,7 +2,7 @@
 
 **Your music taste evolved. Your Liked Songs didn't.**
 
-Built for UB Hacking 2026, sort.fm helps you rediscover the songs you love and make room for what moves you now. Connect Spotify, work through your library one song at a time, and teach a personal preference model along the way. You make every keep-or-remove decision.
+Built as a quick weekend project to help clean up my massively large Liked Songs playlist, sort.fm helps you keep the songs you love and remove your older music taste. Connect Spotify, work through your library one swipe at a time, and teach a personal preference model along the way. You make every keep or remove decision.
 
 [Try the demo](https://sort.fm/?mode=demo#/library) · [Visit sort.fm](https://sort.fm) · [Run locally](#run-locally) · [Explore the code](#find-your-way-around)
 
